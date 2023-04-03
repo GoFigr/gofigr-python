@@ -1,3 +1,6 @@
+.. figure:: docs/source/images/logo_wide.png
+  :alt: GoFigr.io logo
+
 GoFigr - Python Client
 ===========================
 GoFigr (https://www.gofigr.io) is a service which provides sophisticated version control for figures.
@@ -176,13 +179,13 @@ a scatter plot:
 
 You will get a barcoded image with a QR code and a unique revision ID:
 
-.. image:: images/scatter_example.png
+.. image:: docs/source/images/scatter_example.png
   :alt: Example published figure
 
 You can now scan the barcode or manually navigate to the figure in the Web App
 at https://app.gofigr.io .
 
-.. image:: images/webapp.png
+.. image:: docs/source/images/webapp.png
   :alt: Figure displayed in the Web App
 
 Publishing new revisions
@@ -190,5 +193,5 @@ Publishing new revisions
 
 Feel free to run the above code multiple times. GoFigr will automatically capture the different revisions:
 
-.. image:: images/revisions_example.png
+.. image:: docs/source/images/revisions_example.png
   :alt: Figure revisions in the Web App
