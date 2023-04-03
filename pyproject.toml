@@ -28,6 +28,7 @@ dev = ["pip-tools", "bumpver", "build", "twine", "pylint", "flake8", "sphinx", "
 
 [project.urls]
 Homepage = "https://www.gofigr.io"
+Documentation = "https://gofigr.io/docs/gofigr-python/latest/"
 
 [project.scripts]
 gfconfig = "gofigr.gfconfig:main"
