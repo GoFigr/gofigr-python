@@ -99,7 +99,7 @@ can also use environment variables:
 Jupyter setup
 *************
 GoFigr works with both Jupyter Notebook and Jupyter Lab. To use it, simply
-load the extension and call :func:`gofigr.jupyter.configure`:
+load the extension and call ``gofigr.jupyter.configure``:
 
 .. code:: python
 
