@@ -1,1 +1,0 @@
-GoFigr client library
