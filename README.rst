@@ -1,4 +1,4 @@
-.. figure:: docs/source/images/logo_wide.png
+.. figure:: docs/source/images/logo_wide_light.png
   :alt: GoFigr.io logo
 
 GoFigr - Python Client
