@@ -306,12 +306,12 @@ class Publisher:
         Publishes a revision to the server.
 
         :param fig: figure to publish. If None, we'll use plt.gcf()
-        :param target: Target figure to publish this revision under. Can be a gf.Figure instance, an API ID,
+        :param target: Target figure to publish this revision under. Can be a gf.Figure instance, an API ID, \
         or a FindByName instance.
         :param gf: GoFigure instance
         :param dataframes: dictionary of dataframes to associate & publish with the figure
         :param metadata: metadata (JSON) to attach to this revision
-        :param return_revision: whether to return a FigureRevision object. This is optional, because in normal Jupyter
+        :param return_revision: whether to return a FigureRevision object. This is optional, because in normal Jupyter \
         usage this will cause Jupyter to print the whole object which we don't want.
         :return: FigureRevision instance
 
@@ -375,8 +375,7 @@ class Publisher:
 
         print(f"{APP_URL}/r/{rev.api_id}")
 
-        if return_revision:
-            return rev
+        return rev if return_revision else None
 
 
 def from_config_or_env(env_prefix, config_path):
@@ -387,9 +386,10 @@ def from_config_or_env(env_prefix, config_path):
     3. config file
     4. function defaults
 
-    :param env_prefix: prefix for environment variables. Variables are assumed to be named <prefix> + <name of function
-    argument in all caps>, e.g. if prefix is "MYAPP_" and function argument is called host_name, we'll look for an
-    environment variable named "MYAPP_HOST_NAME".
+    :param env_prefix: prefix for environment variables. Variables are assumed to be named \
+    `<prefix> + <name of function argument in all caps>`, e.g. if prefix is ``MYAPP`` and function argument \
+    is called host_name, we'll look for an \
+    environment variable named ``MYAPP_HOST_NAME``.
     :param config_path: path to the JSON config file. Function arguments will be looked up using their verbatim names.
     :return: decorated function
 
@@ -507,7 +507,7 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
 @require_configured
 def publish(*args, **kwargs):
     """\
-    Publishes a figure. See Publisher.publish(...) for a list of arguments.
+    Publishes a figure. See :func:`gofigr.jupyter.Publisher.publish` for a list of arguments.
 
     :param args:
     :param kwargs:

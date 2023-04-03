@@ -3,6 +3,7 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+
 import abc
 import inspect
 import io
@@ -20,6 +21,7 @@ import pandas as pd
 class Field:
     """\
     Describes a dynamically created object field, i.e. figure name, revision etc.
+
     """
     def __init__(self, name, parent=None, derived=False):
         """\
@@ -27,6 +29,7 @@ class Field:
         :param name: name of the field as it will appear in the parent object, i.e. object.<name>
         :param parent: instance of the object containing the field
         :param derived: whether the field is derived. Derived fields are not included in REST API calls.
+
         """
         self.name = name
         self.parent = parent
@@ -93,8 +96,8 @@ class LinkedEntityCollection:
 
         :param entities: list of entities
         :param read_only: if True, you won't be able to create new entities
-        :param backlink_property: name of the property in each linked entity which will reference the parent object.
-        For example, if this collection stores figure revisions and backlink_property = "figure", you will
+        :param backlink_property: name of the property in each linked entity which will reference the parent object. \
+        For example, if this collection stores figure revisions and backlink_property = "figure", you will \
         be able to refer to the parent figure as revision.figure.
         :param backlink: the parent object that backlink_property will point to
         """
@@ -291,12 +294,13 @@ class ModelMixin(abc.ABC):
         """
 
         :param api_id: API ID
-        :param lazy: if True, parameters won't be fetched from server until needed. Otherwise they will
+        :param lazy: if True, parameters won't be fetched from server until needed. Otherwise they will \
         be fetched right away.
-        :param parse: if True, the fields' to_internal_value will be called on all properties. Otherwise, properties
-        will be stored verbatim. This is to support direct object creation from Python (i.e. parse = False), and
+        :param parse: if True, the fields' to_internal_value will be called on all properties. Otherwise, properties \
+        will be stored verbatim. This is to support direct object creation from Python (i.e. parse = False), and \
         creation from JSON primitives (i.e. parse = True).
         :param kwargs:
+
         """
         if lazy and len(kwargs) > 0:
             raise ValueError("Parameter values for lazy instances will be fetched on first use and "
@@ -405,10 +409,10 @@ class ModelMixin(abc.ABC):
         """\
         Saves this object to server
 
-        :param create: will create the object if it doesn't aleady exist. Otherwise saving a non-existing object
+        :param create: will create the object if it doesn't aleady exist. Otherwise saving a non-existing object \
         will throw an exception.
-        :param patch: if True, will submit a partial update where some required properties may be missing.
-        You will almost never use this: it's only useful if for some reason you can't/don't want to fetch the full
+        :param patch: if True, will submit a partial update where some required properties may be missing. \
+        You will almost never use this: it's only useful if for some reason you can't/don't want to fetch the full \
         object before updating properties. However, the web app relies on this functionality so it's available.
         :param silent: if True, the server will not generate an activity for this update.
         :return: self

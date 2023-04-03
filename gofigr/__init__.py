@@ -327,7 +327,7 @@ class GoFigr:
         Updates user information for a user.
 
         :param user_info: UserInfo instance
-        :param username: optional username. This is for testing only -- you will get an error if attempting
+        :param username: optional username. This is for testing only -- you will get an error if attempting \
         to update information for anybody other than yourself.
         :return: refreshed UserInfo from server
 
