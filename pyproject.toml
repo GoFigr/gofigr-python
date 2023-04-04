@@ -44,6 +44,7 @@ push = false
 [tool.bumpver.file_patterns]
 "pyproject.toml" = [
     'version = "{version}"',
+    'gofigr-python/{version}/'
 ]
 
 "version.txt" = [
