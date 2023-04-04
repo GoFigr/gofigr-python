@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gofigr"
-version = "0.10.4"
+version = "0.10.5"
 description = "GoFigr client library"
 readme = "README.rst"
 authors = [{ name = "Maciej Pacula", email = "maciej@gofigr.io" }]
@@ -34,7 +34,7 @@ Documentation = "https://gofigr.io/docs/gofigr-python/10.0.4/"
 gfconfig = "gofigr.gfconfig:main"
 
 [tool.bumpver]
-current_version = "0.10.4"
+current_version = "0.10.5"
 version_pattern = "MAJOR.MINOR.PATCH"
 commit_message = "Bump version {old_version} -> {new_version}"
 commit = true

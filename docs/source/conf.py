@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath('..'))
 project = 'GoFigr Client Library'
 copyright = '2023, Flagstaff Solutions, LLC'
 author = 'Maciej Pacula'
-release = '0.10.4'
+release = '0.10.5'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
