@@ -28,6 +28,7 @@ attach the output of ``pip freeze``, for example.
 
 Out of the box, GoFigr includes the following annotators:
 
+* :class:`gofigr.jupyter.NotebookNameAnnotator`: annotates revisions with the name & path of the current notebook
 * :class:`gofigr.jupyter.CellCodeAnnotator`: annotates revisions with the code of the Jupyter cell
 * :class:`gofigr.jupyter.PipFreezeAnnotator`: annotates revisions with the output of `pip freeze`
 * :class:`gofigr.jupyter.SystemAnnotator`: annotates revisions with `uname -a`
