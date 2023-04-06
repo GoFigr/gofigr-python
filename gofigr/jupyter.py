@@ -16,6 +16,7 @@ from functools import wraps
 from uuid import UUID
 
 import PIL
+import ipynbname
 import matplotlib.pyplot as plt
 import six
 from IPython.core.display_functions import display
@@ -199,6 +200,17 @@ class Annotator:
         return revision
 
 
+class NotebookNameAnnotator(Annotator):
+    """"Annotates revisions with the name & path of the current notebook"""
+    def annotate(self, revision):
+        if revision.metadata is None:
+            revision.metadata = {}
+
+        revision.metadata['notebook_name'] = ipynbname.name()
+        revision.metadata['notebook_path'] = str(ipynbname.path())
+        return revision
+
+
 class CellCodeAnnotator(Annotator):
     """"Annotates revisions with cell contents"""
     def annotate(self, revision):
@@ -232,7 +244,7 @@ class SystemAnnotator(Annotator):
         return revision
 
 
-DEFAULT_ANNOTATORS = (CellCodeAnnotator(), SystemAnnotator(), PipFreezeAnnotator())
+DEFAULT_ANNOTATORS = (NotebookNameAnnotator(), CellCodeAnnotator(), SystemAnnotator(), PipFreezeAnnotator())
 
 
 def figure_to_bytes(fig, fmt):
@@ -453,7 +465,7 @@ def find_workspace_by_name(gf, search):
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username, password, workspace=None, analysis=None, url=API_URL,
               default_metadata=None, auto_publish=True,
-              watermark=None, annotators=None):
+              watermark=None, annotators=DEFAULT_ANNOTATORS):
     """\
     Configures the Jupyter plugin for use.
 
