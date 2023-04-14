@@ -818,6 +818,8 @@ class gf_Workspace(ModelMixin):
 
 class gf_Analysis(ShareableModelMixin):
     """Represents an analysis"""
+    # pylint: disable=protected-access
+
     fields = ["api_id",
               "name",
               "description",

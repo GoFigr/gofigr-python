@@ -60,7 +60,7 @@ You can annotate revisions with:
 * :class:`gofigr.models.TableData`
 
 
-Specifying default annotators
+Specifying annotators
 ******************************
 
 You can override the default annotators in the call to :func:`gofigr.jupyter.configure`:

@@ -784,6 +784,8 @@ class TestSharing(MultiUserTestCase):
 
             # Unshare
             obj.unshare(other_client.username)
+            time.sleep(2)
+
             self.assertRaises(UnauthorizedError,
                               lambda: self.clone_gf_object(obj, other_client, bare=True).fetch())
             self.assertEqual(len(obj.get_sharing_users()), 0)
@@ -803,6 +805,8 @@ class TestSharing(MultiUserTestCase):
 
             # Turn off link sharing
             obj.set_link_sharing(False)
+            time.sleep(2)
+
             self.assertRaises(UnauthorizedError,
                               lambda: self.clone_gf_object(obj, other_client, bare=True).fetch())
             self.assertEqual(len(obj.get_sharing_users()), 0)
