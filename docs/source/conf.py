@@ -20,7 +20,8 @@ release = '0.10.5'
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.viewcode',
-    'sphinx.ext.napoleon'
+    'sphinx.ext.napoleon',
+    "sphinxcontrib.jquery"
 ]
 
 templates_path = ['_templates']

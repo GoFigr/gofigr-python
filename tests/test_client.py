@@ -814,6 +814,7 @@ class TestSharing(MultiUserTestCase):
 
                 for _ in range(2):  # Sharing/unsharing cycles are indempotent
                     _check_one(other_client, obj)
+                    time.sleep(2)
 
                 # Sharing with a non-existent user
                 self.assertRaises(RuntimeError, lambda: obj.share("no_such_user_exists"))
@@ -914,6 +915,8 @@ class TestWorkspaceMemberManagement(MultiUserTestCase):
 
                 # User should be able to downgrade themselves
                 workspace_ref.change_membership(other_client.username, WorkspaceMembership.VIEWER)
+
+                time.sleep(2)
 
                 self.assertRaises(UnauthorizedError, lambda: workspace_ref.change_membership(other_client.username,
                                                                                              WorkspaceMembership.ADMIN))
