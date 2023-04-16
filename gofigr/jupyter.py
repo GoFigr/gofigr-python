@@ -300,11 +300,20 @@ class Publisher:
     @staticmethod
     def _resolve_target(gf, fig, target):
         if target is None:
-            cell_id = _GF_EXTENSION.cell.cell_id
-            if cell_id is None:
-                cell_id = "Unknown"
+            # Try to get the figure's title
+            suptitle = getattr(fig, "_suptitle", "")
+            title = fig.axes[0].get_title() if len(fig.axes) > 0 else None
+            if suptitle is not None and suptitle.strip() != "":
+                fig_name = suptitle
+            elif title is not None and title.strip() != "":
+                fig_name = title
+            else:
+                cell_id = _GF_EXTENSION.cell.cell_id
+                if cell_id is None:
+                    cell_id = "Unknown"
 
-            fig_name = f"Cell {cell_id}, Figure #{fig.number}"
+                fig_name = f"Cell {cell_id}, Figure #{fig.number}"
+
             return _GF_EXTENSION.analysis.get_figure(fig_name, create=True)
         else:
             return parse_model_instance(gf.Figure,
