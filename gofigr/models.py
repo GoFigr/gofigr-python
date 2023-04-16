@@ -818,6 +818,8 @@ class gf_Workspace(ModelMixin):
 
 class gf_Analysis(ShareableModelMixin):
     """Represents an analysis"""
+    # pylint: disable=protected-access
+
     fields = ["api_id",
               "name",
               "description",
@@ -838,6 +840,16 @@ class gf_Analysis(ShareableModelMixin):
         """
         return self.figures.find_or_create(name=name,
                                            default_obj=self._gf.Figure(name=name, **kwargs) if create else None)
+
+    def get_logs(self):
+        """\
+        Retrieves the activity log.
+
+        :return: list of LogItem objects.
+        """
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/log/'),
+                                 expected_status=HTTPStatus.OK)
+        return [LogItem.from_json(datum) for datum in response.json()]
 
 
 class gf_Figure(ShareableModelMixin):
