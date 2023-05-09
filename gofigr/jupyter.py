@@ -267,7 +267,7 @@ class Publisher:
     """\
     Publishes revisions to the GoFigr server.
     """
-    def __init__(self, gf, watermark=None, annotators=DEFAULT_ANNOTATORS, image_formats=("png",),
+    def __init__(self, gf, watermark=None, annotators=DEFAULT_ANNOTATORS, image_formats=("png", "eps"),
                  default_metadata=None, clear=True):
         """
 
