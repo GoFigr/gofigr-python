@@ -605,6 +605,7 @@ class LogItem(NestedMixin):
         elif self.parent.api_id is None:
             raise ValueError("Parent API ID is None")
 
+        # pylint: disable=protected-access
         obj = self.gf._get(urljoin(self.parent.endpoint + "/" + self.parent.api_id + "/log/", self.api_id + "/")).json()
 
         for name, value in obj.items():
@@ -744,12 +745,17 @@ Recents = namedtuple("Recents", ["analyses", "figures"])
 
 
 class LogsMixin:
+    """\
+    Mixin for entities which support the /log/ endpoint.
+
+    """
     def get_logs(self):
         """\
         Retrieves the activity log.
 
         :return: list of LogItem objects.
         """
+        # pylint: disable=protected-access
         response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/log/'),
                                  expected_status=HTTPStatus.OK)
         return [LogItem.from_json(datum, gf=self._gf, parent=self) for datum in response.json()]
