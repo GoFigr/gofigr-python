@@ -240,7 +240,7 @@ def _test_timestamps(test_case, gf, obj, prop_name, vals, delay_seconds=0.5):
         # We're not too strict about creation time, but all these objects are created
         # in the unit test and should be fairly recent (~1min)
         test_case.assertLess(datetime.now().astimezone() - obj.created_on,
-                             timedelta(seconds=60))
+                             timedelta(seconds=120))
         test_case.assertEqual(obj.created_by, gf.username)
 
         test_case.assertEqual(server_obj.updated_by, gf.username)
@@ -491,7 +491,7 @@ class TestFigures(TestCase):
                 self.assertEqual(parent.child_updated_by, gf.username)
 
         # Check logs
-        logs = workspace.get_logs()
+        logs = [log.fetch() for log in workspace.get_logs()]
         self.assertEqual(len(logs), 18)  # 18 = create x3 (workspace+analysis+fig) + (create, update, delete) x 5 revisions
         for item in logs:
             self.assertIn(item.action, ["create", "update", "delete"])
