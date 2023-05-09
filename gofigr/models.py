@@ -563,7 +563,10 @@ class LogItem(NestedMixin):
                  thumbnail=None,
                  target_name=None,
                  analysis_id=None,
-                 analysis_name=None):
+                 analysis_name=None,
+                 api_id=None,
+                 gf=None,
+                 parent=None):
         """\
 
         :param username: user who performed the activity
@@ -578,6 +581,9 @@ class LogItem(NestedMixin):
         :param target_name: not used
         :param analysis_id: ID of the parent analysis
         :param analysis_name: name of the parent analysis
+        :param api_id: API ID for this activity
+        :param gf: GoFigr client instance
+        :param parent: parent object, e.g. Workspace or Analysis
         """
         self.username, self.timestamp, self.action = username, timestamp, action
         self.target_id, self.target_type = target_id, target_type
@@ -586,9 +592,29 @@ class LogItem(NestedMixin):
         self.target_name = target_name
         self.analysis_id = analysis_id
         self.analysis_name = analysis_name
+        self.api_id = api_id
+        self.gf = gf
+        self.parent = parent
+
+    def fetch(self):
+        """Fetches information about this log item from the server. API ID and parent have to be set."""
+        if self.api_id is None:
+            raise ValueError("API ID is None")
+        elif self.parent is None:
+            raise ValueError("Parent is None")
+        elif self.parent.api_id is None:
+            raise ValueError("Parent API ID is None")
+
+        # pylint: disable=protected-access
+        obj = self.gf._get(urljoin(self.parent.endpoint + "/" + self.parent.api_id + "/log/", self.api_id + "/")).json()
+
+        for name, value in obj.items():
+            setattr(self, name, value)
+
+        return self
 
     @classmethod
-    def from_json(cls, data):
+    def from_json(cls, data, gf=None, parent=None):
         timestamp = data.get('timestamp')
         if timestamp:
             timestamp = dateutil.parser.parse(timestamp)
@@ -603,7 +629,10 @@ class LogItem(NestedMixin):
                        deleted=data.get('deleted'),
                        thumbnail=data.get('thumbnail'),
                        analysis_id=data.get('analysis_id'),
-                       analysis_name=data.get('analysis_name'))
+                       analysis_name=data.get('analysis_name'),
+                       api_id=data.get('api_id'),
+                       gf=gf,
+                       parent=parent)
 
     def to_json(self):
         return {'username': self.username,
@@ -616,7 +645,8 @@ class LogItem(NestedMixin):
                 'thumbnail': self.thumbnail,
                 'deleted': self.deleted,
                 'analysis_id': self.analysis_id,
-                'analysis_name': self.analysis_name}
+                'analysis_name': self.analysis_name,
+                'api_id': self.api_id}
 
     def __repr__(self):
         return str(self.to_json())
@@ -714,7 +744,24 @@ class WorkspaceMembership(abc.ABC):
 Recents = namedtuple("Recents", ["analyses", "figures"])
 
 
-class gf_Workspace(ModelMixin):
+class LogsMixin:
+    """\
+    Mixin for entities which support the /log/ endpoint.
+
+    """
+    def get_logs(self):
+        """\
+        Retrieves the activity log.
+
+        :return: list of LogItem objects.
+        """
+        # pylint: disable=protected-access
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/log/'),
+                                 expected_status=HTTPStatus.OK)
+        return [LogItem.from_json(datum, gf=self._gf, parent=self) for datum in response.json()]
+
+
+class gf_Workspace(ModelMixin, LogsMixin):
     """Represents a workspace"""
     # pylint: disable=protected-access
 
@@ -791,16 +838,6 @@ class gf_Workspace(ModelMixin):
 
         return WorkspaceMember.from_json(response.json())
 
-    def get_logs(self):
-        """\
-        Retrieves the activity log.
-
-        :return: list of LogItem objects.
-        """
-        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/log/'),
-                                 expected_status=HTTPStatus.OK)
-        return [LogItem.from_json(datum) for datum in response.json()]
-
     def get_recents(self, limit=100):
         """\
         Gets the most recently created or modified analyses & figures.
@@ -816,7 +853,7 @@ class gf_Workspace(ModelMixin):
         return Recents(analyses, figures)
 
 
-class gf_Analysis(ShareableModelMixin):
+class gf_Analysis(ShareableModelMixin, LogsMixin):
     """Represents an analysis"""
     # pylint: disable=protected-access
 
@@ -840,16 +877,6 @@ class gf_Analysis(ShareableModelMixin):
         """
         return self.figures.find_or_create(name=name,
                                            default_obj=self._gf.Figure(name=name, **kwargs) if create else None)
-
-    def get_logs(self):
-        """\
-        Retrieves the activity log.
-
-        :return: list of LogItem objects.
-        """
-        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/log/'),
-                                 expected_status=HTTPStatus.OK)
-        return [LogItem.from_json(datum) for datum in response.json()]
 
 
 class gf_Figure(ShareableModelMixin):
