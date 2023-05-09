@@ -608,6 +608,9 @@ class LogItem(NestedMixin):
         # pylint: disable=protected-access
         obj = self.gf._get(urljoin(self.parent.endpoint + "/" + self.parent.api_id + "/log/", self.api_id + "/")).json()
 
+        if 'timestamp' in obj.keys():
+            obj['timestamp'] = dateutil.parser.parse(obj['timestamp'])
+
         for name, value in obj.items():
             setattr(self, name, value)
 
