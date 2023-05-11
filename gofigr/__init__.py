@@ -149,6 +149,11 @@ class GoFigr:
 
         self._bind_models()
 
+    @property
+    def app_url(self):
+        """Returns the URL to the GoFigr app"""
+        return self.service_url.replace("api", "app")
+
     def _bind_models(self):
         """\
         Create instance-bound model classes, e.g. Workspace, Figure, etc. Each will internally

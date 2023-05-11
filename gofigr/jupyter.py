@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import six
 from IPython.core.display_functions import display
 
-from gofigr import GoFigr, CodeLanguage, API_URL, APP_URL
+from gofigr import GoFigr, CodeLanguage, API_URL
 from gofigr.watermarks import DefaultWatermark
 
 
@@ -267,7 +267,7 @@ class Publisher:
     """\
     Publishes revisions to the GoFigr server.
     """
-    def __init__(self, gf, watermark=None, annotators=DEFAULT_ANNOTATORS, image_formats=("png", "eps"),
+    def __init__(self, gf, watermark=None, annotators=DEFAULT_ANNOTATORS, image_formats=("png", "eps", "svg"),
                  default_metadata=None, clear=True):
         """
 
@@ -356,22 +356,25 @@ class Publisher:
 
         image_data = []
         for fmt in self.image_formats:
-            img = PIL.Image.open(io.BytesIO(figure_to_bytes(fig, fmt)))
-            img.load()
-
-            watermarked_img = self.watermark.apply(img, rev)
+            if fmt.lower() == "png":
+                img = PIL.Image.open(io.BytesIO(figure_to_bytes(fig, fmt)))
+                img.load()
+                watermarked_img = self.watermark.apply(img, rev)
+            else:
+                watermarked_img = None
 
             # First, save the image without the watermark
             image_data.append(gf.ImageData(name="figure", format=fmt, data=figure_to_bytes(fig, fmt),
                                            is_watermarked=False))
 
-            # Now, save the watermarked version
-            bio = io.BytesIO()
-            watermarked_img.save(bio, format=fmt)
-            image_data.append(gf.ImageData(name="figure", format=fmt, data=bio.getvalue(),
-                                           is_watermarked=True))
+            # Now, save the watermarked version (if available)
+            if watermarked_img is not None:
+                bio = io.BytesIO()
+                watermarked_img.save(bio, format=fmt)
+                image_data.append(gf.ImageData(name="figure", format=fmt, data=bio.getvalue(),
+                                               is_watermarked=True))
 
-            if fmt == 'png':
+            if fmt.lower() == 'png' and watermarked_img is not None:
                 display(watermarked_img)
 
         rev.image_data = image_data
@@ -394,7 +397,7 @@ class Publisher:
         if self.clear:
             plt.close(fig)
 
-        print(f"{APP_URL}/r/{rev.api_id}")
+        print(f"{gf.app_url}/r/{rev.api_id}")
 
         return rev if return_revision else None
 
