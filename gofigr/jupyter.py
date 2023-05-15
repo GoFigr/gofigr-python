@@ -19,7 +19,11 @@ import PIL
 import ipynbname
 import matplotlib.pyplot as plt
 import six
-from IPython.core.display_functions import display
+
+try:
+    from IPython.core.display_functions import display
+except ModuleNotFoundError:
+    from IPython.core.display import display
 
 from gofigr import GoFigr, CodeLanguage, API_URL
 from gofigr.watermarks import DefaultWatermark
