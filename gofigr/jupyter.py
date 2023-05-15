@@ -210,8 +210,14 @@ class NotebookNameAnnotator(Annotator):
         if revision.metadata is None:
             revision.metadata = {}
 
-        revision.metadata['notebook_name'] = ipynbname.name()
-        revision.metadata['notebook_path'] = str(ipynbname.path())
+        try:
+            revision.metadata['notebook_name'] = ipynbname.name()
+            revision.metadata['notebook_path'] = str(ipynbname.path())
+
+        except Exception:
+            revision.metadata['notebook_name'] = "N/A"
+            revision.metadata['notebook_path'] = "N/A"
+
         return revision
 
 
