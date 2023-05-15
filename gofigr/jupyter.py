@@ -312,7 +312,11 @@ class Publisher:
             elif title is not None and title.strip() != "":
                 fig_name = title
             else:
-                cell_id = _GF_EXTENSION.cell.cell_id
+                try:
+                    cell_id = _GF_EXTENSION.cell.cell_id
+                except AttributeError:
+                    cell_id = None
+
                 if cell_id is None:
                     cell_id = "Unknown"
 
