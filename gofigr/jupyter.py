@@ -214,7 +214,7 @@ class NotebookNameAnnotator(Annotator):
         try:
             revision.metadata['notebook_name'] = ipynbname.name()
             revision.metadata['notebook_path'] = str(ipynbname.path())
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             revision.metadata['notebook_name'] = "N/A"
             revision.metadata['notebook_path'] = "N/A"
 
@@ -275,7 +275,8 @@ class SystemAnnotator(Annotator):
         return revision
 
 
-DEFAULT_ANNOTATORS = (NotebookNameAnnotator(), CellIdAnnotator(), CellCodeAnnotator(), SystemAnnotator(), PipFreezeAnnotator())
+DEFAULT_ANNOTATORS = (NotebookNameAnnotator(), CellIdAnnotator(), CellCodeAnnotator(), SystemAnnotator(),
+                      PipFreezeAnnotator())
 
 
 def figure_to_bytes(fig, fmt):
@@ -372,12 +373,13 @@ class Publisher:
         :return: FigureRevision instance
 
         """
-        # pylint: disable=too-many-locals
+        # pylint: disable=too-many-locals, too-many-branches
 
         if _GF_EXTENSION.cell is None:
             print("Information about current cell is unavailable and certain features like source code capture will " +
-            "not work. Did you call configure() and try to publish a " +
-            "figure in the same cell? If so, we recommend keeping GoFigr configuration and figures in separate cells",
+                  "not work. Did you call configure() and try to publish a " +
+                  "figure in the same cell? If so, we recommend keeping GoFigr configuration and figures in " +
+                  "separate cells",
                   file=sys.stderr)
 
         if gf is None:

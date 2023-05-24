@@ -21,11 +21,11 @@ dependencies = [
     "numpy", "pandas", "pyqrcode", "pillow", "matplotlib", "dateutils",
     "python-dateutil", "ipython", "requests", "pypng", "ipynbname"
 ]
-requires-python = ">=3.6"
+requires-python = ">=3.7"
 
 [project.optional-dependencies]
 dev = ["pip-tools", "bumpver", "build", "twine", "pylint", "flake8", "sphinx", "sphinx_rtd_theme", "sphinxcontrib-jquery",
-       "seaborn", "matplotlib", "tqdm", "selenium", "webdriver-manager"]
+       "seaborn", "matplotlib", "tqdm", "selenium", "webdriver-manager", "openpyxl"]
 
 [project.urls]
 Homepage = "https://www.gofigr.io"

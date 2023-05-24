@@ -1,5 +1,18 @@
 [
   {
+    "name": "python3.7-lab",
+    "python":  "python3.7",
+    "service": "lab",
+    "dependencies": "jupyterlab seaborn"
+  },
+  {
+    "name": "python3.7-notebook",
+    "python": "python3.7",
+    "service": "notebook",
+    "dependencies": "notebook seaborn"
+  },
+
+  {
     "name": "python3.8-lab",
     "python":  "python3.8",
     "service": "lab",
