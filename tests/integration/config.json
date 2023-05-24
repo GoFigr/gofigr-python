@@ -52,6 +52,62 @@
   },
 
   {
+    "name": "python3.10-lab-4.0.0",
+    "python": "python3.10",
+    "service": "lab",
+    "dependencies": "jupyterlab==4.0.0 seaborn"
+  },
+
+  {
+    "name": "python3.10-notebook-6.5.4",
+    "python": "python3.10",
+    "service": "notebook",
+    "dependencies": "notebook==6.5.4 seaborn"
+  },
+
+  {
+    "name": "python3.10-notebook-5.7.16",
+    "python": "python3.10",
+    "service": "notebook",
+    "dependencies": "notebook==5.7.16 seaborn"
+  },
+
+  {
+    "name": "python3.10-ipython-8.13.2",
+    "python": "python3.10",
+    "service": "notebook",
+    "dependencies": "notebook==6.5.4 ipython==8.13.2 seaborn"
+  },
+
+  {
+    "name": "python3.10-ipython-7.34.0",
+    "python": "python3.10",
+    "service": "notebook",
+    "dependencies": "notebook==6.5.4 ipython==7.34.0 seaborn"
+  },
+
+  {
+    "name": "python3.10-matplotlib-3.7.1",
+    "python": "python3.10",
+    "service": "notebook",
+    "dependencies": "notebook seaborn matplotlib==3.7.1"
+  },
+
+  {
+    "name": "python3.10-notebook7",
+    "python": "python3.10",
+    "service": "notebook",
+    "dependencies": "notebook==7.0.0b2 seaborn"
+  },
+
+  {
+    "name": "python3.7-matplotlib-3.0.1",
+    "python": "python3.7",
+    "service": "notebook",
+    "dependencies": "notebook seaborn matplotlib==3.0.1"
+  },
+
+  {
     "name": "python3.11-lab",
     "python":  "python3.11",
     "service": "lab",

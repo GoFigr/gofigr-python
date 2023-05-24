@@ -11,6 +11,7 @@ import time
 from argparse import ArgumentParser
 from datetime import datetime
 
+import selenium
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
@@ -18,16 +19,33 @@ from selenium.webdriver.common.by import By
 
 
 def run_notebook(driver, jupyter_url):
-    driver.get(jupyter_url.replace("?token=", "notebooks/integration_tests.ipynb?token="))
+    # http://localhost:8963/notebooks/integration_tests.ipynb?factory=Notebook
+    if '/tree' in jupyter_url:
+        # Running Notebook 7
+        driver.get(jupyter_url.replace("/tree?token=", "/notebooks/integration_tests.ipynb?factory=Notebook&token="))
+    else:
+        driver.get(jupyter_url.replace("?token=", "notebooks/integration_tests.ipynb?token="))
 
-    # Open the kernel menu
-    driver.find_element(by=By.CSS_SELECTOR, value="#kernellink").click()
-
-    # Click "Restart kernel and run all cells"
-    driver.find_element(by=By.CSS_SELECTOR, value="#restart_run_all").click()
+    try:
+        # For Jupyter Notebook 6.x
+        driver.find_element(by=By.CSS_SELECTOR, value="#kernellink").click()
+        driver.find_element(by=By.CSS_SELECTOR, value="#restart_run_all").click()
+    except selenium.common.exceptions.NoSuchElementException:
+        # For Jupyter Notebook 5.x
+        try:
+            driver.find_element(by=By.CSS_SELECTOR, value='button[data-jupyter-action='
+                                                          '"jupyter-notebook:'
+                                                          'confirm-restart-kernel-and-run-all-cells"]').click()
+        except selenium.common.exceptions.NoSuchElementException:
+            # For Jupyter Notebook 7
+            driver.find_element(by=By.CSS_SELECTOR, value="button[data-command='runmenu:restart-and-run-all']").click()
 
     # Confirm
-    driver.find_element(by=By.CSS_SELECTOR, value=".modal-dialog button.btn.btn-danger").click()
+    try:
+        driver.find_element(by=By.CSS_SELECTOR, value=".modal-dialog button.btn.btn-danger").click()
+    except selenium.common.exceptions.NoSuchElementException:
+        # For Jupyter Notebook 7
+        driver.find_element(by=By.CSS_SELECTOR, value=".jp-Dialog-button.jp-mod-warn").click()
 
 
 def run_lab(driver, jupyter_url):

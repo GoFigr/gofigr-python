@@ -37,8 +37,11 @@ def parse_results(path):
     df = pd.DataFrame(tests)
     df['platform'] = platform
 
-    with open(os.path.join(path, 'pip_freeze.txt'), 'r') as f:
-        packages = [x.strip() for x in f.readlines()]
+    if os.path.exists(os.path.join(path, 'pip_freeze.txt')):
+        with open(os.path.join(path, 'pip_freeze.txt'), 'r') as f:
+            packages = [x.strip() for x in f.readlines()]
+    else:
+        packages = []
 
     df['notebook'] = find_pkg("notebook", packages)
     df['jupyterlab'] = find_pkg("jupyterlab", packages)
@@ -52,10 +55,14 @@ def parse_results(path):
     with open(os.path.join(path, "config.json"), 'r') as f:
         config = json.load(f)
 
-    with open(os.path.join(path, "python_version.txt"), 'r') as f:
-        txt = f.read()
-        df['python'] = re.match(r'Python\s+([\d\.]+)', txt).group(1)
-        df['python_minor_version'] = int(re.match(r'Python\s+3\.(\d+)\..*', txt).group(1))
+    if os.path.exists(os.path.join(path, "python_version.txt")):
+        with open(os.path.join(path, "python_version.txt"), 'r') as f:
+            txt = f.read()
+            df['python'] = re.match(r'Python\s+([\d\.]+)', txt).group(1)
+            df['python_minor_version'] = int(re.match(r'Python\s+3\.(\d+)\..*', txt).group(1))
+    else:
+        df['python'] = 'N/A'
+        df['python_minor_version'] = 'N/A'
 
     df['service'] = config['service']
     df['name'] = config['name']
@@ -115,7 +122,7 @@ def main():
 
     df = summarize_all(args.directory)
     print(df)
-    df.to_excel(args.output)
+    df.to_excel(args.output, index=False)
     print(f"Saved to {args.output}")
 
 
