@@ -50,14 +50,14 @@ class DefaultWatermark:
 
     """
     def __init__(self,
-                 show_qr_code=True,
+                 show_qr_code=False,
                  margin_px=10,
                  qr_background=(0x00, 0x00, 0x00, 0x00),
                  qr_foreground=(0x00, 0x00, 0x00, 0x99),
                  qr_scale=2, font=None):
         """
 
-        :param show_qr_code: whether to show the QR code. Default is True
+        :param show_qr_code: whether to show the QR code. Default is False
         :param margin_px: margin for the QR code, in pixels
         :param qr_background: RGBA tuple for QR background color
         :param qr_foreground: RGBA tuple for QR foreground color
@@ -80,11 +80,7 @@ class DefaultWatermark:
         :return: PIL.Image containing the watermarked image
 
         """
-        identifier = f'GoFigr: {revision.api_id}'
-
-        qr_img = _qr_to_image(f'{APP_URL}/r/{revision.api_id}', scale=self.qr_scale,
-                              module_color=self.qr_foreground,
-                              background=self.qr_background)
+        identifier = f'GoFigr: {revision.api_id}' if self.show_qr_code else f'{APP_URL}/r/{revision.api_id}'
 
         left, top, right, bottom = self.font.getbbox(identifier)
         text_height = bottom - top
@@ -99,6 +95,10 @@ class DefaultWatermark:
         res_img.paste(image, (0, 0))
 
         if self.show_qr_code:
+            qr_img = _qr_to_image(f'{APP_URL}/r/{revision.api_id}', scale=self.qr_scale,
+                                  module_color=self.qr_foreground,
+                                  background=self.qr_background)
+
             res_img.paste(qr_img, (res_img.width - qr_img.width, res_img.height - qr_img.height))
 
         return res_img

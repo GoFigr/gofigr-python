@@ -11,6 +11,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 from collections import namedtuple
 from functools import wraps
 from uuid import UUID
@@ -213,7 +214,6 @@ class NotebookNameAnnotator(Annotator):
         try:
             revision.metadata['notebook_name'] = ipynbname.name()
             revision.metadata['notebook_path'] = str(ipynbname.path())
-
         except Exception:
             revision.metadata['notebook_name'] = "N/A"
             revision.metadata['notebook_path'] = "N/A"
@@ -221,12 +221,33 @@ class NotebookNameAnnotator(Annotator):
         return revision
 
 
+class CellIdAnnotator(Annotator):
+    """Annotates revisions with the ID of the Jupyter cell"""
+    def annotate(self, revision):
+        if revision.metadata is None:
+            revision.metadata = {}
+
+        try:
+            cell_id = _GF_EXTENSION.cell.cell_id
+        except AttributeError:
+            cell_id = None
+
+        revision.metadata['cell_id'] = cell_id
+
+        return revision
+
+
 class CellCodeAnnotator(Annotator):
     """"Annotates revisions with cell contents"""
     def annotate(self, revision):
+        if _GF_EXTENSION.cell is not None:
+            code = _GF_EXTENSION.cell.raw_cell
+        else:
+            code = "N/A"
+
         revision.data.append(_GF_EXTENSION.gf.CodeData(name="Jupyter Cell",
                                                        language=CodeLanguage.PYTHON,
-                                                       contents=_GF_EXTENSION.cell.raw_cell))
+                                                       contents=code))
         return revision
 
 
@@ -254,7 +275,7 @@ class SystemAnnotator(Annotator):
         return revision
 
 
-DEFAULT_ANNOTATORS = (NotebookNameAnnotator(), CellCodeAnnotator(), SystemAnnotator(), PipFreezeAnnotator())
+DEFAULT_ANNOTATORS = (NotebookNameAnnotator(), CellIdAnnotator(), CellCodeAnnotator(), SystemAnnotator(), PipFreezeAnnotator())
 
 
 def figure_to_bytes(fig, fmt):
@@ -352,6 +373,12 @@ class Publisher:
 
         """
         # pylint: disable=too-many-locals
+
+        if _GF_EXTENSION.cell is None:
+            print("Information about current cell is unavailable and certain features like source code capture will " +
+            "not work. Did you call configure() and try to publish a " +
+            "figure in the same cell? If so, we recommend keeping GoFigr configuration and figures in separate cells",
+                  file=sys.stderr)
 
         if gf is None:
             gf = _GF_EXTENSION.gf
