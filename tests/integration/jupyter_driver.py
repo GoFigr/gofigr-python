@@ -91,7 +91,7 @@ def main():
 
             print(f"URL: {jupyter_url}")
             driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
-            driver.implicitly_wait(10.0)
+            driver.implicitly_wait(30.0)
 
             if args.service == "notebook":
                 run_notebook(driver, jupyter_url)

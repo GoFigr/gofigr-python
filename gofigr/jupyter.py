@@ -227,8 +227,6 @@ class CellIdAnnotator(Annotator):
         if revision.metadata is None:
             revision.metadata = {}
 
-        print("Cell: " + str(_GF_EXTENSION.cell))
-
         try:
             cell_id = _GF_EXTENSION.cell.cell_id
         except AttributeError:

@@ -92,13 +92,42 @@ def summarize_results(df):
             if len(failing) == 0:
                 collapsed_results[col] = "✓"
             else:
-                collapsed_results[col] = "✗: " + ", ".join(failing['test_name']) + "\n" + "✓: " + ", ".join(
-                    passing['test_name'])
+                collapsed_results[col] = f"{len(passing)}/{len(df)} passed\n✗: " + \
+                                         ", ".join(failing['test_name']) + \
+                                         "\n" + "✓: " + ", ".join(passing['test_name'])
 
         elif col != 'test_name':
             collapsed_results[col] = one(df[col])
 
     return collapsed_results
+
+
+TEST_COLUMNS = ['number_of_revisions',
+                'notebook_name',
+                'notebook_path',
+                'image_png',
+                'image_png_watermark',
+                'image_eps',
+                'image_svg',
+                'text',
+                'cell_code',
+                'cell_id']
+
+COLUMN_ORDER = ['platform',
+                'name',
+                'service',
+                'error',
+                'python',
+                'python_minor_version',
+
+                'notebook',
+                'jupyterlab',
+                'jupyter_server',
+                'jupyter_core',
+                'jupyter_client',
+                'ipython',
+                'ipykernel',
+                'matplotlib'] + TEST_COLUMNS
 
 
 def summarize_all(path):
@@ -110,7 +139,9 @@ def summarize_all(path):
             summary = summarize_results(parse_results(full))
             summaries.append(summary)
 
-    return pd.DataFrame(summaries).sort_values(by=['python_minor_version', 'service'])
+    df = pd.DataFrame(summaries).sort_values(by=['python_minor_version', 'service'])[COLUMN_ORDER]
+    df.loc[:, TEST_COLUMNS] = df[TEST_COLUMNS].fillna(value='E')
+    return df
 
 
 def main():
