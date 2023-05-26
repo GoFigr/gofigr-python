@@ -12,13 +12,14 @@ from argparse import ArgumentParser
 
 from tqdm import tqdm
 
-from gofigr import API_URL, GoFigr
+from gofigr import GoFigr
 from gofigr.jupyter import from_config_or_env
 
 
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
-def get_gf(username, password, workspace=None, analysis=None, url=API_URL):
-    return GoFigr(username=username, password=password, url=url)
+def get_gf(username, password):
+    return GoFigr(username=username, password=password, url="https://api-dev.gofigr.io")
+
 
 def clean_up():
     gf = get_gf()

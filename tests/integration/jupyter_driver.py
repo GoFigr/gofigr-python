@@ -74,6 +74,7 @@ def main():
                                 stdout=writer,
                                 stderr=writer)
 
+        driver = None
         try:
             jupyter_url = None
             while proc.poll() is None and jupyter_url is None:
@@ -116,6 +117,9 @@ def main():
 
         finally:
             proc.terminate()
+
+            if driver is not None:
+                driver.close()
 
 
 if __name__ == "__main__":
