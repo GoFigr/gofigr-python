@@ -18,8 +18,29 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 
 
+def find_element_with_alternatives(driver, by, possible_values):
+    """Calls driver.find_element using alternative names until the element is found, or raises an exception"""
+    for val in possible_values:
+        try:
+            return driver.find_element(by=by, value=val)
+        except selenium.common.exceptions.NoSuchElementException:
+            continue  # try next possible value
+
+    raise RuntimeError(f"No such element.Tried: " + ", ".join(possible_values))
+
+
+def retry(runnable, max_retries):
+    for attempt in range(max_retries):
+        print(f"Attempt {attempt}...")
+        try:
+            return runnable()
+        except Exception as e:
+            print(e)
+            continue
+
+    raise RuntimeError(f"Execution failed despite {max_retries} retries")
+
 def run_notebook(driver, jupyter_url):
-    # http://localhost:8963/notebooks/integration_tests.ipynb?factory=Notebook
     if '/tree' in jupyter_url:
         # Running Notebook 7
         driver.get(jupyter_url.replace("/tree?token=", "/notebooks/integration_tests.ipynb?factory=Notebook&token="))
@@ -32,20 +53,15 @@ def run_notebook(driver, jupyter_url):
         driver.find_element(by=By.CSS_SELECTOR, value="#restart_run_all").click()
     except selenium.common.exceptions.NoSuchElementException:
         # For Jupyter Notebook 5.x
-        try:
-            driver.find_element(by=By.CSS_SELECTOR, value='button[data-jupyter-action='
-                                                          '"jupyter-notebook:'
-                                                          'confirm-restart-kernel-and-run-all-cells"]').click()
-        except selenium.common.exceptions.NoSuchElementException:
-            # For Jupyter Notebook 7
-            driver.find_element(by=By.CSS_SELECTOR, value="button[data-command='runmenu:restart-and-run-all']").click()
-
+        find_element_with_alternatives(driver, by=By.CSS_SELECTOR,
+                                       possible_values=[
+                                           'button[data-jupyter-action="jupyter-notebook:confirm-restart-kernel-and-run-all-cells"]',
+                                           "button[data-command='runmenu:restart-and-run-all']"
+                                       ]).click()
     # Confirm
-    try:
-        driver.find_element(by=By.CSS_SELECTOR, value=".modal-dialog button.btn.btn-danger").click()
-    except selenium.common.exceptions.NoSuchElementException:
-        # For Jupyter Notebook 7
-        driver.find_element(by=By.CSS_SELECTOR, value=".jp-Dialog-button.jp-mod-warn").click()
+    find_element_with_alternatives(driver, by=By.CSS_SELECTOR,
+                                   possible_values=[".modal-dialog button.btn.btn-danger",
+                                                    ".jp-Dialog-button.jp-mod-warn"]).click()
 
 
 def run_lab(driver, jupyter_url):
@@ -65,6 +81,9 @@ def main():
     parser.add_argument("notebook_path", help="Path to ipynb notebook")
     parser.add_argument("--timeout", type=int, default=300,
                         help="Timeout in seconds (max 300s) for the notebook to finish execution")
+    parser.add_argument("--retries", type=int, default=5,
+                        help="Maximum number of ties to retry execution. The tests are flaky due to Selenium not "
+                             "being able to find UI elements or them not loading in time.")
     args = parser.parse_args()
 
     working_dir = os.path.dirname(args.notebook_path)
@@ -95,9 +114,9 @@ def main():
             driver.implicitly_wait(30.0)
 
             if args.service == "notebook":
-                run_notebook(driver, jupyter_url)
+                retry(lambda: run_notebook(driver, jupyter_url), args.retries)
             elif args.service == "lab":
-                run_lab(driver, jupyter_url)
+                retry(lambda: run_lab(driver, jupyter_url), args.retries)
             else:
                 raise ValueError(f"Unsupported service: {args.service}")
 
