@@ -111,6 +111,7 @@ def run_attempt(args, working_dir, reader, writer):
 
         print("Starting Chrome...")
         opts = Options()
+        opts.add_argument('--headless=new')
         opts.headless = args.headless
 
         print(f"Headless: {opts.headless}")
