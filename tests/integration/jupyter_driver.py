@@ -7,13 +7,16 @@ import io
 import os
 import re
 import subprocess
+import sys
 import time
+import traceback
 from argparse import ArgumentParser
 from datetime import datetime
 
 import selenium
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 
@@ -29,25 +32,17 @@ def find_element_with_alternatives(driver, by, possible_values):
     raise RuntimeError(f"No such element. Tried: " + ", ".join(possible_values))
 
 
-def retry(runnable, max_retries):
-    for attempt in range(max_retries):
-        print(f"Selenium execution attempt {attempt}...")
-        try:
-            return runnable()
-        except Exception as e:
-            print(e)
-            continue
-
-    raise RuntimeError(f"Execution failed despite {max_retries} retries")
-
 def run_notebook(driver, jupyter_url):
-    """S"""
+    """Runs a notebook in the classic notebook UI"""
+    print("Running classic notebook...")
+
     if '/tree' in jupyter_url:
         # Running Notebook 7
         driver.get(jupyter_url.replace("/tree?token=", "/notebooks/integration_tests.ipynb?factory=Notebook&token="))
     else:
         driver.get(jupyter_url.replace("?token=", "notebooks/integration_tests.ipynb?token="))
 
+    print("Waiting for navigate...")
     time.sleep(10)
 
     try:
@@ -64,11 +59,15 @@ def run_notebook(driver, jupyter_url):
                                            "button[data-command='runmenu:restart-and-run-all']"
                                        ]).click()
         time.sleep(5)
+
     # Confirm
+    print("Confirming...")
     find_element_with_alternatives(driver, by=By.CSS_SELECTOR,
                                    possible_values=[".modal-dialog button.btn.btn-danger",
                                                     ".jp-Dialog-button.jp-mod-warn"]).click()
     time.sleep(5)
+
+    print("UI done. Waiting for execution...")
 
 
 def run_lab(driver, jupyter_url):
@@ -108,13 +107,21 @@ def run_attempt(args, working_dir, reader, writer):
             print(f"Deleted {output_path}")
 
         print(f"URL: {jupyter_url}")
-        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
+        time.sleep(5)
+
+        print("Starting Chrome...")
+        opts = Options()
+        opts.headless = args.headless
+
+        print(f"Headless: {opts.headless}")
+        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()),
+                                  options=opts)
         driver.implicitly_wait(30.0)
 
         if args.service == "notebook":
-            retry(lambda: run_notebook(driver, jupyter_url), args.retries)
+            run_notebook(driver, jupyter_url)
         elif args.service == "lab":
-            retry(lambda: run_lab(driver, jupyter_url), args.retries)
+            run_lab(driver, jupyter_url)
         else:
             raise ValueError(f"Unsupported service: {args.service}")
 
@@ -130,12 +137,16 @@ def run_attempt(args, working_dir, reader, writer):
 
         if timed_out:
             print("Execution timed out.")
-
+    except Exception:
+        traceback.print_exception()
+        print("Execution failed")
     finally:
-        proc.terminate()
-
         if driver is not None:
             driver.close()
+            time.sleep(5)
+
+        proc.terminate()
+        time.sleep(5)
 
         return success
 
@@ -147,24 +158,28 @@ def main():
     parser.add_argument("notebook_path", help="Path to ipynb notebook")
     parser.add_argument("--timeout", type=int, default=300,
                         help="Timeout in seconds (max 300s) for the notebook to finish execution")
+    parser.add_argument("--headless", action="store_true", help="Run in headless mode")
     parser.add_argument("--retries", type=int, default=5,
                         help="Maximum number of execution attempts. The tests are flaky due to Selenium not "
                              "being able to find UI elements or them not loading in time.")
     args = parser.parse_args()
 
     working_dir = os.path.dirname(args.notebook_path)
-    filename = os.path.join(working_dir, "driver.log")
+    filename = os.path.join(working_dir, "jupyter.log")
 
     attempt = 0
     success = False
     with io.open(filename, "w") as writer, io.open(filename, "r", 1) as reader:
         while attempt < args.retries and not success:
-            print(f"Running attempt {attempt}...")
+            print(f"Running attempt {attempt + 1}...")
             success = run_attempt(args, working_dir, reader, writer)
             attempt += 1
 
     status = "Succeeded" if success else "Failed"
     print(f"{status} after {attempt} attempts.")
+
+    if not success:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

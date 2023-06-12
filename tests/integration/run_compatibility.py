@@ -66,7 +66,7 @@ def main():
         with open(os.path.join(out_dir, "config.json"), 'w') as f:
             json.dump(config, f)
 
-        with open(os.path.join(out_dir, "output.txt"), 'wb') as f:
+        with open(os.path.join(out_dir, "driver_output.txt"), 'wb') as f:
             cp = subprocess.run(["bash", run_one, out_dir, config["python"], config["service"], config["dependencies"]],
                                 stdout=f, stderr=f)
             if cp.returncode != 0:

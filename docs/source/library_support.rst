@@ -1,5 +1,7 @@
-Library support
+Compatibility
 ================
+
+GoFigr requires Python 3.7 or later.
 
 The GoFigr Jupyter extension has been tested with:
 

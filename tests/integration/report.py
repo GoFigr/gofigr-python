@@ -5,6 +5,7 @@ All rights reserved.
 """
 from argparse import ArgumentParser
 
+import numpy as np
 import pandas as pd
 import json
 import os
@@ -95,7 +96,8 @@ def summarize_results(df):
                 collapsed_results[col] = f"{len(passing)}/{len(df)} passed\n✗: " + \
                                          ", ".join(failing['test_name']) + \
                                          "\n" + "✓: " + ", ".join(passing['test_name'])
-
+        elif col == "error":
+            collapsed_results[col] = ", ".join([str(x) for x in df[col] if x is not None])
         elif col != 'test_name':
             collapsed_results[col] = one(df[col])
 
@@ -136,6 +138,7 @@ def summarize_all(path):
     for name in os.listdir(path):
         full = os.path.join(path, name)
         if os.path.isdir(full):
+            print(f"{name}...")
             summary = summarize_results(parse_results(full))
             summaries.append(summary)
 

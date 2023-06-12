@@ -28,5 +28,5 @@ python --version > "$WORKING_DIR"/python_version.txt
 
 cp "$GF_DIR"/tests/integration/integration_tests.ipynb .
 #jupyter nbconvert --execute ./integration_tests.ipynb --to notebook --output "$WORKING_DIR/output.ipynb"
-python "$GF_DIR"/tests/integration/jupyter_driver.py "$SERVICE" integration_tests.ipynb
+python "$GF_DIR"/tests/integration/jupyter_driver.py --headless "$SERVICE" integration_tests.ipynb
 
