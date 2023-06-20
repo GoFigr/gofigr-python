@@ -36,12 +36,15 @@ def run_notebook(driver, jupyter_url):
     """Runs a notebook in the classic notebook UI"""
     print("Running classic notebook...")
 
+    nav_url = None
     if '/tree' in jupyter_url:
         # Running Notebook 7
-        driver.get(jupyter_url.replace("/tree?token=", "/notebooks/integration_tests.ipynb?factory=Notebook&token="))
+        nav_url = jupyter_url.replace("/tree?token=", "/notebooks/integration_tests.ipynb?factory=Notebook&token=")
     else:
-        driver.get(jupyter_url.replace("?token=", "notebooks/integration_tests.ipynb?token="))
+        nav_url = jupyter_url.replace("?token=", "notebooks/integration_tests.ipynb?token=")
 
+    driver.get(nav_url)
+    print(f"Navigating to {nav_url}...")
     print("Waiting for navigate...")
     time.sleep(10)
 

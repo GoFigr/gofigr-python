@@ -69,19 +69,21 @@ def main():
         with open(os.path.join(out_dir, "config.json"), 'w') as f:
             json.dump(config, f)
 
-        with open(os.path.join(out_dir, "driver_output.txt"), 'wb') as f:
+        with open(os.path.join(out_dir, "driver_stdout.txt"), 'wb') as f, \
+                open(os.path.join(out_dir, "driver_stderr.txt"), 'wb') as ferr:
             cp = subprocess.run(["bash", run_one, out_dir, config["python"], config["service"], config["dependencies"]],
-                                stdout=f, stderr=f)
+                                stdout=f, stderr=ferr)
             if cp.returncode != 0:
-                print(f"Process failed with code {cp.returncode}")
+                print(f"  => Process failed with code {cp.returncode}")
 
                 with open(os.path.join(out_dir, "errors.json"), 'w') as ef:
                     json.dump({"error": None if cp.stderr is None else cp.stderr.decode('ascii', errors='ignore')}, ef)
 
-        print("  => Complete")
+            else:
+                print("  => Complete")
 
     clean_up()
-    print("All done")
+    print("Cleanup complete.")
 
 
 if __name__ == "__main__":
