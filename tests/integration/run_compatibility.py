@@ -46,6 +46,9 @@ def main():
     with open(args.config, "r") as f:
         all_configurations = json.load(f)
 
+        if isinstance(all_configurations, dict):
+            all_configurations = [all_configurations]
+
     for idx, config in enumerate(tqdm(all_configurations)):
         out_dir = os.path.join(args.output, config["name"])
 
