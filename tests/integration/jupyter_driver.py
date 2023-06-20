@@ -111,10 +111,10 @@ def run_attempt(args, working_dir, reader, writer):
 
         print("Starting Chrome...")
         opts = Options()
-        opts.add_argument('--headless=new')
-        opts.headless = args.headless
+        if args.headless:
+            opts.add_argument('--headless=new')
 
-        print(f"Headless: {opts.headless}")
+        print(f"Headless: {args.headless}")
         driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()),
                                   options=opts)
         driver.implicitly_wait(30.0)
@@ -138,8 +138,8 @@ def run_attempt(args, working_dir, reader, writer):
 
         if timed_out:
             print("Execution timed out.")
-    except Exception:
-        traceback.print_exception()
+    except:
+        traceback.print_exc()
         print("Execution failed")
     finally:
         if driver is not None:
