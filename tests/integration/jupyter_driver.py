@@ -65,9 +65,15 @@ def run_notebook(driver, jupyter_url):
 
     # Confirm
     print("Confirming...")
-    find_element_with_alternatives(driver, by=By.CSS_SELECTOR,
-                                   possible_values=[".modal-dialog button.btn.btn-danger",
-                                                    ".jp-Dialog-button.jp-mod-warn"]).click()
+    try:
+        find_element_with_alternatives(driver, by=By.CSS_SELECTOR,
+                                       possible_values=[".modal-dialog button.btn.btn-danger",
+                                                        ".jp-Dialog-button.jp-mod-warn"]).click()
+    except RuntimeError:
+        # For some reason Jupyter doesn't prompt for confirmation on Linux
+        driver.save_screenshot("confirmation_failed.png")
+        print("Confirmation failed, but continuing anyway...")
+
     time.sleep(5)
 
     print("UI done. Waiting for execution...")
@@ -147,6 +153,10 @@ def run_attempt(args, working_dir, reader, writer, attempt):
     finally:
         if driver is not None:
             driver.save_screenshot(os.path.join(working_dir, f"screenshot_attempt{attempt}.png"))
+
+            with open(os.path.join(working_dir, f"attempt{attempt}.html"), 'w') as f:
+                f.write(driver.page_source)
+
             driver.close()
             time.sleep(5)
 
@@ -170,13 +180,14 @@ def main():
     args = parser.parse_args()
 
     working_dir = os.path.dirname(args.notebook_path)
-    filename = os.path.join(working_dir, "jupyter.log")
-
     attempt = 0
     success = False
-    with io.open(filename, "w") as writer, io.open(filename, "r", 1) as reader:
-        while attempt < args.retries and not success:
-            print(f"Running attempt {attempt + 1}...")
+    while attempt < args.retries and not success:
+        print(f"Running attempt {attempt + 1}...")
+        filename = os.path.join(working_dir, f"jupyter_attempt{attempt + 1}.log")
+
+        with io.open(filename, "w") as writer, \
+                io.open(filename, "r", 1) as reader:
             success = run_attempt(args, working_dir, reader, writer, attempt + 1)
             attempt += 1
 
