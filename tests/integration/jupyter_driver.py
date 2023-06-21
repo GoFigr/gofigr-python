@@ -87,7 +87,7 @@ def run_lab(driver, jupyter_url):
     time.sleep(5)
 
 
-def run_attempt(args, working_dir, reader, writer):
+def run_attempt(args, working_dir, reader, writer, attempt):
     proc = subprocess.Popen(["jupyter", args.service, "--no-browser", args.notebook_path],
                             stdout=writer,
                             stderr=writer)
@@ -146,6 +146,7 @@ def run_attempt(args, working_dir, reader, writer):
         print("Execution failed")
     finally:
         if driver is not None:
+            driver.save_screenshot(os.path.join(working_dir, f"screenshot_attempt{attempt}.png"))
             driver.close()
             time.sleep(5)
 
@@ -176,7 +177,7 @@ def main():
     with io.open(filename, "w") as writer, io.open(filename, "r", 1) as reader:
         while attempt < args.retries and not success:
             print(f"Running attempt {attempt + 1}...")
-            success = run_attempt(args, working_dir, reader, writer)
+            success = run_attempt(args, working_dir, reader, writer, attempt + 1)
             attempt += 1
 
     status = "Succeeded" if success else "Failed"
