@@ -151,7 +151,9 @@ def parse_uuid(val):
     except ValueError:
         return None
 
+
 ApiId = namedtuple("ApiId", ["api_id"])
+
 
 class FindByName:
     """\
@@ -212,9 +214,18 @@ class NotebookNameAnnotator(Annotator):
             revision.metadata = {}
 
         try:
-            revision.metadata['notebook_name'] = ipynbname.name()
-            revision.metadata['notebook_path'] = str(ipynbname.path())
+            if 'notebook_name' not in revision.metadata:
+                revision.metadata['notebook_name'] = ipynbname.name()
+            if 'notebook_path' not in revision.metadata:
+                revision.metadata['notebook_path'] = str(ipynbname.path())
+
         except Exception:  # pylint: disable=broad-exception-caught
+            print("GoFigr could not automatically obtain the name of the currently running notebook. To fix this error,"
+                  " you can manually specify the notebook name & path in the call to configure(). "
+                  "Please see https://gofigr.io/docs/gofigr-python/latest/customization.html#notebook-name-path "
+                  "for details.",
+                  file=sys.stderr)
+
             revision.metadata['notebook_name'] = "N/A"
             revision.metadata['notebook_path'] = "N/A"
 
@@ -340,15 +351,11 @@ class Publisher:
             elif title is not None and title.strip() != "":
                 fig_name = title
             else:
-                try:
-                    cell_id = _GF_EXTENSION.cell.cell_id
-                except AttributeError:
-                    cell_id = None
-
-                if cell_id is None:
-                    cell_id = "Unknown"
-
-                fig_name = f"Cell {cell_id}, Figure #{fig.number}"
+                print("Your figure doesn't have a title and will be published as 'Anonymous Figure'. "
+                      "To avoid this warning, set a figure title or manually call publish() with a target figure. "
+                      "See https://gofigr.io/docs/gofigr-python/latest/start.html#publishing-your-first-figure for "
+                      "an example.", file=sys.stderr)
+                fig_name = "Anonymous Figure"
 
             return _GF_EXTENSION.analysis.get_figure(fig_name, create=True)
         else:
@@ -520,7 +527,8 @@ def find_workspace_by_name(gf, search):
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username, password, workspace=None, analysis=None, url=API_URL,
               default_metadata=None, auto_publish=True,
-              watermark=None, annotators=DEFAULT_ANNOTATORS):
+              watermark=None, annotators=DEFAULT_ANNOTATORS,
+              notebook_name=None, notebook_path=None): #pylint: disable=too-many-arguments
     """\
     Configures the Jupyter plugin for use.
 
@@ -533,6 +541,8 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
     :param auto_publish: if True, all figures will be published automatically without needing to call publish()
     :param watermark: custom watermark instance (e.g. DefaultWatermark with custom arguments)
     :param annotators: list of annotators to use. Default: DEFAULT_ANNOTATORS
+    :param notebook_name: name of the notebook (if you don't want it to be inferred automatically)
+    :param notebook_path: path to the notebook (if you don't want it to be inferred automatically)
     :return: None
 
     """
@@ -559,6 +569,15 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
                                                                               create=search.create))
 
     analysis.fetch()
+
+    if default_metadata is None:
+        default_metadata = {}
+
+    if notebook_path is not None:
+        default_metadata['notebook_path'] = notebook_path
+
+    if notebook_name is not None:
+        default_metadata['notebook_name'] = notebook_name
 
     publisher = Publisher(gf, default_metadata=default_metadata,
                           watermark=watermark, annotators=annotators)
