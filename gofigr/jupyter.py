@@ -524,11 +524,12 @@ def find_workspace_by_name(gf, search):
         return matches[0]
 
 
+# pylint: disable=too-many-arguments
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username, password, workspace=None, analysis=None, url=API_URL,
               default_metadata=None, auto_publish=True,
               watermark=None, annotators=DEFAULT_ANNOTATORS,
-              notebook_name=None, notebook_path=None): #pylint: disable=too-many-arguments
+              notebook_name=None, notebook_path=None):
     """\
     Configures the Jupyter plugin for use.
 
