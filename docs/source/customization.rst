@@ -30,8 +30,30 @@ Out of the box, GoFigr includes the following annotators:
 
 * :class:`gofigr.jupyter.NotebookNameAnnotator`: annotates revisions with the name & path of the current notebook
 * :class:`gofigr.jupyter.CellCodeAnnotator`: annotates revisions with the code of the Jupyter cell
+* :class:`gofigr.jupyter.CellIdAnnotator`: annotates revisions with the Jupyter Cell ID (only available in Jupyter Lab)
 * :class:`gofigr.jupyter.PipFreezeAnnotator`: annotates revisions with the output of `pip freeze`
 * :class:`gofigr.jupyter.SystemAnnotator`: annotates revisions with `uname -a`
+
+Notebook name & path
+--------------------------------
+GoFigr uses `ipynbname` to infer the name & path of the currently running notebook. While this works well most of the
+time, it may not work in certain configurations. For example, it doesn't work if the notebook is executed
+programmatically with `nbconvert`. Other exceptions may exist, as well.
+
+GoFigr will show a warning if the notebook name or path cannot be obtained. To fix, you can specify them in the call
+to configure:
+
+.. code:: python
+
+    %reload_ext gofigr
+
+    from gofigr.jupyter import *
+    configure(analysis=FindByName("Documentation examples", create=True),
+              auto_publish=True,
+              notebook_name="my notebook",
+              notebook_path="/path/to/notebook.ipynb")
+
+
 
 Implementing custom annotators
 --------------------------------

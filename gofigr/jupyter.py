@@ -11,6 +11,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 from collections import namedtuple
 from functools import wraps
 from uuid import UUID
@@ -19,7 +20,11 @@ import PIL
 import ipynbname
 import matplotlib.pyplot as plt
 import six
-from IPython.core.display_functions import display
+
+try:
+    from IPython.core.display_functions import display
+except ModuleNotFoundError:
+    from IPython.core.display import display
 
 from gofigr import GoFigr, CodeLanguage, API_URL
 from gofigr.watermarks import DefaultWatermark
@@ -146,7 +151,9 @@ def parse_uuid(val):
     except ValueError:
         return None
 
+
 ApiId = namedtuple("ApiId", ["api_id"])
+
 
 class FindByName:
     """\
@@ -206,17 +213,52 @@ class NotebookNameAnnotator(Annotator):
         if revision.metadata is None:
             revision.metadata = {}
 
-        revision.metadata['notebook_name'] = ipynbname.name()
-        revision.metadata['notebook_path'] = str(ipynbname.path())
+        try:
+            if 'notebook_name' not in revision.metadata:
+                revision.metadata['notebook_name'] = ipynbname.name()
+            if 'notebook_path' not in revision.metadata:
+                revision.metadata['notebook_path'] = str(ipynbname.path())
+
+        except Exception:  # pylint: disable=broad-exception-caught
+            print("GoFigr could not automatically obtain the name of the currently running notebook. To fix this error,"
+                  " you can manually specify the notebook name & path in the call to configure(). "
+                  "Please see https://gofigr.io/docs/gofigr-python/latest/customization.html#notebook-name-path "
+                  "for details.",
+                  file=sys.stderr)
+
+            revision.metadata['notebook_name'] = "N/A"
+            revision.metadata['notebook_path'] = "N/A"
+
+        return revision
+
+
+class CellIdAnnotator(Annotator):
+    """Annotates revisions with the ID of the Jupyter cell"""
+    def annotate(self, revision):
+        if revision.metadata is None:
+            revision.metadata = {}
+
+        try:
+            cell_id = _GF_EXTENSION.cell.cell_id
+        except AttributeError:
+            cell_id = None
+
+        revision.metadata['cell_id'] = cell_id
+
         return revision
 
 
 class CellCodeAnnotator(Annotator):
     """"Annotates revisions with cell contents"""
     def annotate(self, revision):
+        if _GF_EXTENSION.cell is not None:
+            code = _GF_EXTENSION.cell.raw_cell
+        else:
+            code = "N/A"
+
         revision.data.append(_GF_EXTENSION.gf.CodeData(name="Jupyter Cell",
                                                        language=CodeLanguage.PYTHON,
-                                                       contents=_GF_EXTENSION.cell.raw_cell))
+                                                       contents=code))
         return revision
 
 
@@ -244,7 +286,8 @@ class SystemAnnotator(Annotator):
         return revision
 
 
-DEFAULT_ANNOTATORS = (NotebookNameAnnotator(), CellCodeAnnotator(), SystemAnnotator(), PipFreezeAnnotator())
+DEFAULT_ANNOTATORS = (NotebookNameAnnotator(), CellIdAnnotator(), CellCodeAnnotator(), SystemAnnotator(),
+                      PipFreezeAnnotator())
 
 
 def figure_to_bytes(fig, fmt):
@@ -308,11 +351,11 @@ class Publisher:
             elif title is not None and title.strip() != "":
                 fig_name = title
             else:
-                cell_id = _GF_EXTENSION.cell.cell_id
-                if cell_id is None:
-                    cell_id = "Unknown"
-
-                fig_name = f"Cell {cell_id}, Figure #{fig.number}"
+                print("Your figure doesn't have a title and will be published as 'Anonymous Figure'. "
+                      "To avoid this warning, set a figure title or manually call publish() with a target figure. "
+                      "See https://gofigr.io/docs/gofigr-python/latest/start.html#publishing-your-first-figure for "
+                      "an example.", file=sys.stderr)
+                fig_name = "Anonymous Figure"
 
             return _GF_EXTENSION.analysis.get_figure(fig_name, create=True)
         else:
@@ -337,7 +380,14 @@ class Publisher:
         :return: FigureRevision instance
 
         """
-        # pylint: disable=too-many-locals
+        # pylint: disable=too-many-locals, too-many-branches
+
+        if _GF_EXTENSION.cell is None:
+            print("Information about current cell is unavailable and certain features like source code capture will " +
+                  "not work. Did you call configure() and try to publish a " +
+                  "figure in the same cell? If so, we recommend keeping GoFigr configuration and figures in " +
+                  "separate cells",
+                  file=sys.stderr)
 
         if gf is None:
             gf = _GF_EXTENSION.gf
@@ -474,10 +524,12 @@ def find_workspace_by_name(gf, search):
         return matches[0]
 
 
+# pylint: disable=too-many-arguments
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username, password, workspace=None, analysis=None, url=API_URL,
               default_metadata=None, auto_publish=True,
-              watermark=None, annotators=DEFAULT_ANNOTATORS):
+              watermark=None, annotators=DEFAULT_ANNOTATORS,
+              notebook_name=None, notebook_path=None):
     """\
     Configures the Jupyter plugin for use.
 
@@ -490,6 +542,8 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
     :param auto_publish: if True, all figures will be published automatically without needing to call publish()
     :param watermark: custom watermark instance (e.g. DefaultWatermark with custom arguments)
     :param annotators: list of annotators to use. Default: DEFAULT_ANNOTATORS
+    :param notebook_name: name of the notebook (if you don't want it to be inferred automatically)
+    :param notebook_path: path to the notebook (if you don't want it to be inferred automatically)
     :return: None
 
     """
@@ -516,6 +570,15 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
                                                                               create=search.create))
 
     analysis.fetch()
+
+    if default_metadata is None:
+        default_metadata = {}
+
+    if notebook_path is not None:
+        default_metadata['notebook_path'] = notebook_path
+
+    if notebook_name is not None:
+        default_metadata['notebook_name'] = notebook_name
 
     publisher = Publisher(gf, default_metadata=default_metadata,
                           watermark=watermark, annotators=annotators)

@@ -61,15 +61,10 @@ as needed (see :func:`gofigr.jupyter.configure`):
 Auto-publish
 --------------
 
-When you use auto-publish functionality, GoFigr will automatically create a unique figure for each unique matplotlib
-figure within Jupyter cell, using the following naming convention: ``Cell <cell ID>, Figure <figure number>``.
+When you use auto-publish functionality, GoFigr will automatically create figures based on your plot's title. As
+long as the title doesn't change, all subsequent revisions will be captured under the same figure.
 
-Please note that certain versions of Jupyter Notebook do not provide cell IDs to extensions. In that case, your figures
-will be named ``Cell Unknown, Figure <figure number>``.
-
-All figures are published under the analysis specified during the call to :func:`gofigr.jupyter.configure`.
-
-To keep things tidy and organized your way, we recommend calling ``publish`` for each figure and specifying
+To keep things tidy and organized, we recommend calling ``publish`` for each figure and specifying
 the appropriate GoFigr target figure:
 
 .. code:: python
@@ -77,3 +72,5 @@ the appropriate GoFigr target figure:
     publish(fig=plt.gcf(), target=FindByName("My first figure!", create=True))
 
 Figures published this way will only be published once even with auto-publish turned on.
+
+All figures are published under the analysis specified during the call to :func:`gofigr.jupyter.configure`.
