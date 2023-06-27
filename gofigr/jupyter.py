@@ -19,6 +19,7 @@ from uuid import UUID
 
 import PIL
 import ipynbname
+import matplotlib
 import matplotlib.pyplot as plt
 import six
 
@@ -368,11 +369,23 @@ class Publisher:
                 self.publish(fig=fig)
 
     @staticmethod
+    def _title_to_string(title):
+        """Extracts the title as a string from a title-like object (e.g. Text)"""
+        if title is None:
+            return None
+        elif isinstance(title, matplotlib.text.Text):
+            return title.get_text()
+        elif isinstance(title, str):
+            return title
+        else:
+            return None
+
+    @staticmethod
     def _resolve_target(gf, fig, target):
         if target is None:
             # Try to get the figure's title
-            suptitle = getattr(fig, "_suptitle", "")
-            title = fig.axes[0].get_title() if len(fig.axes) > 0 else None
+            suptitle = Publisher._title_to_string(getattr(fig, "_suptitle", ""))
+            title = Publisher._title_to_string(fig.axes[0].get_title() if len(fig.axes) > 0 else None)
             if suptitle is not None and suptitle.strip() != "":
                 fig_name = suptitle
             elif title is not None and title.strip() != "":
