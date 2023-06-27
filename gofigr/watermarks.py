@@ -44,32 +44,110 @@ def _default_font():
     return ImageFont.truetype(pkg_resources.resource_filename("gofigr.resources", "FreeMono.ttf"), 14)
 
 
+def stack_horizontally(*images, alignment="center"):
+    """
+    Stacks images horizontally. Thanks, Stack Overflow!
+
+    https://stackoverflow.com/questions/30227466/combine-several-images-horizontally-with-python
+
+    """
+    images = [im for im in images if im is not None]
+    widths, heights = zip(*(i.size for i in images))
+
+    total_width = sum(widths)
+    max_height = max(heights)
+
+    res = Image.new('RGBA', (total_width, max_height))
+    x_offset = 0
+    for im in images:
+        if alignment == "center":
+            res.paste(im, (x_offset, (max_height - im.size[1]) // 2))
+        elif alignment == "top":
+            res.paste(im, (x_offset, 0))
+        elif alignment == "bottom":
+            res.paste(im, (x_offset, max_height - im.size[1]))
+        else:
+            raise ValueError(alignment)
+
+        x_offset += im.size[0]
+
+    return res
+
+
+def stack_vertically(*images, alignment="center"):
+    """Stacks images vertically."""
+    images = [im for im in images if im is not None]
+    widths, heights = zip(*(i.size for i in images))
+
+    total_height = sum(heights)
+    max_width = max(widths)
+
+    res = Image.new('RGBA', (max_width, total_height))
+    y_offset = 0
+    for im in images:
+        if alignment == "center":
+            res.paste(im, ((max_width - im.size[0]) // 2, y_offset))
+        elif alignment == "left":
+            res.paste(im, (0, y_offset))
+        elif alignment == "right":
+            res.paste(im, (max_width - im.size[0], y_offset))
+        else:
+            raise ValueError(alignment)
+
+        y_offset += im.size[1]
+
+    return res
+
+
+def add_margins(img, margins):
+    """Adds margins to an image"""
+    res = Image.new('RGBA', (img.size[0] + margins[0] * 2,
+                             img.size[1] + margins[1] * 2))
+
+    res.paste(img, (margins[0], margins[1]))
+    return res
+
+
 class DefaultWatermark:
     """\
     Draws QR codes + URL watermark on figures.
 
     """
     def __init__(self,
-                 show_qr_code=False,
+                 show_qr_code=True,
                  margin_px=10,
                  qr_background=(0x00, 0x00, 0x00, 0x00),
                  qr_foreground=(0x00, 0x00, 0x00, 0x99),
                  qr_scale=2, font=None):
         """
 
-        :param show_qr_code: whether to show the QR code. Default is False
-        :param margin_px: margin for the QR code, in pixels
+        :param show_qr_code: whether to show the QR code. Default is True
+        :param margin_px: margin as an x, y tuple
         :param qr_background: RGBA tuple for QR background color
         :param qr_foreground: RGBA tuple for QR foreground color
         :param qr_scale: QR scale, as an integer
         :param font: font for the identifier
         """
         self.margin_px = margin_px
+        if not hasattr(self.margin_px, '__iter__'):
+            self.margin_px = (self.margin_px, self.margin_px)
+
         self.qr_background = qr_background
         self.qr_foreground = qr_foreground
         self.qr_scale = qr_scale
         self.font = font if font is not None else _default_font()
         self.show_qr_code = show_qr_code
+
+    def draw_identifier(self, text):
+        """Draws the GoFigr identifier text, returning it as a PIL image"""
+        left, top, right, bottom = self.font.getbbox(text)
+        text_height = bottom - top
+        text_width = right - left
+
+        img = Image.new(mode="RGBA", size=(text_width + 2 * self.margin_px[0], text_height + 2 * self.margin_px[1]))
+        draw = ImageDraw.Draw(img)
+        draw.text((self.margin_px[0], self.margin_px[1]), text, fill="black", font=self.font)
+        return img
 
     def apply(self, image, revision):
         """\
@@ -80,25 +158,14 @@ class DefaultWatermark:
         :return: PIL.Image containing the watermarked image
 
         """
-        identifier = f'GoFigr: {revision.api_id}' if self.show_qr_code else f'{APP_URL}/r/{revision.api_id}'
+        identifier_text = f'{APP_URL}/r/{revision.api_id}'
+        identifier_img = self.draw_identifier(identifier_text)
 
-        left, top, right, bottom = self.font.getbbox(identifier)
-        text_height = bottom - top
-        text_width = right - left
-
-        res_img = Image.new(mode="RGBA", size=(image.width, image.height + (bottom - top) + self.margin_px * 2))
-
-        draw = ImageDraw.Draw(res_img)
-        draw.text(((res_img.width - text_width) / 2, res_img.height - text_height - self.margin_px),
-                  identifier, fill="black", font=self.font)
-
-        res_img.paste(image, (0, 0))
-
+        qr_img = None
         if self.show_qr_code:
             qr_img = _qr_to_image(f'{APP_URL}/r/{revision.api_id}', scale=self.qr_scale,
                                   module_color=self.qr_foreground,
                                   background=self.qr_background)
+            qr_img = add_margins(qr_img, self.margin_px)
 
-            res_img.paste(qr_img, (res_img.width - qr_img.width, res_img.height - qr_img.height))
-
-        return res_img
+        return stack_vertically(image, stack_horizontally(identifier_img, qr_img))
