@@ -27,6 +27,8 @@ from websockets.server import serve
 
 _QUEUE = None
 _SERVER_PROCESS = None
+_CALLBACK_THREAD = None
+_STOP_CALLBACK_THREAD = False
 _CALLBACK = None
 _PORT = None
 
@@ -64,16 +66,20 @@ def callback_thread():
     if _CALLBACK is None:
         return
 
-    while True:
-        if _QUEUE is not None:
-            try:
-                res = _QUEUE.get(block=True, timeout=0.5)
-                if res is not None:
-                    _CALLBACK(res)
-            except queue.Empty:
-                continue
-        else:
-            time.sleep(0.5)
+    # We need to persist initial values in case the user re-runs the notebook without restarting the kernel.
+    # In that case, _QUEUE and _CALLBACK may get updated with the intention to start a new listener, and this
+    # thread may inadvertently end up consuming messages from the new queue. This ensures we only ever
+    # consume messages from the initial queue.
+    thread_queue = _QUEUE
+    callback_func = _CALLBACK
+
+    while not _STOP_CALLBACK_THREAD and thread_queue is not None:
+        try:
+            res = thread_queue.get(block=True, timeout=0.25)
+            if res is not None:
+                callback_func(res)
+        except queue.Empty:
+            continue
 
 
 def run_listener_async(callback):
@@ -85,9 +91,13 @@ def run_listener_async(callback):
     :return: port that the listener was started on
 
     """
-    global _SERVER_PROCESS, _CALLBACK, _PORT, _QUEUE
+    global _SERVER_PROCESS, _CALLBACK, _PORT, _QUEUE, _CALLBACK_THREAD, _STOP_CALLBACK_THREAD
     if _SERVER_PROCESS is not None:
         _SERVER_PROCESS.terminate()
+
+    if _CALLBACK_THREAD is not None:
+        _STOP_CALLBACK_THREAD = True
+        time.sleep(1)
 
     _QUEUE = multiprocessing.Queue()
 
@@ -107,8 +117,9 @@ def run_listener_async(callback):
         if res != "started":
             raise queue.Empty()
 
-        cthread = Thread(target=callback_thread)
-        cthread.start()
+        _STOP_CALLBACK_THREAD = False
+        _CALLBACK_THREAD = Thread(target=callback_thread)
+        _CALLBACK_THREAD.start()
     except queue.Empty:
         print("WebSocket did not start and GoFigr functionality may be limited.",
               file=sys.stderr)
