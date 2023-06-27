@@ -12,8 +12,10 @@ import json
 import os
 import subprocess
 import sys
+import time
 from collections import namedtuple
 from functools import wraps
+from urllib.parse import unquote
 from uuid import UUID
 
 import PIL
@@ -21,10 +23,14 @@ import ipynbname
 import matplotlib.pyplot as plt
 import six
 
+from gofigr.listener import run_listener_async
+
 try:
     from IPython.core.display_functions import display
 except ModuleNotFoundError:
     from IPython.core.display import display
+
+from IPython.core.display import Javascript
 
 from gofigr import GoFigr, CodeLanguage, API_URL
 from gofigr.watermarks import DefaultWatermark
@@ -102,6 +108,7 @@ class _GoFigrExtension:
 
 
 _GF_EXTENSION = None  # GoFigrExtension global
+_NOTEBOOK_METADATA = None
 
 
 def require_configured(func):
@@ -207,8 +214,27 @@ class Annotator:
         return revision
 
 
+PATH_WARNING = "To fix this warning, you can manually specify the notebook name & path in the call to configure(). " \
+               "Please see https://gofigr.io/docs/gofigr-python/latest/customization.html#notebook-name-path " \
+               "for details.",
+
 class NotebookNameAnnotator(Annotator):
     """"Annotates revisions with the name & path of the current notebook"""
+    def _infer_from_metadata(self):
+        meta = _NOTEBOOK_METADATA
+        if meta is None:
+            raise RuntimeError("No Notebook metadata available")
+        if 'url' not in meta:
+            raise RuntimeError("No URL found in Notebook metadata")
+
+        notebook_name = unquote(meta['url'].rsplit('/', 1)[-1])
+        notebook_dir = _GF_EXTENSION.shell.starting_dir
+        full_path = os.path.join(notebook_dir, notebook_name)
+        if not os.path.exists(full_path):
+            print(f"The inferred path for the notebook does not exist: {full_path}. {PATH_WARNING}", file=sys.stderr)
+
+        return (full_path, notebook_name)
+
     def annotate(self, revision):
         if revision.metadata is None:
             revision.metadata = {}
@@ -220,14 +246,15 @@ class NotebookNameAnnotator(Annotator):
                 revision.metadata['notebook_path'] = str(ipynbname.path())
 
         except Exception:  # pylint: disable=broad-exception-caught
-            print("GoFigr could not automatically obtain the name of the currently running notebook. To fix this error,"
-                  " you can manually specify the notebook name & path in the call to configure(). "
-                  "Please see https://gofigr.io/docs/gofigr-python/latest/customization.html#notebook-name-path "
-                  "for details.",
-                  file=sys.stderr)
+            try:
+                revision.metadata['notebook_path'], revision.metadata['notebook_name'] = self._infer_from_metadata()
+            except Exception:  # pylint: disable=broad-exception-caught
+                print(f"GoFigr could not automatically obtain the name of the currently"
+                      f" running notebook. {PATH_WARNING}",
+                      file=sys.stderr)
 
-            revision.metadata['notebook_name'] = "N/A"
-            revision.metadata['notebook_path'] = "N/A"
+                revision.metadata['notebook_name'] = "N/A"
+                revision.metadata['notebook_path'] = "N/A"
 
         return revision
 
@@ -524,6 +551,13 @@ def find_workspace_by_name(gf, search):
         return matches[0]
 
 
+def listener_callback(result):
+    global _NOTEBOOK_METADATA
+
+    if result is not None and isinstance(result, dict) and result['message_type'] == "metadata":
+        _NOTEBOOK_METADATA = result
+
+
 # pylint: disable=too-many-arguments
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username, password, workspace=None, analysis=None, url=API_URL,
@@ -589,6 +623,20 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
 
     if auto_publish:
         extension.post_execute_hook = publisher.auto_publish_hook
+
+    listener_port = run_listener_async(listener_callback)
+
+    display(Javascript(f"""
+    document._ws_gf = new WebSocket("ws://localhost:{listener_port}");
+    document._ws_gf.onopen = () => {{
+      console.log("GoFigr WebSocket open at ws://localhost:{listener_port}");
+      document._ws_gf.send(JSON.stringify(
+      {{
+        message_type: "metadata",
+        url: document.URL
+      }}))
+    }}
+    """))
 
 
 @require_configured
