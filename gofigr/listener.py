@@ -8,6 +8,9 @@ use it to capture notebook metadata not readily available to IPython,
 such as the server URL or notebook name.
 
 """
+
+# pylint: disable=global-statement
+
 import json
 import multiprocessing
 import queue
@@ -28,7 +31,8 @@ _CALLBACK = None
 _PORT = None
 
 
-async def echo(websocket):
+async def handle_message(websocket):
+    """Handles WebSocket messages"""
     async for message in websocket:
         try:
             data = json.loads(message)
@@ -36,27 +40,27 @@ async def echo(websocket):
                 _QUEUE.put(data)
 
             await websocket.send("ok")
-        except:
+        except Exception:  # pylint: disable=broad-exception-caught
             traceback.print_exc()
             await websocket.send("error")
 
 
-def run_listener(port, callback, queue):
+def run_listener(port, callback, queue_instance):
+    """Main entry point to the listener process"""
     global _CALLBACK, _QUEUE
     _CALLBACK = callback
-    _QUEUE = queue
+    _QUEUE = queue_instance
 
     async def _async_helper():
-        print(f"Listening on port {port}")
-
-        queue.put("started")
-        async with serve(echo, "localhost", port):
+        queue_instance.put("started")  # will unblock the calling method in the main Jupyter thread
+        async with serve(handle_message, "localhost", port):
             await asyncio.Future()  # run forever
 
     asyncio.run(_async_helper())
 
 
 def callback_thread():
+    """Periodically polls the WebSocket queue for messages, and calls the callback function (if specified)"""
     if _CALLBACK is None:
         return
 
@@ -73,6 +77,14 @@ def callback_thread():
 
 
 def run_listener_async(callback):
+    """\
+    Starts the GoFigr WebSocket listener in the background. Blocks until the listener is setup and ready
+    to process messages.
+
+    :param callback: function to call with received messages
+    :return: port that the listener was started on
+
+    """
     global _SERVER_PROCESS, _CALLBACK, _PORT, _QUEUE
     _QUEUE = multiprocessing.Queue()
 
@@ -87,12 +99,13 @@ def run_listener_async(callback):
     _SERVER_PROCESS.start()
 
     try:
+        time.sleep(1)
         res = _QUEUE.get(block=True, timeout=5)
         if res != "started":
             raise queue.Empty()
 
-        ct = Thread(target=callback_thread)
-        ct.start()
+        cthread = Thread(target=callback_thread)
+        cthread.start()
     except queue.Empty:
         print("WebSocket did not start and GoFigr functionality may be limited.",
               file=sys.stderr)

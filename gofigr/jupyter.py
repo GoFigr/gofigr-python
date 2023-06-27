@@ -4,7 +4,7 @@ All rights reserved.
 
 """
 
-# pylint: disable=cyclic-import, no-member, global-statement, protected-access
+# pylint: disable=cyclic-import, no-member, global-statement, protected-access, wrong-import-order
 
 import inspect
 import io
@@ -12,7 +12,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 from collections import namedtuple
 from functools import wraps
 from urllib.parse import unquote
@@ -23,8 +22,6 @@ import ipynbname
 import matplotlib.pyplot as plt
 import six
 
-from gofigr.listener import run_listener_async
-
 try:
     from IPython.core.display_functions import display
 except ModuleNotFoundError:
@@ -33,6 +30,7 @@ except ModuleNotFoundError:
 from IPython.core.display import Javascript
 
 from gofigr import GoFigr, CodeLanguage, API_URL
+from gofigr.listener import run_listener_async
 from gofigr.watermarks import DefaultWatermark
 
 
@@ -216,11 +214,13 @@ class Annotator:
 
 PATH_WARNING = "To fix this warning, you can manually specify the notebook name & path in the call to configure(). " \
                "Please see https://gofigr.io/docs/gofigr-python/latest/customization.html#notebook-name-path " \
-               "for details.",
+               "for details."
+
 
 class NotebookNameAnnotator(Annotator):
     """"Annotates revisions with the name & path of the current notebook"""
-    def _infer_from_metadata(self):
+    def infer_from_metadata(self):
+        """Infers the notebook path & name from metadata passed through the WebSocket (if available)"""
         meta = _NOTEBOOK_METADATA
         if meta is None:
             raise RuntimeError("No Notebook metadata available")
@@ -233,7 +233,7 @@ class NotebookNameAnnotator(Annotator):
         if not os.path.exists(full_path):
             print(f"The inferred path for the notebook does not exist: {full_path}. {PATH_WARNING}", file=sys.stderr)
 
-        return (full_path, notebook_name)
+        return full_path, notebook_name
 
     def annotate(self, revision):
         if revision.metadata is None:
@@ -247,7 +247,7 @@ class NotebookNameAnnotator(Annotator):
 
         except Exception:  # pylint: disable=broad-exception-caught
             try:
-                revision.metadata['notebook_path'], revision.metadata['notebook_name'] = self._infer_from_metadata()
+                revision.metadata['notebook_path'], revision.metadata['notebook_name'] = self.infer_from_metadata()
             except Exception:  # pylint: disable=broad-exception-caught
                 print(f"GoFigr could not automatically obtain the name of the currently"
                       f" running notebook. {PATH_WARNING}",
@@ -552,6 +552,7 @@ def find_workspace_by_name(gf, search):
 
 
 def listener_callback(result):
+    """WebSocket callback"""
     global _NOTEBOOK_METADATA
 
     if result is not None and isinstance(result, dict) and result['message_type'] == "metadata":
