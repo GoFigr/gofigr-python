@@ -14,7 +14,7 @@ import subprocess
 import sys
 from collections import namedtuple
 from functools import wraps
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 from uuid import UUID
 
 import PIL
@@ -227,7 +227,7 @@ class NotebookNameAnnotator(Annotator):
         if 'url' not in meta:
             raise RuntimeError("No URL found in Notebook metadata")
 
-        notebook_name = unquote(meta['url'].rsplit('/', 1)[-1])
+        notebook_name = unquote(urlparse(meta['url']).path.rsplit('/', 1)[-1])
         notebook_dir = _GF_EXTENSION.shell.starting_dir
         full_path = os.path.join(notebook_dir, notebook_name)
         if not os.path.exists(full_path):

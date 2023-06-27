@@ -86,6 +86,9 @@ def run_listener_async(callback):
 
     """
     global _SERVER_PROCESS, _CALLBACK, _PORT, _QUEUE
+    if _SERVER_PROCESS is not None:
+        _SERVER_PROCESS.terminate()
+
     _QUEUE = multiprocessing.Queue()
 
     # First find an available port
