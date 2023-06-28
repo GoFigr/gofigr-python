@@ -641,9 +641,11 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
     listener_port = run_listener_async(listener_callback)
 
     display(Javascript(f"""
-    document._ws_gf = new WebSocket("ws://localhost:{listener_port}");
+    var ws_url = "ws://" + window.location.hostname + ":{listener_port}";
+
+    document._ws_gf = new WebSocket(ws_url);
     document._ws_gf.onopen = () => {{
-      console.log("GoFigr WebSocket open at ws://localhost:{listener_port}");
+      console.log("GoFigr WebSocket open at " + ws_url);
       document._ws_gf.send(JSON.stringify(
       {{
         message_type: "metadata",
