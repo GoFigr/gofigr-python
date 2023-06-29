@@ -19,6 +19,9 @@ class MatplotlibBackend(GoFigrBackend):
     def is_compatible(self, fig):
         return isinstance(fig, matplotlib.figure.Figure)
 
+    def is_interactive(self, fig):
+        return False
+
     def find_figures(self, shell):
         for num in plt.get_fignums():
             yield plt.figure(num)

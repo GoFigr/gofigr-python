@@ -12,6 +12,10 @@ class GoFigrBackend(ABC):
         """Returns True if this backend is compatible with a figure"""
         raise NotImplementedError
 
+    def is_interactive(self, fig):
+        """Returns True if the figure supports interactive (HTML) output"""
+        raise NotImplementedError
+
     def find_figures(self, shell):
         """\
         Finds all figures compatible with this backend in the current environment.
@@ -45,6 +49,16 @@ class GoFigrBackend(ABC):
         :param fig: figure object
         :param fmt: format, e.g. png
         :return: bytes
+
+        """
+        raise NotImplementedError
+
+    def figure_to_html(self, fig):
+        """\
+        Converts a figure to interactive HTML (if supported by the backend)
+
+        :param fig: figure to convert to HTML
+        :return:
 
         """
         raise NotImplementedError

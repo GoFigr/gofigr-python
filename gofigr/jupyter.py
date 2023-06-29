@@ -216,9 +216,10 @@ class Publisher:
     def __init__(self,
                  gf,
                  annotators,
-                 backends=DEFAULT_BACKENDS,
+                 backends,
                  watermark=None,
                  image_formats=("png", "eps", "svg"),
+                 interactive=True,
                  default_metadata=None,
                  clear=True):
         """
@@ -228,6 +229,7 @@ class Publisher:
         :param backends: figure backends, e.g. MatplotlibBackend
         :param watermark: watermark generator, e.g. QRWatermark()
         :param image_formats: image formats to save by default
+        :param interactive: whether to publish figure HTML if available
         :param clear: whether to close the original figures after publication. If False, Jupyter will display
         both the input figure and the watermarked output. Default behavior is to close figures.
 
@@ -235,8 +237,9 @@ class Publisher:
         self.gf = gf
         self.watermark = watermark or DefaultWatermark()
         self.annotators = annotators
-        self.backends = [back() for back in backends]
+        self.backends = backends
         self.image_formats = image_formats
+        self.interactive = interactive
         self.clear = clear
         self.default_metadata = default_metadata
 
@@ -271,6 +274,8 @@ class Publisher:
                                         lambda search: _GF_EXTENSION.analysis.get_figure(name=search.name,
                                                                                          description=search.description,
                                                                                          create=search.create))
+
+    def _get_image_data(self, fig):
 
     def publish(self, fig=None, target=None, gf=None, dataframes=None, metadata=None, return_revision=False,
                 backend=None):
@@ -336,7 +341,7 @@ class Publisher:
             try:
                 image_data.append(gf.ImageData(name="figure", format=fmt, data=backend.figure_to_bytes(fig, fmt),
                                                is_watermarked=False))
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 print(f"WARNING: We could not obtain the figure in {fmt.upper()} format: {e}", file=sys.stderr)
                 continue
 
@@ -349,6 +354,11 @@ class Publisher:
 
             if fmt.lower() == 'png' and watermarked_img is not None:
                 display(watermarked_img)
+
+        if self.interactive and backend.is_interactive(fig):
+            image_data.append(gf.ImageData(name="figure", format="html",
+                                           data=backend.figure_to_html(fig).encode('utf-8'),
+                                           is_watermarked=False))
 
         rev.image_data = image_data
 
@@ -458,7 +468,8 @@ def listener_callback(result):
 def configure(username, password, workspace=None, analysis=None, url=API_URL,
               default_metadata=None, auto_publish=True,
               watermark=None, annotators=DEFAULT_ANNOTATORS,
-              notebook_name=None, notebook_path=None):
+              notebook_name=None, notebook_path=None,
+              backends=DEFAULT_BACKENDS):
     """\
     Configures the Jupyter plugin for use.
 
@@ -473,6 +484,7 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
     :param annotators: list of annotators to use. Default: DEFAULT_ANNOTATORS
     :param notebook_name: name of the notebook (if you don't want it to be inferred automatically)
     :param notebook_path: path to the notebook (if you don't want it to be inferred automatically)
+    :param backends: backends to use (e.g. MatplotlibBackend, PlotlyBackend)
     :return: None
 
     """
@@ -509,8 +521,11 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
     if notebook_name is not None:
         default_metadata['notebook_name'] = notebook_name
 
-    publisher = Publisher(gf, default_metadata=default_metadata,
-                          watermark=watermark, annotators=[make_annotator(extension) for make_annotator in annotators])
+    publisher = Publisher(gf,
+                          default_metadata=default_metadata,
+                          watermark=watermark,
+                          annotators=[make_annotator(extension) for make_annotator in annotators],
+                          backends=[make_backend() for make_backend in backends])
     extension.gf = gf
     extension.analysis = analysis
     extension.workspace = workspace

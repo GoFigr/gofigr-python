@@ -5,8 +5,8 @@ All rights reserved.
 """
 import sys
 
-from gofigr.backends import GoFigrBackend
 import plotly.graph_objects as go
+from gofigr.backends import GoFigrBackend
 
 
 class PlotlyBackend(GoFigrBackend):
@@ -14,8 +14,11 @@ class PlotlyBackend(GoFigrBackend):
     def is_compatible(self, fig):
         return isinstance(fig, go.Figure)
 
+    def is_interactive(self, fig):
+        return True
+
     def find_figures(self, shell):
-        for name, obj in shell.user_ns.items():
+        for _, obj in shell.user_ns.items():
             if self.is_compatible(obj):
                 yield obj
 
@@ -23,7 +26,7 @@ class PlotlyBackend(GoFigrBackend):
         if not silent:
             print("Plotly does not have a default figure. Please specify a figure to publish.", file=sys.stderr)
 
-        return None
+        return None  # pylint: disable=useless-return
 
     def get_title(self, fig):
         title_text = None
@@ -33,13 +36,16 @@ class PlotlyBackend(GoFigrBackend):
                 title_text = title.text
             elif isinstance(title, str):
                 title_text = title
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             title_text = None
 
         return title_text
 
     def figure_to_bytes(self, fig, fmt):
         return fig.to_image(format=fmt)
+
+    def figure_to_html(self, fig):
+        return fig.to_html(include_plotlyjs='cdn')
 
     def close(self, fig):
         pass
