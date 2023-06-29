@@ -118,5 +118,41 @@
     "python": "python3.11",
     "service": "notebook",
     "dependencies": "notebook seaborn"
+  },
+  {
+    "name": "python3.10-notebook-plotly-5.15.0",
+    "python": "python3.10",
+    "service": "notebook",
+    "dependencies": "notebook seaborn plotly==5.15.0"
+  },
+  {
+    "name": "python3.10-notebook-plotly-4.14.3",
+    "python": "python3.10",
+    "service": "notebook",
+    "dependencies": "notebook seaborn plotly==4.14.3"
+  },
+  {
+    "name": "python3.8-notebook-plotly-5.15.0",
+    "python": "python3.8",
+    "service": "notebook",
+    "dependencies": "notebook seaborn plotly==5.15.0"
+  },
+  {
+    "name": "python3.8-notebook-plotly-4.14.3",
+    "python": "python3.8",
+    "service": "notebook",
+    "dependencies": "notebook seaborn plotly==4.14.3"
+  },
+  {
+    "name": "python3.10-lab-plotly-5.15.0",
+    "python": "python3.10",
+    "service": "lab",
+    "dependencies": "notebook seaborn plotly==5.15.0"
+  },
+  {
+    "name": "python3.10-lab-plotly-4.14.3",
+    "python": "python3.10",
+    "service": "lab",
+    "dependencies": "notebook seaborn plotly==4.14.3"
   }
 ]
