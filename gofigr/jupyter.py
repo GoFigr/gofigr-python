@@ -275,10 +275,59 @@ class Publisher:
                                                                                          description=search.description,
                                                                                          create=search.create))
 
-    def _get_image_data(self, fig):
+    def _get_image_data(self, gf, backend, fig, rev, image_options):
+        """\
+        Extracts ImageData in various formats.
+
+        :param gf: GoFigr instance
+        :param backend: backend to use
+        :param fig: figure object
+        :param rev: Revision object
+        :param image_options: backend-specific parameters
+        :return: list of ImageData objects
+
+        """
+        if image_options is None:
+            image_options = {}
+
+        image_data = []
+        for fmt in self.image_formats:
+            if fmt.lower() == "png":
+                img = PIL.Image.open(io.BytesIO(backend.figure_to_bytes(fig, fmt, image_options)))
+                img.load()
+                watermarked_img = self.watermark.apply(img, rev)
+            else:
+                watermarked_img = None
+
+            # First, save the image without the watermark
+            try:
+                image_data.append(gf.ImageData(name="figure",
+                                               format=fmt,
+                                               data=backend.figure_to_bytes(fig, fmt, image_options),
+                                               is_watermarked=False))
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                print(f"WARNING: We could not obtain the figure in {fmt.upper()} format: {e}", file=sys.stderr)
+                continue
+
+            # Now, save the watermarked version (if available)
+            if watermarked_img is not None:
+                bio = io.BytesIO()
+                watermarked_img.save(bio, format=fmt)
+                image_data.append(gf.ImageData(name="figure", format=fmt, data=bio.getvalue(),
+                                               is_watermarked=True))
+
+            if fmt.lower() == 'png' and watermarked_img is not None:
+                display(watermarked_img)
+
+        if self.interactive and backend.is_interactive(fig):
+            image_data.append(gf.ImageData(name="figure", format="html",
+                                           data=backend.figure_to_html(fig).encode('utf-8'),
+                                           is_watermarked=False))
+
+        return image_data
 
     def publish(self, fig=None, target=None, gf=None, dataframes=None, metadata=None, return_revision=False,
-                backend=None):
+                backend=None, image_options=None):
         """\
         Publishes a revision to the server.
 
@@ -292,10 +341,11 @@ class Publisher:
         usage this will cause Jupyter to print the whole object which we don't want.
         :param backend: backend to use, e.g. MatplotlibBackend. If None it will be inferred automatically based on \
         figure type
+        :param image_options: backend-specific params passed to backend.figure_to_bytes
         :return: FigureRevision instance
 
         """
-        # pylint: disable=too-many-locals, too-many-branches
+        # pylint: disable=too-many-branches
 
         if _GF_EXTENSION.cell is None:
             print("Information about current cell is unavailable and certain features like source code capture will " +
@@ -328,39 +378,7 @@ class Publisher:
         rev = gf.Revision(figure=target, metadata=combined_meta)
         target.revisions.create(rev)
 
-        image_data = []
-        for fmt in self.image_formats:
-            if fmt.lower() == "png":
-                img = PIL.Image.open(io.BytesIO(backend.figure_to_bytes(fig, fmt)))
-                img.load()
-                watermarked_img = self.watermark.apply(img, rev)
-            else:
-                watermarked_img = None
-
-            # First, save the image without the watermark
-            try:
-                image_data.append(gf.ImageData(name="figure", format=fmt, data=backend.figure_to_bytes(fig, fmt),
-                                               is_watermarked=False))
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                print(f"WARNING: We could not obtain the figure in {fmt.upper()} format: {e}", file=sys.stderr)
-                continue
-
-            # Now, save the watermarked version (if available)
-            if watermarked_img is not None:
-                bio = io.BytesIO()
-                watermarked_img.save(bio, format=fmt)
-                image_data.append(gf.ImageData(name="figure", format=fmt, data=bio.getvalue(),
-                                               is_watermarked=True))
-
-            if fmt.lower() == 'png' and watermarked_img is not None:
-                display(watermarked_img)
-
-        if self.interactive and backend.is_interactive(fig):
-            image_data.append(gf.ImageData(name="figure", format="html",
-                                           data=backend.figure_to_html(fig).encode('utf-8'),
-                                           is_watermarked=False))
-
-        rev.image_data = image_data
+        rev.image_data = self._get_image_data(gf, backend, fig, rev, image_options)
 
         if dataframes is not None:
             table_data = []
@@ -463,7 +481,7 @@ def listener_callback(result):
         _GF_EXTENSION.notebook_metadata = result
 
 
-# pylint: disable=too-many-arguments
+# pylint: disable=too-many-arguments, too-many-locals
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username, password, workspace=None, analysis=None, url=API_URL,
               default_metadata=None, auto_publish=True,

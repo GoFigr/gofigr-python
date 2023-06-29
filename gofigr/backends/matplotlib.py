@@ -51,9 +51,9 @@ class MatplotlibBackend(GoFigrBackend):
         else:
             return None
 
-    def figure_to_bytes(self, fig, fmt):
+    def figure_to_bytes(self, fig, fmt, params):
         bio = io.BytesIO()
-        fig.savefig(bio, format=fmt)
+        fig.savefig(bio, format=fmt, **params)
 
         bio.seek(0)
         return bio.read()

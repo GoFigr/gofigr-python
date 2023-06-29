@@ -42,12 +42,13 @@ class GoFigrBackend(ABC):
         """
         raise NotImplementedError
 
-    def figure_to_bytes(self, fig, fmt):
+    def figure_to_bytes(self, fig, fmt, params):
         """\
         Given a figure and an image format, converts the figure to binary representation in that format.
 
         :param fig: figure object
         :param fmt: format, e.g. png
+        :param params: backend-specific parameters
         :return: bytes
 
         """
