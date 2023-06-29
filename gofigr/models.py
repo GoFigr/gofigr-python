@@ -396,6 +396,11 @@ class ModelMixin(abc.ABC):
 
         return self
 
+    @property
+    def client(self):
+        """Returns the underlying GoFigr instance"""
+        return self._gf
+
     @classmethod
     def list(cls):
         """\

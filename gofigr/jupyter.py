@@ -10,18 +10,21 @@ import inspect
 import io
 import json
 import os
-import subprocess
 import sys
 from collections import namedtuple
 from functools import wraps
-from urllib.parse import unquote, urlparse
 from uuid import UUID
 
 import PIL
-import ipynbname
-import matplotlib
-import matplotlib.pyplot as plt
 import six
+
+from gofigr import GoFigr, API_URL
+from gofigr.annotators import NotebookNameAnnotator, CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
+    PipFreezeAnnotator
+from gofigr.backends import get_backend
+from gofigr.backends.matplotlib import MatplotlibBackend
+from gofigr.listener import run_listener_async
+from gofigr.watermarks import DefaultWatermark
 
 try:
     from IPython.core.display_functions import display
@@ -30,26 +33,24 @@ except ModuleNotFoundError:
 
 from IPython.core.display import Javascript
 
-from gofigr import GoFigr, CodeLanguage, API_URL
-from gofigr.listener import run_listener_async
-from gofigr.watermarks import DefaultWatermark
-
 
 class _GoFigrExtension:
     """\
     Implements the main Jupyter extension functionality. You will not want to instantiate this class directly.
     Instead, please refer to the _GF_EXTENSION singleton.
     """
-    def __init__(self, ip, pre_run_hook=None, post_execute_hook=None):
+    def __init__(self, ip, pre_run_hook=None, post_execute_hook=None, notebook_metadata=None):
         """\
 
         :param ip: iPython shell instance
         :param pre_run_hook: function to use as a pre-run hook
         :param post_execute_hook: function to use as a post-execute hook
+        :param notebook_metadata: information about the running notebook, as a key-value dictionary
 
         """
         self.shell = ip
         self.cell = None
+        self.notebook_metadata = notebook_metadata
 
         self.pre_run_hook = pre_run_hook
         self.post_execute_hook = post_execute_hook
@@ -77,14 +78,14 @@ class _GoFigrExtension:
         self.cell = info
 
         if self.pre_run_hook is not None:
-            self.pre_run_hook(info)
+            self.pre_run_hook(self, info)
 
     def post_execute(self):
         """\
         Post-execute hook. Delegates to self.post_execute_hook() if set.
         """
         if self.post_execute_hook is not None:
-            self.post_execute_hook()
+            self.post_execute_hook(self)
 
     def register_hooks(self):
         """\
@@ -107,7 +108,6 @@ class _GoFigrExtension:
 
 
 _GF_EXTENSION = None  # GoFigrExtension global
-_NOTEBOOK_METADATA = None
 
 
 def require_configured(func):
@@ -126,6 +126,12 @@ def require_configured(func):
         return func(*args, **kwargs)
 
     return wrapper
+
+
+@require_configured
+def get_extension():
+    """Returns the GoFigr Jupyter extension instance"""
+    return _GF_EXTENSION
 
 
 def _load_ipython_extension(ip):
@@ -197,154 +203,29 @@ def parse_model_instance(model_class, value, find_by_name):
         return ValueError(f"Unsupported target specification: {value}. Please specify an API ID, or use FindByName.")
 
 
-class Annotator:
-    """\
-    Annotates figure revisions with pertinent information, such as cell code, variable values, etc.
-
-    """
-    def annotate(self, revision):
-        """
-        Annotates the figure revision.
-
-        :param revision: FigureRevision
-        :return: annotated FigureRevision
-
-        """
-        return revision
-
-
-PATH_WARNING = "To fix this warning, you can manually specify the notebook name & path in the call to configure(). " \
-               "Please see https://gofigr.io/docs/gofigr-python/latest/customization.html#notebook-name-path " \
-               "for details."
-
-
-class NotebookNameAnnotator(Annotator):
-    """"Annotates revisions with the name & path of the current notebook"""
-    def infer_from_metadata(self):
-        """Infers the notebook path & name from metadata passed through the WebSocket (if available)"""
-        meta = _NOTEBOOK_METADATA
-        if meta is None:
-            raise RuntimeError("No Notebook metadata available")
-        if 'url' not in meta:
-            raise RuntimeError("No URL found in Notebook metadata")
-
-        notebook_name = unquote(urlparse(meta['url']).path.rsplit('/', 1)[-1])
-        notebook_dir = _GF_EXTENSION.shell.starting_dir
-        full_path = os.path.join(notebook_dir, notebook_name)
-        if not os.path.exists(full_path):
-            print(f"The inferred path for the notebook does not exist: {full_path}. {PATH_WARNING}", file=sys.stderr)
-
-        return full_path, notebook_name
-
-    def annotate(self, revision):
-        if revision.metadata is None:
-            revision.metadata = {}
-
-        try:
-            if 'notebook_name' not in revision.metadata:
-                revision.metadata['notebook_name'] = ipynbname.name()
-            if 'notebook_path' not in revision.metadata:
-                revision.metadata['notebook_path'] = str(ipynbname.path())
-
-        except Exception:  # pylint: disable=broad-exception-caught
-            try:
-                revision.metadata['notebook_path'], revision.metadata['notebook_name'] = self.infer_from_metadata()
-            except Exception:  # pylint: disable=broad-exception-caught
-                print(f"GoFigr could not automatically obtain the name of the currently"
-                      f" running notebook. {PATH_WARNING}",
-                      file=sys.stderr)
-
-                revision.metadata['notebook_name'] = "N/A"
-                revision.metadata['notebook_path'] = "N/A"
-
-        return revision
-
-
-class CellIdAnnotator(Annotator):
-    """Annotates revisions with the ID of the Jupyter cell"""
-    def annotate(self, revision):
-        if revision.metadata is None:
-            revision.metadata = {}
-
-        try:
-            cell_id = _GF_EXTENSION.cell.cell_id
-        except AttributeError:
-            cell_id = None
-
-        revision.metadata['cell_id'] = cell_id
-
-        return revision
-
-
-class CellCodeAnnotator(Annotator):
-    """"Annotates revisions with cell contents"""
-    def annotate(self, revision):
-        if _GF_EXTENSION.cell is not None:
-            code = _GF_EXTENSION.cell.raw_cell
-        else:
-            code = "N/A"
-
-        revision.data.append(_GF_EXTENSION.gf.CodeData(name="Jupyter Cell",
-                                                       language=CodeLanguage.PYTHON,
-                                                       contents=code))
-        return revision
-
-
-class PipFreezeAnnotator(Annotator):
-    """Annotates revisions with the output of pip freeze"""
-    def annotate(self, revision):
-        try:
-            output = subprocess.check_output(["pip", "freeze"]).decode('ascii')
-        except subprocess.CalledProcessError as e:
-            output = e.output
-
-        revision.data.append(_GF_EXTENSION.gf.TextData(name="pip freeze", contents=output))
-        return revision
-
-
-class SystemAnnotator(Annotator):
-    """Annotates revisions with the OS version"""
-    def annotate(self, revision):
-        try:
-            output = subprocess.check_output(["uname", "-a"]).decode('ascii')
-        except subprocess.CalledProcessError as e:
-            output = e.output
-
-        revision.data.append(_GF_EXTENSION.gf.TextData(name="System Info", contents=output))
-        return revision
-
-
-DEFAULT_ANNOTATORS = (NotebookNameAnnotator(), CellIdAnnotator(), CellCodeAnnotator(), SystemAnnotator(),
-                      PipFreezeAnnotator())
-
-
-def figure_to_bytes(fig, fmt):
-    """\
-    Converts a matplotlib figure to raw bytes
-
-    :param fig: matplotlib figure
-    :param fmt: format as a string, e.g. "png", "eps", etc.
-    :return: bytes
-
-    """
-    bio = io.BytesIO()
-    fig.savefig(bio, format=fmt)
-
-    bio.seek(0)
-    return bio.read()
+DEFAULT_ANNOTATORS = (NotebookNameAnnotator, CellIdAnnotator, CellCodeAnnotator, SystemAnnotator,
+                      PipFreezeAnnotator)
+DEFAULT_BACKENDS = (MatplotlibBackend,)
 
 
 class Publisher:
     """\
     Publishes revisions to the GoFigr server.
     """
-    def __init__(self, gf, watermark=None, annotators=DEFAULT_ANNOTATORS, image_formats=("png", "eps", "svg"),
-                 default_metadata=None, clear=True):
+    def __init__(self,
+                 gf,
+                 annotators,
+                 backends=DEFAULT_BACKENDS,
+                 watermark=None,
+                 image_formats=("png", "eps", "svg"),
+                 default_metadata=None,
+                 clear=True):
         """
 
         :param gf: GoFigr instance
-        :param watermark: watermark generator, e.g. QRWatermark()
         :param annotators: revision annotators
+        :param backends: figure backends, e.g. MatplotlibBackend
+        :param watermark: watermark generator, e.g. QRWatermark()
         :param image_formats: image formats to save by default
         :param clear: whether to close the original figures after publication. If False, Jupyter will display
         both the input figure and the watermarked output. Default behavior is to close figures.
@@ -353,50 +234,35 @@ class Publisher:
         self.gf = gf
         self.watermark = watermark or DefaultWatermark()
         self.annotators = annotators
+        self.backends = [back() for back in backends]
         self.image_formats = image_formats
         self.clear = clear
         self.default_metadata = default_metadata
 
-    def auto_publish_hook(self):
+    def auto_publish_hook(self, extension):
         """\
         Hook for automatically publishing figures without an explicit call to publish().
 
         :return: None
         """
-        for num in plt.get_fignums():
-            fig = plt.figure(num)
-            if not getattr(fig, '_gf_is_published', False):
-                self.publish(fig=fig)
+        for backend in self.backends:
+            for fig in backend.find_figures(extension.shell):
+                if not getattr(fig, '_gf_is_published', False):
+                    self.publish(fig=fig, backend=backend)
 
     @staticmethod
-    def _title_to_string(title):
-        """Extracts the title as a string from a title-like object (e.g. Text)"""
-        if title is None:
-            return None
-        elif isinstance(title, matplotlib.text.Text):
-            return title.get_text()
-        elif isinstance(title, str):
-            return title
-        else:
-            return None
-
-    @staticmethod
-    def _resolve_target(gf, fig, target):
+    def _resolve_target(gf, fig, target, backend):
         if target is None:
             # Try to get the figure's title
-            suptitle = Publisher._title_to_string(getattr(fig, "_suptitle", ""))
-            title = Publisher._title_to_string(fig.axes[0].get_title() if len(fig.axes) > 0 else None)
-            if suptitle is not None and suptitle.strip() != "":
-                fig_name = suptitle
-            elif title is not None and title.strip() != "":
-                fig_name = title
-            else:
+            fig_name = backend.get_title(fig)
+            if fig_name is None:
                 print("Your figure doesn't have a title and will be published as 'Anonymous Figure'. "
                       "To avoid this warning, set a figure title or manually call publish() with a target figure. "
                       "See https://gofigr.io/docs/gofigr-python/latest/start.html#publishing-your-first-figure for "
                       "an example.", file=sys.stderr)
                 fig_name = "Anonymous Figure"
 
+            sys.stdout.flush()
             return _GF_EXTENSION.analysis.get_figure(fig_name, create=True)
         else:
             return parse_model_instance(gf.Figure,
@@ -405,7 +271,8 @@ class Publisher:
                                                                                          description=search.description,
                                                                                          create=search.create))
 
-    def publish(self, fig=None, target=None, gf=None, dataframes=None, metadata=None, return_revision=False):
+    def publish(self, fig=None, target=None, gf=None, dataframes=None, metadata=None, return_revision=False,
+                backend=None):
         """\
         Publishes a revision to the server.
 
@@ -417,6 +284,8 @@ class Publisher:
         :param metadata: metadata (JSON) to attach to this revision
         :param return_revision: whether to return a FigureRevision object. This is optional, because in normal Jupyter \
         usage this will cause Jupyter to print the whole object which we don't want.
+        :param backend: backend to use, e.g. MatplotlibBackend. If None it will be inferred automatically based on \
+        figure type
         :return: FigureRevision instance
 
         """
@@ -431,10 +300,16 @@ class Publisher:
 
         if gf is None:
             gf = _GF_EXTENSION.gf
-        if fig is None:
-            fig = plt.gcf()
 
-        target = self._resolve_target(gf, fig, target)
+        if fig is None:
+            if backend is not None:
+                fig = backend.get_default_figure()
+            else:
+                raise ValueError("You did not specify a figure to publish.")
+        elif fig is not None and backend is None:
+            backend = get_backend(fig, self.backends)
+
+        target = self._resolve_target(gf, fig, target, backend)
 
         combined_meta = self.default_metadata if self.default_metadata is not None else {}
         if metadata is not None:
@@ -447,14 +322,14 @@ class Publisher:
         image_data = []
         for fmt in self.image_formats:
             if fmt.lower() == "png":
-                img = PIL.Image.open(io.BytesIO(figure_to_bytes(fig, fmt)))
+                img = PIL.Image.open(io.BytesIO(backend.figure_to_bytes(fig, fmt)))
                 img.load()
                 watermarked_img = self.watermark.apply(img, rev)
             else:
                 watermarked_img = None
 
             # First, save the image without the watermark
-            image_data.append(gf.ImageData(name="figure", format=fmt, data=figure_to_bytes(fig, fmt),
+            image_data.append(gf.ImageData(name="figure", format=fmt, data=backend.figure_to_bytes(fig, fmt),
                                            is_watermarked=False))
 
             # Now, save the watermarked version (if available)
@@ -485,7 +360,7 @@ class Publisher:
         fig._gf_is_published = True
 
         if self.clear:
-            plt.close(fig)
+            backend.close(fig)
 
         print(f"{gf.app_url}/r/{rev.api_id}")
 
@@ -566,10 +441,8 @@ def find_workspace_by_name(gf, search):
 
 def listener_callback(result):
     """WebSocket callback"""
-    global _NOTEBOOK_METADATA
-
     if result is not None and isinstance(result, dict) and result['message_type'] == "metadata":
-        _NOTEBOOK_METADATA = result
+        _GF_EXTENSION.notebook_metadata = result
 
 
 # pylint: disable=too-many-arguments
@@ -629,7 +502,7 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
         default_metadata['notebook_name'] = notebook_name
 
     publisher = Publisher(gf, default_metadata=default_metadata,
-                          watermark=watermark, annotators=annotators)
+                          watermark=watermark, annotators=[make_annotator(extension) for make_annotator in annotators])
     extension.gf = gf
     extension.analysis = analysis
     extension.workspace = workspace
@@ -656,15 +529,23 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
 
 
 @require_configured
-def publish(*args, **kwargs):
+def publish(*args, fig=None, backend=None, **kwargs):
     """\
-    Publishes a figure. See :func:`gofigr.jupyter.Publisher.publish` for a list of arguments.
+    Publishes a figure. See :func:`gofigr.jupyter.Publisher.publish` for a list of arguments. If figure and backend
+    are both None, will publish default figures across all available backends.
 
+    :param fig: figure to publish
+    :param backend: backend to use
     :param args:
     :param kwargs:
     :return:
     """
-    return _GF_EXTENSION.publisher.publish(*args, **kwargs)
+    if fig is None and backend is None:
+        # If no figure and no backend supplied, publish default figures across all available backends
+        for available_backend in _GF_EXTENSION.publisher.backends:
+            _GF_EXTENSION.publisher.publish(*args, fig=fig, backend=available_backend, **kwargs)
+    else:
+        _GF_EXTENSION.publisher.publish(*args, fig=fig, backend=backend, **kwargs)
 
 
 @require_configured
