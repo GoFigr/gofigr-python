@@ -21,9 +21,11 @@ class GoFigrBackend(ABC):
         """
         raise NotImplementedError
 
-    def get_default_figure(self):
+    def get_default_figure(self, silent=False):
         """"\
         Returns the default/current figure, e.g. plt.gcf() for matplotlib
+
+        :param silent: if True, will suppress warnings/errors if default figure is unavailable
         """
         raise NotImplementedError
 

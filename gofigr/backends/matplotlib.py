@@ -23,7 +23,7 @@ class MatplotlibBackend(GoFigrBackend):
         for num in plt.get_fignums():
             yield plt.figure(num)
 
-    def get_default_figure(self):
+    def get_default_figure(self, silent=False):
         return plt.gcf()
 
     @staticmethod

@@ -23,6 +23,7 @@ from gofigr.annotators import NotebookNameAnnotator, CellIdAnnotator, SystemAnno
     PipFreezeAnnotator
 from gofigr.backends import get_backend
 from gofigr.backends.matplotlib import MatplotlibBackend
+from gofigr.backends.plotly import PlotlyBackend
 from gofigr.listener import run_listener_async
 from gofigr.watermarks import DefaultWatermark
 
@@ -205,7 +206,7 @@ def parse_model_instance(model_class, value, find_by_name):
 
 DEFAULT_ANNOTATORS = (NotebookNameAnnotator, CellIdAnnotator, CellCodeAnnotator, SystemAnnotator,
                       PipFreezeAnnotator)
-DEFAULT_BACKENDS = (MatplotlibBackend,)
+DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
 
 
 class Publisher:
@@ -304,6 +305,9 @@ class Publisher:
         if fig is None:
             if backend is not None:
                 fig = backend.get_default_figure()
+
+                if fig is None:
+                    raise ValueError("You did not specify a figure to publish.")
             else:
                 raise ValueError("You did not specify a figure to publish.")
         elif fig is not None and backend is None:
@@ -329,8 +333,12 @@ class Publisher:
                 watermarked_img = None
 
             # First, save the image without the watermark
-            image_data.append(gf.ImageData(name="figure", format=fmt, data=backend.figure_to_bytes(fig, fmt),
-                                           is_watermarked=False))
+            try:
+                image_data.append(gf.ImageData(name="figure", format=fmt, data=backend.figure_to_bytes(fig, fmt),
+                                               is_watermarked=False))
+            except Exception as e:
+                print(f"WARNING: We could not obtain the figure in {fmt.upper()} format: {e}", file=sys.stderr)
+                continue
 
             # Now, save the watermarked version (if available)
             if watermarked_img is not None:
@@ -529,23 +537,24 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
 
 
 @require_configured
-def publish(*args, fig=None, backend=None, **kwargs):
+def publish(fig=None, backend=None, **kwargs):
     """\
     Publishes a figure. See :func:`gofigr.jupyter.Publisher.publish` for a list of arguments. If figure and backend
     are both None, will publish default figures across all available backends.
 
     :param fig: figure to publish
     :param backend: backend to use
-    :param args:
     :param kwargs:
     :return:
     """
     if fig is None and backend is None:
         # If no figure and no backend supplied, publish default figures across all available backends
         for available_backend in _GF_EXTENSION.publisher.backends:
-            _GF_EXTENSION.publisher.publish(*args, fig=fig, backend=available_backend, **kwargs)
+            fig = available_backend.get_default_figure(silent=True)
+            if fig is not None:
+                _GF_EXTENSION.publisher.publish(fig=fig, backend=available_backend, **kwargs)
     else:
-        _GF_EXTENSION.publisher.publish(*args, fig=fig, backend=backend, **kwargs)
+        _GF_EXTENSION.publisher.publish(fig=fig, backend=backend, **kwargs)
 
 
 @require_configured
