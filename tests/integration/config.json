@@ -147,12 +147,12 @@
     "name": "python3.10-lab-plotly-5.15.0",
     "python": "python3.10",
     "service": "lab",
-    "dependencies": "notebook seaborn plotly==5.15.0"
+    "dependencies": "jupyterlab seaborn plotly==5.15.0"
   },
   {
     "name": "python3.10-lab-plotly-4.14.3",
     "python": "python3.10",
     "service": "lab",
-    "dependencies": "notebook seaborn plotly==4.14.3"
+    "dependencies": "jupyterlab seaborn plotly==4.14.3"
   }
 ]
