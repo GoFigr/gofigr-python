@@ -52,6 +52,7 @@ def parse_results(path):
     df['ipython'] = find_pkg("ipython", packages)
     df['ipykernel'] = find_pkg("ipykernel", packages)
     df['matplotlib'] = find_pkg("matplotlib", packages)
+    df['plotly'] = find_pkg("plotly", packages)
 
     with open(os.path.join(path, "config.json"), 'r') as f:
         config = json.load(f)
@@ -111,6 +112,7 @@ TEST_COLUMNS = ['number_of_revisions',
                 'image_png_watermark',
                 'image_eps',
                 'image_svg',
+                'image_html',
                 'text',
                 'cell_code',
                 'cell_id']
@@ -129,7 +131,8 @@ COLUMN_ORDER = ['platform',
                 'jupyter_client',
                 'ipython',
                 'ipykernel',
-                'matplotlib'] + TEST_COLUMNS
+                'matplotlib',
+                'plotly'] + TEST_COLUMNS
 
 
 def summarize_all(path):
