@@ -99,7 +99,7 @@ def summarize_results(df):
         elif col == "error":
             collapsed_results[col] = ", ".join([str(x) for x in df[col] if x is not None])
         elif col != 'test_name':
-            collapsed_results[col] = ", ".join([str(x) for x in df[col]])
+            collapsed_results[col] = ", ".join([str(x) for x in df[col].unique()])
 
     return collapsed_results
 
