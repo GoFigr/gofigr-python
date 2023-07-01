@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gofigr"
-version = "0.11.4"
+version = "0.12.0"
 description = "GoFigr client library"
 readme = "README.rst"
 authors = [{ name = "Maciej Pacula", email = "maciej@gofigr.io" }]
@@ -19,7 +19,7 @@ classifiers = [
 keywords = ["science", "visualization", "version control", "plotting", "data", "reproducibility"]
 dependencies = [
     "numpy", "pandas", "pyqrcode", "pillow", "matplotlib", "dateutils",
-    "python-dateutil", "ipython", "requests", "pypng", "ipynbname", "websockets"
+    "python-dateutil", "ipython", "requests", "pypng", "ipynbname", "websockets", "plotly", "kaleido"
 ]
 requires-python = ">=3.7"
 
@@ -29,13 +29,13 @@ dev = ["pip-tools", "bumpver", "build", "twine", "pylint", "flake8", "sphinx", "
 
 [project.urls]
 Homepage = "https://www.gofigr.io"
-Documentation = "https://gofigr.io/docs/gofigr-python/0.11.4/"
+Documentation = "https://gofigr.io/docs/gofigr-python/0.12.0/"
 
 [project.scripts]
 gfconfig = "gofigr.gfconfig:main"
 
 [tool.bumpver]
-current_version = "0.11.4"
+current_version = "0.12.0"
 version_pattern = "MAJOR.MINOR.PATCH"
 commit_message = "Bump version {old_version} -> {new_version}"
 commit = true

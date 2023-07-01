@@ -82,8 +82,8 @@ def main():
             else:
                 print("  => Complete")
 
-    clean_up()
-    print("Cleanup complete.")
+        clean_up()
+        print("Cleanup complete.")
 
 
 if __name__ == "__main__":

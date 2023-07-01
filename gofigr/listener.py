@@ -97,7 +97,7 @@ def run_listener_async(callback):
 
     if _CALLBACK_THREAD is not None:
         _STOP_CALLBACK_THREAD = True
-        time.sleep(1)
+        _CALLBACK_THREAD.join(2.0)
 
     _QUEUE = multiprocessing.Queue()
 
