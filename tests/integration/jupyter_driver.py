@@ -124,7 +124,7 @@ def run_attempt(args, working_dir, reader, writer, attempt):
             opts.add_argument('--headless=new')
 
         print(f"Headless: {args.headless}")
-        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()),
+        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager(driver_version="114.0.5735.90").install()),
                                   options=opts)
         driver.implicitly_wait(30.0)
 
