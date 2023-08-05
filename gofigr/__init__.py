@@ -14,7 +14,7 @@ from gofigr.models import *
 LOGGER = logging.getLogger(__name__)
 
 API_URL = "https://api.gofigr.io"
-API_VERSION = "v1"
+API_VERSION = "v1.1"
 
 APP_URL = "https://app.gofigr.io"
 

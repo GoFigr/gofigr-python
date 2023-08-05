@@ -17,6 +17,8 @@ import dateutil.parser
 
 import pandas as pd
 
+from gofigr.profile import MeasureExecution
+
 
 class Field:
     """\
@@ -189,6 +191,8 @@ class LinkedEntityField(Field):
         :param parent: parent object
         :param derived: True if derived (won't be transmitted through the API)
         :param sort_key: sort key (callable) for entities. None if no sort (default).
+        :param prefetched: True if supplying prefetched JSON objects as opposed to just API IDs
+
         """
         super().__init__(name, parent=parent, derived=derived)
         self.entity_type = entity_type
@@ -216,10 +220,16 @@ class LinkedEntityField(Field):
             return value.api_id
 
     def to_internal_value(self, gf, data):
-        if self.prefetched:
-            make_one = lambda obj: self.entity_type(gf)(parse=True, **obj)
+        make_prefetched = lambda obj: self.entity_type(gf)(parse=True, **obj)
+        make_not_prefetched = lambda api_id: self.entity_type(gf)(api_id=api_id, lazy=self.lazy)
+        if self.prefetched is True:
+            make_one = make_prefetched
+        elif self.prefetched is False:
+            make_one = make_not_prefetched
+        elif self.prefetched == "infer":
+            make_one = lambda obj: make_not_prefetched(obj) if isinstance(obj, str) else make_prefetched(obj)
         else:
-            make_one = lambda api_id: self.entity_type(gf)(api_id=api_id, lazy=self.lazy)
+            raise ValueError(f"Invalid prefetch value: {self.prefetched}. Must be True, False or 'infer'.")
 
         if self.many:
             sorted_vals = [make_one(api_id) for api_id in data]
@@ -414,7 +424,7 @@ class ModelMixin(abc.ABC):
         """\
         Saves this object to server
 
-        :param create: will create the object if it doesn't aleady exist. Otherwise saving a non-existing object \
+        :param create: will create the object if it doesn't aleady exist. Otherwise, saving a non-existing object \
         will throw an exception.
         :param patch: if True, will submit a partial update where some required properties may be missing. \
         You will almost never use this: it's only useful if for some reason you can't/don't want to fetch the full \
@@ -434,9 +444,13 @@ class ModelMixin(abc.ABC):
             params = ""
 
         method = self._gf._patch if patch else self._gf._put
-        response = method(urljoin(self.endpoint, self.api_id) + "/" + params, json=self.to_json(include_derived=False),
-                          expected_status=HTTPStatus.OK)
-        self._update_properties(response.json())
+        with MeasureExecution("Save request"):
+            response = method(urljoin(self.endpoint, self.api_id) + "/" + params,
+                              json=self.to_json(include_derived=False),
+                              expected_status=HTTPStatus.OK)
+
+        with MeasureExecution("Parse response"):
+            self._update_properties(response.json())
         return self
 
     def _check_api_id(self):
@@ -778,7 +792,8 @@ class gf_Workspace(ModelMixin, LogsMixin):
               "description",
               "workspace_type",
               LinkedEntityField("analyses", lambda gf: gf.Analysis, lazy=True, many=True, derived=True,
-                                backlink_property='workspace')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+                                backlink_property='workspace',
+                                prefetched='infer')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "workspace/"
 
     def get_analysis(self, name, create=True, **kwargs):
@@ -870,7 +885,8 @@ class gf_Analysis(ShareableModelMixin, LogsMixin):
               "description",
               LinkedEntityField("workspace", lambda gf: gf.Workspace, lazy=True, many=False),
               LinkedEntityField("figures", lambda gf: gf.Figure, lazy=True, many=True, derived=True,
-                                backlink_property='analysis')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+                                backlink_property='analysis',
+                                prefetched='infer')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "analysis/"
 
     def get_figure(self, name, create=True, **kwargs):

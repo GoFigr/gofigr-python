@@ -69,9 +69,22 @@ class CellCodeAnnotator(Annotator):
 
 class PipFreezeAnnotator(Annotator):
     """Annotates revisions with the output of pip freeze"""
+    def __init__(self, extension, cache=True):
+        """\
+        :param extension: the GoFigr Jupyter extension
+        :param cache: if True, will only run pip freeze once and cache the output
+        """
+        super().__init__(extension)
+        self.cache = cache
+        self.cached_output = None
+
     def annotate(self, revision):
+        if self.cache and self.cached_output:
+            return self.cached_output
+
         try:
             output = subprocess.check_output(["pip", "freeze"]).decode('ascii')
+            self.cached_output = output
         except subprocess.CalledProcessError as e:
             output = e.output
 

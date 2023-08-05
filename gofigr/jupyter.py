@@ -25,6 +25,7 @@ from gofigr.backends import get_backend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
 from gofigr.listener import run_listener_async
+from gofigr.profile import MeasureExecution
 from gofigr.watermarks import DefaultWatermark
 
 try:
@@ -368,17 +369,22 @@ class Publisher:
         elif fig is not None and backend is None:
             backend = get_backend(fig, self.backends)
 
-        target = self._resolve_target(gf, fig, target, backend)
+        with MeasureExecution("Resolve target"):
+            target = self._resolve_target(gf, fig, target, backend)
+            if getattr(target, 'revisions', None) is None:
+                target.fetch()
 
         combined_meta = self.default_metadata if self.default_metadata is not None else {}
         if metadata is not None:
             combined_meta.update(metadata)
 
-        # Create a bare revision first to get the API ID
-        rev = gf.Revision(figure=target, metadata=combined_meta)
-        target.revisions.create(rev)
+        with MeasureExecution("Bare revision"):
+            # Create a bare revision first to get the API ID
+            rev = gf.Revision(figure=target, metadata=combined_meta)
+            target.revisions.create(rev)
 
-        rev.image_data = self._get_image_data(gf, backend, fig, rev, image_options)
+        with MeasureExecution("Image data"):
+            rev.image_data = self._get_image_data(gf, backend, fig, rev, image_options)
 
         if dataframes is not None:
             table_data = []
@@ -387,11 +393,14 @@ class Publisher:
 
             rev.table_data = table_data
 
-        # Annotate the revision
-        for annotator in self.annotators:
-            annotator.annotate(rev)
+        with MeasureExecution("Annotators"):
+            # Annotate the revision
+            for annotator in self.annotators:
+                with MeasureExecution(str(annotator)):
+                    annotator.annotate(rev)
 
-        rev.save(silent=True)
+        with MeasureExecution("Final save"):
+            rev.save(silent=True)
 
         fig._gf_is_published = True
 
@@ -511,24 +520,28 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
     if isinstance(auto_publish, str):
         auto_publish = auto_publish.lower() == "true"  # in case it's coming from an environment variable
 
-    gf = GoFigr(username=username, password=password, url=url)
+    with MeasureExecution("Login"):
+        gf = GoFigr(username=username, password=password, url=url)
 
     if workspace is None:
         workspace = gf.primary_workspace
     else:
         workspace = parse_model_instance(gf.Workspace, workspace, lambda search: find_workspace_by_name(gf, search))
 
-    workspace.fetch()
+    with MeasureExecution("Fetch workspace"):
+        workspace.fetch()
 
     if analysis is None:
         raise ValueError("Please specify an analysis")
     else:
-        analysis = parse_model_instance(gf.Analysis, analysis,
-                                        lambda search: workspace.get_analysis(name=search.name,
-                                                                              description=search.description,
-                                                                              create=search.create))
+        with MeasureExecution("Find analysis"):
+            analysis = parse_model_instance(gf.Analysis, analysis,
+                                            lambda search: workspace.get_analysis(name=search.name,
+                                                                                  description=search.description,
+                                                                                  create=search.create))
 
-    analysis.fetch()
+    with MeasureExecution("Fetch analysis"):
+        analysis.fetch()
 
     if default_metadata is None:
         default_metadata = {}
