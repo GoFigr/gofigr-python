@@ -791,6 +791,7 @@ class gf_Workspace(ModelMixin, LogsMixin):
               "name",
               "description",
               "workspace_type",
+              "size_bytes",
               LinkedEntityField("analyses", lambda gf: gf.Analysis, lazy=True, many=True, derived=True,
                                 backlink_property='workspace',
                                 prefetched='infer')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
@@ -883,6 +884,7 @@ class gf_Analysis(ShareableModelMixin, LogsMixin):
     fields = ["api_id",
               "name",
               "description",
+              "size_bytes",
               LinkedEntityField("workspace", lambda gf: gf.Workspace, lazy=True, many=False),
               LinkedEntityField("figures", lambda gf: gf.Figure, lazy=True, many=True, derived=True,
                                 backlink_property='analysis',
@@ -908,6 +910,7 @@ class gf_Figure(ShareableModelMixin):
     fields = ["api_id",
               "name",
               "description",
+              "size_bytes",
               LinkedEntityField("analysis", lambda gf: gf.Analysis, lazy=True, many=False),
               LinkedEntityField("revisions", lambda gf: gf.Revision, lazy=False, prefetched=True, many=True,
                                 derived=True, backlink_property='figure')
@@ -1203,7 +1206,7 @@ class TableData(Data):
 
 class gf_Revision(ShareableModelMixin):
     """Represents a figure revision"""
-    fields = ["api_id", "revision_index",
+    fields = ["api_id", "revision_index", "size_bytes",
               JSONField("metadata"),
               LinkedEntityField("figure", lambda gf: gf.Figure, lazy=True, many=False),
               NestedEntityField("data", lambda gf: gf.Data, many=True),
