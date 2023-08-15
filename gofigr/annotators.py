@@ -80,13 +80,13 @@ class PipFreezeAnnotator(Annotator):
 
     def annotate(self, revision):
         if self.cache and self.cached_output:
-            return self.cached_output
-
-        try:
-            output = subprocess.check_output(["pip", "freeze"]).decode('ascii')
-            self.cached_output = output
-        except subprocess.CalledProcessError as e:
-            output = e.output
+            output = self.cached_output
+        else:
+            try:
+                output = subprocess.check_output(["pip", "freeze"]).decode('ascii')
+                self.cached_output = output
+            except subprocess.CalledProcessError as e:
+                output = e.output
 
         revision.data.append(revision.client.TextData(name="pip freeze", contents=output))
         return revision

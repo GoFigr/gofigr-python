@@ -152,7 +152,7 @@ class GoFigr:
     @property
     def app_url(self):
         """Returns the URL to the GoFigr app"""
-        return self.service_url.replace("api", "app")
+        return self.service_url.replace("api", "app").replace(":8000", ":3000")
 
     def _bind_models(self):
         """\
