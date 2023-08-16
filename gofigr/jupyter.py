@@ -39,9 +39,12 @@ from IPython.core.display import Javascript
 class _GoFigrExtension:
     """\
     Implements the main Jupyter extension functionality. You will not want to instantiate this class directly.
-    Instead, please refer to the _GF_EXTENSION singleton.
+    Instead, please call get_extension().
     """
-    def __init__(self, ip, pre_run_hook=None, post_execute_hook=None, notebook_metadata=None):
+    def __init__(self, ip, pre_run_hook=None,
+                 post_execute_hook=None,
+                 post_run_cell_hook=None,
+                 notebook_metadata=None):
         """\
 
         :param ip: iPython shell instance
@@ -56,11 +59,18 @@ class _GoFigrExtension:
 
         self.pre_run_hook = pre_run_hook
         self.post_execute_hook = post_execute_hook
+        self.post_run_cell_hook = post_run_cell_hook
 
         self.gf = None  # active GF object
         self.workspace = None  # current workspace
         self.analysis = None  # current analysis
         self.publisher = None  # current Publisher instance
+
+        self.deferred_revisions = []
+
+    def add_to_deferred(self, rev):
+        if rev not in self.deferred_revisions:
+            self.deferred_revisions.append(rev)
 
     def check_config(self):
         """Ensures the plugin has been configured for use"""
@@ -77,6 +87,7 @@ class _GoFigrExtension:
         :return:
 
         """
+        print(f"Pre run: {info}")
         self.cell = info
 
         if self.pre_run_hook is not None:
@@ -89,24 +100,37 @@ class _GoFigrExtension:
         if self.post_execute_hook is not None:
             self.post_execute_hook(self)
 
+    def post_run_cell(self, result):
+        """Post run cell hook. Delegates to self.post_run_cell_hook() if set"""
+        self.cell = result.info
+
+        while len(self.deferred_revisions) > 0:
+            rev = self.deferred_revisions.pop(0)
+            rev = self.publisher.annotate(rev)
+            rev.save(silent=True)
+
+        if self.post_run_cell_hook is not None:
+            self.post_run_cell_hook(self, result)
+
+    def _register_handler(self, event_name, handler):
+        handlers = [handler]
+        for hnd in self.shell.events.callbacks[event_name]:
+            self.shell.events.unregister('post_execute', handler)
+            if hnd != handler:  # in case it's already registered, skip it
+                handlers.append(hnd)
+
+        for hnd in handlers:
+            self.shell.events.register(event_name, hnd)
+
     def register_hooks(self):
         """\
         Register all hooks with Jupyter.
 
         :return: None
         """
-        self.shell.events.register('pre_run_cell', self.pre_run_cell)
-
-        # Unregister all handlers first, then re-register with our hook first in the queue.
-        # This is kind of gross, but the official interface doesn't have an explicit way to specify order.
-        handlers = []
-        for handler in self.shell.events.callbacks['post_execute']:
-            self.shell.events.unregister('post_execute', handler)
-            handlers.append(handler)
-
-        handlers = [self.post_execute] + handlers
-        for handler in handlers:
-            self.shell.events.register('post_execute', handler)
+        self._register_handler('pre_run_cell', self.pre_run_cell)
+        self._register_handler('post_execute', self.post_execute)
+        self._register_handler('post_run_cell', self.post_run_cell)
 
 
 _GF_EXTENSION = None  # GoFigrExtension global
@@ -327,6 +351,13 @@ class Publisher:
 
         return image_data
 
+    def annotate(self, rev):
+        # Annotate the revision
+        for annotator in self.annotators:
+            with MeasureExecution(annotator.__class__.__name__):
+                annotator.annotate(rev)
+        return rev
+
     def publish(self, fig=None, target=None, gf=None, dataframes=None, metadata=None, return_revision=False,
                 backend=None, image_options=None):
         """\
@@ -347,14 +378,6 @@ class Publisher:
 
         """
         # pylint: disable=too-many-branches
-
-        if _GF_EXTENSION.cell is None:
-            print("Information about current cell is unavailable and certain features like source code capture will " +
-                  "not work. Did you call configure() and try to publish a " +
-                  "figure in the same cell? If so, we recommend keeping GoFigr configuration and figures in " +
-                  "separate cells",
-                  file=sys.stderr)
-
         if gf is None:
             gf = _GF_EXTENSION.gf
 
@@ -383,6 +406,12 @@ class Publisher:
             rev = gf.Revision(figure=target, metadata=combined_meta)
             target.revisions.create(rev)
 
+        deferred = False
+        if _GF_EXTENSION.cell is None:
+            print(f"Adding {rev} to deferred queue")
+            deferred = True
+            get_extension().add_to_deferred(rev)
+
         with MeasureExecution("Image data"):
             rev.image_data = self._get_image_data(gf, backend, fig, rev, image_options)
 
@@ -393,11 +422,10 @@ class Publisher:
 
             rev.table_data = table_data
 
-        with MeasureExecution("Annotators"):
-            # Annotate the revision
-            for annotator in self.annotators:
-                with MeasureExecution(str(annotator)):
-                    annotator.annotate(rev)
+        if not deferred:
+            with MeasureExecution("Annotators"):
+                # Annotate the revision
+                self.annotate(rev)
 
         with MeasureExecution("Final save"):
             rev.save(silent=True)
@@ -593,17 +621,19 @@ def publish(fig=None, backend=None, **kwargs):
     :param kwargs:
     :return:
     """
+    ext = get_extension()
+
     if fig is None and backend is None:
         # If no figure and no backend supplied, publish default figures across all available backends
-        for available_backend in _GF_EXTENSION.publisher.backends:
+        for available_backend in ext.publisher.backends:
             fig = available_backend.get_default_figure(silent=True)
             if fig is not None:
-                _GF_EXTENSION.publisher.publish(fig=fig, backend=available_backend, **kwargs)
+                ext.publisher.publish(fig=fig, backend=available_backend, **kwargs)
     else:
-        _GF_EXTENSION.publisher.publish(fig=fig, backend=backend, **kwargs)
+        ext.publisher.publish(fig=fig, backend=backend, **kwargs)
 
 
 @require_configured
 def get_gofigr():
     """Gets the active GoFigr object."""
-    return _GF_EXTENSION.gf
+    return get_extension().gf

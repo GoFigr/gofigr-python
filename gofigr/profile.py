@@ -6,6 +6,7 @@ All rights reserved.
 from datetime import datetime
 
 ENABLED = False
+LEVEL = 0
 
 
 class MeasureExecution:
@@ -19,11 +20,16 @@ class MeasureExecution:
         self.duration = None
 
     def __enter__(self):
+        global LEVEL
         self.start_time = datetime.now()
+        LEVEL += 1
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        global LEVEL
         self.duration = datetime.now() - self.start_time
         if ENABLED:
-            print(f"{self.name}: took {self.duration.total_seconds():.2f}s")
+            print(("  " * (LEVEL - 1)) + f"{self.name}: took {self.duration.total_seconds():.2f}s")
+
+        LEVEL -= 1
         return False  # propagate exceptions (if any)
