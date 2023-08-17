@@ -3,12 +3,14 @@ Copyright (c) 2023, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+import inspect
 import io
+import traceback
 
 import matplotlib
 import matplotlib.pyplot as plt
 
-from gofigr.backends import GoFigrBackend
+from gofigr.backends import GoFigrBackend, get_all_function_arguments
 
 
 class MatplotlibBackend(GoFigrBackend):
@@ -23,8 +25,16 @@ class MatplotlibBackend(GoFigrBackend):
         return False
 
     def find_figures(self, shell):
-        for num in plt.get_fignums():
-            yield plt.figure(num)
+        frames = inspect.stack()
+        # Walk through the stack in *reverse* order (from top to bottom), to find the first call
+        # in case display() was called recursively
+        for f in reversed(frames):
+            if f.function == "display" and ("IPython" in f.filename or 'matplot' in f.filename):
+                for arg_value in get_all_function_arguments(f):
+                    if self.is_compatible(arg_value):
+                        yield arg_value
+
+                break
 
     def get_default_figure(self, silent=False):
         return plt.gcf()

@@ -11,12 +11,16 @@ import io
 import json
 import os
 import sys
+import traceback
 from collections import namedtuple
 from functools import wraps
 from uuid import UUID
 
+import IPython
 import PIL
+import matplotlib.pyplot as plt
 import six
+from IPython.core.displaypub import DisplayPublisher
 
 from gofigr import GoFigr, API_URL
 from gofigr.annotators import NotebookNameAnnotator, CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
@@ -36,30 +40,83 @@ except ModuleNotFoundError:
 from IPython.core.display import Javascript
 
 
+DISPLAY_TRAP = None
+
+
+class GfDisplayPublisher:
+    """\
+    Custom IPython DisplayPublisher which traps all calls to publish() (e.g. when display(...) is called).
+
+    """
+    def __init__(self, pub):
+        self.pub = pub
+
+    def publish(self, data, *args, **kwargs):
+        # Python doesn't support assignment to variables in closure scope, so we use a mutable list instead
+        is_suppressed = [False]
+        def suppress_display():
+            is_suppressed[0] = True
+
+        if DISPLAY_TRAP is not None:
+            trap = DISPLAY_TRAP
+            with SuppressDisplayTrap():
+                trap(data, suppress_display=suppress_display)
+
+        if not is_suppressed[0]:
+            self.pub.publish(data, *args, **kwargs)
+
+    def __getattr__(self, item):
+        if item == "pub":
+            return super().__getattribute__(self.pub)
+
+        return getattr(self.pub, item)
+
+    def __setattr__(self, key, value):
+        if key == "pub":
+            super().__setattr__(key, value)
+
+        return setattr(self.pub, key, value)
+
+    def clear_output(self, *args, **kwargs):
+        return self.pub.clear_output(*args, **kwargs)
+
+
+class SuppressDisplayTrap:
+    def __init__(self):
+        self.trap = None
+
+    def __enter__(self):
+        global DISPLAY_TRAP
+        self.trap = DISPLAY_TRAP
+        DISPLAY_TRAP = None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        global DISPLAY_TRAP
+        DISPLAY_TRAP = self.trap
+        self.trap = None
+
+
 class _GoFigrExtension:
     """\
     Implements the main Jupyter extension functionality. You will not want to instantiate this class directly.
     Instead, please call get_extension().
     """
-    def __init__(self, ip, pre_run_hook=None,
-                 post_execute_hook=None,
-                 post_run_cell_hook=None,
+    def __init__(self, ip,
+                 auto_publish=False,
                  notebook_metadata=None):
         """\
 
         :param ip: iPython shell instance
+        :param auto_publish: whether to auto-publish figures
         :param pre_run_hook: function to use as a pre-run hook
         :param post_execute_hook: function to use as a post-execute hook
         :param notebook_metadata: information about the running notebook, as a key-value dictionary
 
         """
         self.shell = ip
+        self.auto_publish = auto_publish
         self.cell = None
         self.notebook_metadata = notebook_metadata
-
-        self.pre_run_hook = pre_run_hook
-        self.post_execute_hook = post_execute_hook
-        self.post_run_cell_hook = post_run_cell_hook
 
         self.gf = None  # active GF object
         self.workspace = None  # current workspace
@@ -67,6 +124,10 @@ class _GoFigrExtension:
         self.publisher = None  # current Publisher instance
 
         self.deferred_revisions = []
+
+    def display_trap(self, data, suppress_display):
+        if self.auto_publish:
+            self.publisher.auto_publish_hook(self, data, suppress_display)
 
     def add_to_deferred(self, rev):
         if rev not in self.deferred_revisions:
@@ -81,27 +142,21 @@ class _GoFigrExtension:
 
     def pre_run_cell(self, info):
         """\
-        Default pre-run cell hook. Delegates to self.pre_run_hook if set.
+        Default pre-run cell hook.
 
         :param info: Cell object
-        :return:
+        :return:None
 
         """
-        print(f"Pre run: {info}")
         self.cell = info
 
-        if self.pre_run_hook is not None:
-            self.pre_run_hook(self, info)
-
-    def post_execute(self):
-        """\
-        Post-execute hook. Delegates to self.post_execute_hook() if set.
-        """
-        if self.post_execute_hook is not None:
-            self.post_execute_hook(self)
-
     def post_run_cell(self, result):
-        """Post run cell hook. Delegates to self.post_run_cell_hook() if set"""
+        """Post run cell hook.
+
+        :param result: ExecutionResult
+        :return: None
+
+        """
         self.cell = result.info
 
         while len(self.deferred_revisions) > 0:
@@ -109,8 +164,7 @@ class _GoFigrExtension:
             rev = self.publisher.annotate(rev)
             rev.save(silent=True)
 
-        if self.post_run_cell_hook is not None:
-            self.post_run_cell_hook(self, result)
+        self.cell = None
 
     def _register_handler(self, event_name, handler):
         handlers = [handler]
@@ -122,15 +176,29 @@ class _GoFigrExtension:
         for hnd in handlers:
             self.shell.events.register(event_name, hnd)
 
+    def unregister(self):
+        """\
+        Unregisters all hooks, effectively disabling the plugin.
+
+        """
+        self.shell.events.unregister('pre_run_cell', self.pre_run_cell)
+        self.shell.events.unregister('post_run_cell', self.post_run_cell)
+
     def register_hooks(self):
         """\
         Register all hooks with Jupyter.
 
         :return: None
         """
+        global DISPLAY_TRAP
+        DISPLAY_TRAP = self.display_trap
+
         self._register_handler('pre_run_cell', self.pre_run_cell)
-        self._register_handler('post_execute', self.post_execute)
         self._register_handler('post_run_cell', self.post_run_cell)
+
+        dp = self.shell.display_pub
+        if not isinstance(dp, GfDisplayPublisher):
+            self.shell.display_pub = GfDisplayPublisher(dp)
 
 
 _GF_EXTENSION = None  # GoFigrExtension global
@@ -170,7 +238,7 @@ def _load_ipython_extension(ip):
     """
     global _GF_EXTENSION
     if _GF_EXTENSION is not None:
-        return
+        _GF_EXTENSION.unregister()
 
     _GF_EXTENSION = _GoFigrExtension(ip)
     _GF_EXTENSION.register_hooks()
@@ -191,7 +259,6 @@ def parse_uuid(val):
 
 
 ApiId = namedtuple("ApiId", ["api_id"])
-
 
 class FindByName:
     """\
@@ -268,19 +335,26 @@ class Publisher:
         self.clear = clear
         self.default_metadata = default_metadata
 
-    def auto_publish_hook(self, extension):
+    def auto_publish_hook(self, extension, data, suppress_display=None):
         """\
         Hook for automatically publishing figures without an explicit call to publish().
+
+        :param extension: GoFigrExtension instance
+        :param data: data being published. This will usually be a dictionary of mime formats.
+        :param native_publish: callable which will publish the figure using the native backend
 
         :return: None
         """
         for backend in self.backends:
-            for fig in backend.find_figures(extension.shell):
+            compatible_figures = list(backend.find_figures(extension.shell))
+            for fig in compatible_figures:
                 if not getattr(fig, '_gf_is_published', False):
-                    self.publish(fig=fig, backend=backend)
+                    self.publish(fig=fig, backend=backend, suppress_display=suppress_display)
 
     @staticmethod
     def _resolve_target(gf, fig, target, backend):
+        ext = get_extension()
+
         if target is None:
             # Try to get the figure's title
             fig_name = backend.get_title(fig)
@@ -292,13 +366,13 @@ class Publisher:
                 fig_name = "Anonymous Figure"
 
             sys.stdout.flush()
-            return _GF_EXTENSION.analysis.get_figure(fig_name, create=True)
+            return ext.analysis.get_figure(fig_name, create=True)
         else:
             return parse_model_instance(gf.Figure,
                                         target,
-                                        lambda search: _GF_EXTENSION.analysis.get_figure(name=search.name,
-                                                                                         description=search.description,
-                                                                                         create=search.create))
+                                        lambda search: ext.analysis.get_figure(name=search.name,
+                                                                               description=search.description,
+                                                                               create=search.create))
 
     def _get_image_data(self, gf, backend, fig, rev, image_options):
         """\
@@ -309,12 +383,13 @@ class Publisher:
         :param fig: figure object
         :param rev: Revision object
         :param image_options: backend-specific parameters
-        :return: list of ImageData objects
+        :return: tuple of: list of ImageData objects, watermarked image to display
 
         """
         if image_options is None:
             image_options = {}
 
+        image_to_display = None
         image_data = []
         for fmt in self.image_formats:
             if fmt.lower() == "png":
@@ -342,14 +417,14 @@ class Publisher:
                                                is_watermarked=True))
 
             if fmt.lower() == 'png' and watermarked_img is not None:
-                display(watermarked_img)
+                image_to_display = watermarked_img
 
         if self.interactive and backend.is_interactive(fig):
             image_data.append(gf.ImageData(name="figure", format="html",
                                            data=backend.figure_to_html(fig).encode('utf-8'),
                                            is_watermarked=False))
 
-        return image_data
+        return image_data, image_to_display
 
     def annotate(self, rev):
         # Annotate the revision
@@ -359,7 +434,7 @@ class Publisher:
         return rev
 
     def publish(self, fig=None, target=None, gf=None, dataframes=None, metadata=None, return_revision=False,
-                backend=None, image_options=None):
+                backend=None, image_options=None, suppress_display=None):
         """\
         Publishes a revision to the server.
 
@@ -374,6 +449,8 @@ class Publisher:
         :param backend: backend to use, e.g. MatplotlibBackend. If None it will be inferred automatically based on \
         figure type
         :param image_options: backend-specific params passed to backend.figure_to_bytes
+        :param native_publish: if used in an auto-publish hook, this will contain a callable which will
+        render the figure using the default IPython publisher.
         :return: FigureRevision instance
 
         """
@@ -408,12 +485,18 @@ class Publisher:
 
         deferred = False
         if _GF_EXTENSION.cell is None:
-            print(f"Adding {rev} to deferred queue")
             deferred = True
             get_extension().add_to_deferred(rev)
 
         with MeasureExecution("Image data"):
-            rev.image_data = self._get_image_data(gf, backend, fig, rev, image_options)
+            rev.image_data, image_to_display = self._get_image_data(gf, backend, fig, rev, image_options)
+
+        if image_to_display is not None:
+            with SuppressDisplayTrap():
+                display(image_to_display)
+
+            if suppress_display is not None and backend.is_static(fig):
+                suppress_display()
 
         if dataframes is not None:
             table_data = []
@@ -589,25 +672,24 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
     extension.analysis = analysis
     extension.workspace = workspace
     extension.publisher = publisher
-
-    if auto_publish:
-        extension.post_execute_hook = publisher.auto_publish_hook
+    extension.auto_publish = auto_publish
 
     listener_port = run_listener_async(listener_callback)
 
-    display(Javascript(f"""
-    var ws_url = "ws://" + window.location.hostname + ":{listener_port}";
-
-    document._ws_gf = new WebSocket(ws_url);
-    document._ws_gf.onopen = () => {{
-      console.log("GoFigr WebSocket open at " + ws_url);
-      document._ws_gf.send(JSON.stringify(
-      {{
-        message_type: "metadata",
-        url: document.URL
-      }}))
-    }}
-    """))
+    with SuppressDisplayTrap():
+        display(Javascript(f"""
+        var ws_url = "ws://" + window.location.hostname + ":{listener_port}";
+    
+        document._ws_gf = new WebSocket(ws_url);
+        document._ws_gf.onopen = () => {{
+          console.log("GoFigr WebSocket open at " + ws_url);
+          document._ws_gf.send(JSON.stringify(
+          {{
+            message_type: "metadata",
+            url: document.URL
+          }}))
+        }}
+        """))
 
 
 @require_configured

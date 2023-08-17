@@ -3,8 +3,28 @@ Copyright (c) 2023, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+import inspect
 from abc import ABC
 
+
+def get_all_function_arguments(frame):
+    """Iterates over all function arguments, including *args and **kwargs"""
+    arg_values = inspect.getargvalues(frame[0])
+
+    # Positional arguments
+    for arg_name in arg_values.args:
+        arg_value = arg_values.locals[arg_name]
+        yield arg_value
+
+    # Varargs
+    if arg_values.varargs:
+        for arg_value in arg_values.locals[arg_values.varargs]:
+            yield arg_value
+
+    # Kwargs
+    if arg_values.keywords:
+        for arg_value in arg_values.locals[arg_values.keywords]:
+            yield arg_value
 
 class GoFigrBackend(ABC):
     """Base class for figure backends, e.g. matplotlib or plotly"""
@@ -15,6 +35,10 @@ class GoFigrBackend(ABC):
     def is_interactive(self, fig):
         """Returns True if the figure supports interactive (HTML) output"""
         raise NotImplementedError
+
+    def is_static(self, fig):
+        """Returns True if the figure is static (e.g. an image)"""
+        return not self.is_interactive(fig)
 
     def find_figures(self, shell):
         """\
