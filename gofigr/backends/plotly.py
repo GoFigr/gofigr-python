@@ -61,6 +61,7 @@ class PlotlyBackend(GoFigrBackend):
         return fig.to_html(include_plotlyjs='cdn')
 
     def add_interactive_watermark(self, fig, rev, watermark):
+        # pylint: disable=use-dict-literal
         orig_height = getattr(fig.layout, "height")
         if orig_height is None:
             orig_height = 450  # Plotly default

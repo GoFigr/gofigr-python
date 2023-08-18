@@ -3,24 +3,20 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-import base64
-# pylint: disable=cyclic-import, no-member, global-statement, protected-access, wrong-import-order
+# pylint: disable=cyclic-import, no-member, global-statement, protected-access, wrong-import-order, ungrouped-imports
+# pylint: disable=too-many-locals
 
 import inspect
 import io
 import json
 import os
 import sys
-import traceback
 from collections import namedtuple
 from functools import wraps
 from uuid import UUID
 
-import IPython
 import PIL
-import matplotlib.pyplot as plt
 import six
-from IPython.core.displaypub import DisplayPublisher
 
 from gofigr import GoFigr, API_URL
 from gofigr.annotators import NotebookNameAnnotator, CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
@@ -49,9 +45,28 @@ class GfDisplayPublisher:
 
     """
     def __init__(self, pub):
+        """
+
+        :param pub: Publisher to wrap around. We delegate all calls to this publisher unless trapped.
+        """
         self.pub = pub
 
     def publish(self, data, *args, **kwargs):
+        """
+        IPython calls this method whenever it needs data displayed. Our function traps the call
+        and calls DISPLAY_TRAP instead, giving it an option to suppress the figure from being displayed.
+
+        We use this trap to publish the figure if auto_publish is True. Suppression is useful
+        when we want to show a watermarked version of the figure, and prevents it from being showed twice (once
+        with the watermark inside the trap, and once without in the originating call).
+
+        :param data: dictionary of mimetypes -> data
+        :param args: implementation-dependent
+        :param kwargs: implementation-dependend
+        :return: None
+
+        """
+
         # Python doesn't support assignment to variables in closure scope, so we use a mutable list instead
         is_suppressed = [False]
         def suppress_display():
@@ -66,22 +81,39 @@ class GfDisplayPublisher:
             self.pub.publish(data, *args, **kwargs)
 
     def __getattr__(self, item):
+        """\
+        Delegates to self.pub
+
+        :param item:
+        :return:
+        """
         if item == "pub":
             return super().__getattribute__(self.pub)
 
         return getattr(self.pub, item)
 
     def __setattr__(self, key, value):
+        """\
+        Delegates to self.pub
+
+        :param key:
+        :param value:
+        :return:
+        """
         if key == "pub":
             super().__setattr__(key, value)
 
         return setattr(self.pub, key, value)
 
     def clear_output(self, *args, **kwargs):
+        """IPython's clear_output. Defers to self.pub"""
         return self.pub.clear_output(*args, **kwargs)
 
 
 class SuppressDisplayTrap:
+    """\
+    Context manager which temporarily suspends all display traps.
+    """
     def __init__(self):
         self.trap = None
 
@@ -126,10 +158,29 @@ class _GoFigrExtension:
         self.deferred_revisions = []
 
     def display_trap(self, data, suppress_display):
+        """\
+         Called whenever *any* code inside the Jupyter session calls display().
+        :param data: dictionary of MIME types
+        :param suppress_display: callable with no arguments. Call to prevent the originating figure from being shown.
+        :return: None
+
+        """
         if self.auto_publish:
             self.publisher.auto_publish_hook(self, data, suppress_display)
 
     def add_to_deferred(self, rev):
+        """\
+        Adds a revision to a list of deferred revisions. Such revisions will be annotated in the post_run_cell
+        hook, and re-saved.
+
+        This functionality exists because it's possible to load the GoFigr extension and publish figures in the same
+        cell, in which case GoFigr will not receive the pre_run_cell hook and will not have access to cell information
+        when the figure is published. This functionality allows us to obtain the cell information after it's run
+        (in the post_run_cell hook), re-run annotators, and update the figure with full annotations.
+
+        :param rev: revision to defer
+        :return: None
+        """
         if rev not in self.deferred_revisions:
             self.deferred_revisions.append(rev)
 
@@ -167,6 +218,7 @@ class _GoFigrExtension:
         self.cell = None
 
     def _register_handler(self, event_name, handler):
+        """Inserts a handler at the beginning of the list while avoiding double-insertions"""
         handlers = [handler]
         for hnd in self.shell.events.callbacks[event_name]:
             self.shell.events.unregister('post_execute', handler)
@@ -196,9 +248,9 @@ class _GoFigrExtension:
         self._register_handler('pre_run_cell', self.pre_run_cell)
         self._register_handler('post_run_cell', self.post_run_cell)
 
-        dp = self.shell.display_pub
-        if not isinstance(dp, GfDisplayPublisher):
-            self.shell.display_pub = GfDisplayPublisher(dp)
+        native_display_publisher = self.shell.display_pub
+        if not isinstance(native_display_publisher, GfDisplayPublisher):
+            self.shell.display_pub = GfDisplayPublisher(native_display_publisher)
 
 
 _GF_EXTENSION = None  # GoFigrExtension global
@@ -299,14 +351,6 @@ def parse_model_instance(model_class, value, find_by_name):
 DEFAULT_ANNOTATORS = (NotebookNameAnnotator, CellIdAnnotator, CellCodeAnnotator, SystemAnnotator,
                       PipFreezeAnnotator)
 DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
-
-
-def display_interactive(image_data):
-    fig_html = image_data.data.decode('utf-8')
-    fig_b64 = base64.b64encode(fig_html.encode('utf-8')).decode('utf-8')
-    display(HTML(f"""
-    <iframe src="data:text/html;base64,{fig_b64}" height="800px" width="100%"></iframe>
-    """))
 
 
 class Publisher:

@@ -5,7 +5,6 @@ All rights reserved.
 """
 import inspect
 import io
-import traceback
 
 import matplotlib
 import matplotlib.pyplot as plt

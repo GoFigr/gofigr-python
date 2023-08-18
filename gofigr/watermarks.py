@@ -150,6 +150,13 @@ class DefaultWatermark:
         return img
 
     def get_watermark(self, revision):
+        """\
+        Generates just the watermark for a revision.
+
+        :param revision: FigureRevision
+        :return: PIL.Image
+
+        """
         identifier_text = f'{APP_URL}/r/{revision.api_id}'
         identifier_img = self.draw_identifier(identifier_text)
 

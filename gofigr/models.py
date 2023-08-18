@@ -1069,6 +1069,7 @@ class ImageData(Data):
 
     @property
     def is_interactive(self):
+        """True if this figure is interactive, false otherwise"""
         return self.format == "html"
 
     @property
@@ -1237,6 +1238,7 @@ class gf_Revision(ShareableModelMixin):
 
     @property
     def revision_url(self):
+        """Returns the GoFigr URL for this revision"""
         return f"{self._gf.app_url}/r/{self.api_id}"
 
     @property
