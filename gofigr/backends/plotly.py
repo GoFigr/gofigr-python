@@ -18,8 +18,12 @@ class PlotlyBackend(GoFigrBackend):
     def is_interactive(self, fig):
         return True
 
-    def find_figures(self, shell):
+    def find_figures(self, shell, data):
         frames = inspect.stack()
+        # Make sure there's an actual figure being published, as opposed to Plotly initialization scripts
+        if 'application/vnd.plotly.v1+json' not in data.keys():
+            return
+
         # Walk through the stack in *reverse* order (from top to bottom), to find the first call
         # in case display() was called recursively
         for f in reversed(frames):
@@ -55,6 +59,9 @@ class PlotlyBackend(GoFigrBackend):
 
     def figure_to_html(self, fig):
         return fig.to_html(include_plotlyjs='cdn')
+
+    def figure_to_watermarked_html(self, fig, rev, watermark):
+        return fig.to_html(include_plotlyjs='cdn').replace("</body>", f"{rev.api_id}</body>")
 
     def close(self, fig):
         pass

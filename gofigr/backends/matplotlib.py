@@ -24,7 +24,7 @@ class MatplotlibBackend(GoFigrBackend):
     def is_interactive(self, fig):
         return False
 
-    def find_figures(self, shell):
+    def find_figures(self, shell, data):
         frames = inspect.stack()
         # Walk through the stack in *reverse* order (from top to bottom), to find the first call
         # in case display() was called recursively

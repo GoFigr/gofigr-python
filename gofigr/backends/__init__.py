@@ -40,7 +40,7 @@ class GoFigrBackend(ABC):
         """Returns True if the figure is static (e.g. an image)"""
         return not self.is_interactive(fig)
 
-    def find_figures(self, shell):
+    def find_figures(self, shell, data):
         """\
         Finds all figures compatible with this backend in the current environment.
 
@@ -83,7 +83,19 @@ class GoFigrBackend(ABC):
         Converts a figure to interactive HTML (if supported by the backend)
 
         :param fig: figure to convert to HTML
-        :return:
+        :return: figure as HTML string
+
+        """
+        raise NotImplementedError
+
+    def figure_to_watermarked_html(self, fig, rev, watermark):
+        """\
+        Converts a figure to interactive HTML with a watermark (if supported by the backend)
+
+        :param fig: figure to convert to HTML
+        :param rev: FigureRevision object
+        :param watermark: DefaultWatermark instance
+        :return: figure as HTML string
 
         """
         raise NotImplementedError

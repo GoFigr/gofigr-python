@@ -1068,12 +1068,19 @@ class ImageData(Data):
     format = MetadataProxy("format")
 
     @property
+    def is_interactive(self):
+        return self.format == "html"
+
+    @property
     def image(self):
         """\
         Returns this image as a PIL.Image object.
 
         :return: PIL.Image
         """
+        if self.is_interactive:
+            raise RuntimeError("This is an interactive figure.")
+
         if self.data is None:
             return None
 

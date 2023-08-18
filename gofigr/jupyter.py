@@ -3,7 +3,7 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-
+import base64
 # pylint: disable=cyclic-import, no-member, global-statement, protected-access, wrong-import-order
 
 import inspect
@@ -37,7 +37,7 @@ try:
 except ModuleNotFoundError:
     from IPython.core.display import display
 
-from IPython.core.display import Javascript
+from IPython.core.display import Javascript, HTML
 
 
 DISPLAY_TRAP = None
@@ -301,6 +301,53 @@ DEFAULT_ANNOTATORS = (NotebookNameAnnotator, CellIdAnnotator, CellCodeAnnotator,
 DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
 
 
+def display_interactive(image_data):
+    fig_html = image_data.data.decode('utf-8')
+    if "<body>" in fig_html:
+        loader_html = """
+        <script>
+        function resizePlotlies(width=null, height=null) {
+    let plotsChanged = 0;
+    for(const elt of document.getElementsByClassName("plotly-graph-div")) {
+        try {
+            Plotly.relayout(elt, {width: width, height: height});
+            plotsChanged += 1
+        } catch(error) {
+            console.error("Could not update plot size. Error below.")
+            console.error(error);
+        }
+    }
+    return plotsChanged;
+}
+
+function gofigrPlotlyInit(attempt=0) {
+    if(attempt >= 20) {
+        console.error("Could not find any plots to re-layout")
+        return;
+    }
+
+    setTimeout(() => {
+        const plotsChanged = resizePlotlies(window.innerWidth - 200, window.innerHeight - 200);
+        if(plotsChanged === 0) {
+           gofigrPlotlyInit(attempt=attempt + 1)  // try again
+        } else {
+            addEventListener("resize", () => {
+                resizePlotlies(window.innerWidth - 200, window.innerHeight - 200);
+            })
+        }
+    }, 100)
+}
+        </script>
+        
+        <script>gofigrPlotlyInit()</script>"""
+        fig_html = fig_html.replace("<body>", "<body style='margin: 0'>" + loader_html)
+
+    fig_b64 = base64.b64encode(fig_html.encode('utf-8')).decode('utf-8')
+    display(HTML(f"""
+    <iframe src="data:text/html;base64,{fig_b64}" height="800px" width="100%"></iframe>
+    """))
+
+
 class Publisher:
     """\
     Publishes revisions to the GoFigr server.
@@ -346,7 +393,7 @@ class Publisher:
         :return: None
         """
         for backend in self.backends:
-            compatible_figures = list(backend.find_figures(extension.shell))
+            compatible_figures = list(backend.find_figures(extension.shell, data))
             for fig in compatible_figures:
                 if not getattr(fig, '_gf_is_published', False):
                     self.publish(fig=fig, backend=backend, suppress_display=suppress_display)
@@ -413,16 +460,24 @@ class Publisher:
             if watermarked_img is not None:
                 bio = io.BytesIO()
                 watermarked_img.save(bio, format=fmt)
-                image_data.append(gf.ImageData(name="figure", format=fmt, data=bio.getvalue(),
-                                               is_watermarked=True))
+                img_data = gf.ImageData(name="figure", format=fmt, data=bio.getvalue(),
+                                        is_watermarked=True)
+                image_data.append(img_data)
 
-            if fmt.lower() == 'png' and watermarked_img is not None:
-                image_to_display = watermarked_img
+                if fmt.lower() == 'png':
+                    image_to_display = img_data
 
         if self.interactive and backend.is_interactive(fig):
             image_data.append(gf.ImageData(name="figure", format="html",
                                            data=backend.figure_to_html(fig).encode('utf-8'),
                                            is_watermarked=False))
+
+            html_with_watermark = gf.ImageData(name="figure", format="html",
+                                               data=backend.figure_to_watermarked_html(
+                                                   fig, rev, self.watermark).encode('utf-8'),
+                                               is_watermarked=True)
+            image_data.append(html_with_watermark)
+            image_to_display = html_with_watermark
 
         return image_data, image_to_display
 
@@ -493,9 +548,12 @@ class Publisher:
 
         if image_to_display is not None:
             with SuppressDisplayTrap():
-                display(image_to_display)
+                if image_to_display.is_interactive:
+                    display_interactive(image_to_display)
+                else:
+                    display(image_to_display.image)
 
-            if suppress_display is not None and backend.is_static(fig):
+            if suppress_display is not None:
                 suppress_display()
 
         if dataframes is not None:
