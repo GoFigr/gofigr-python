@@ -14,7 +14,7 @@ from gofigr.models import *
 LOGGER = logging.getLogger(__name__)
 
 API_URL = "https://api.gofigr.io"
-API_VERSION = "v1"
+API_VERSION = "v1.1"
 
 APP_URL = "https://app.gofigr.io"
 
@@ -152,7 +152,7 @@ class GoFigr:
     @property
     def app_url(self):
         """Returns the URL to the GoFigr app"""
-        return self.service_url.replace("api", "app")
+        return self.service_url.replace("api", "app").replace(":8000", ":3000")
 
     def _bind_models(self):
         """\

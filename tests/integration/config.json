@@ -97,7 +97,7 @@
     "name": "python3.10-notebook7",
     "python": "python3.10",
     "service": "notebook",
-    "dependencies": "notebook==7.0.0b2 seaborn"
+    "dependencies": "notebook==7.0.2 seaborn"
   },
 
   {

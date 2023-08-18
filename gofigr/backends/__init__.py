@@ -3,8 +3,28 @@ Copyright (c) 2023, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+import inspect
 from abc import ABC
 
+
+def get_all_function_arguments(frame):
+    """Iterates over all function arguments, including *args and **kwargs"""
+    arg_values = inspect.getargvalues(frame[0])
+
+    # Positional arguments
+    for arg_name in arg_values.args:
+        arg_value = arg_values.locals[arg_name]
+        yield arg_value
+
+    # Varargs
+    if arg_values.varargs:
+        for arg_value in arg_values.locals[arg_values.varargs]:
+            yield arg_value
+
+    # Kwargs
+    if arg_values.keywords:
+        for arg_value in arg_values.locals[arg_values.keywords].values():
+            yield arg_value
 
 class GoFigrBackend(ABC):
     """Base class for figure backends, e.g. matplotlib or plotly"""
@@ -16,7 +36,11 @@ class GoFigrBackend(ABC):
         """Returns True if the figure supports interactive (HTML) output"""
         raise NotImplementedError
 
-    def find_figures(self, shell):
+    def is_static(self, fig):
+        """Returns True if the figure is static (e.g. an image)"""
+        return not self.is_interactive(fig)
+
+    def find_figures(self, shell, data):
         """\
         Finds all figures compatible with this backend in the current environment.
 
@@ -59,7 +83,19 @@ class GoFigrBackend(ABC):
         Converts a figure to interactive HTML (if supported by the backend)
 
         :param fig: figure to convert to HTML
-        :return:
+        :return: figure as HTML string
+
+        """
+        raise NotImplementedError
+
+    def add_interactive_watermark(self, fig, rev, watermark):
+        """\
+        Adds watermark to a figure using the backend's native objects (if supported by the backend)
+
+        :param fig: figure to watermark
+        :param rev: FigureRevision object
+        :param watermark: DefaultWatermark instance
+        :return: modified figure
 
         """
         raise NotImplementedError

@@ -3,6 +3,7 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+import abc
 import os
 import time
 from datetime import datetime, timedelta
@@ -14,7 +15,8 @@ import pandas as pd
 import pkg_resources
 from PIL import Image
 
-from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership
+from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership, \
+    TextData
 
 
 def make_gf(authenticate=True, username=None, password=None):
@@ -319,6 +321,8 @@ class TestAnalysis(TestCase):
 
         self.assertEqual(len(workspace.analyses), 0)
         self.assertEqual(len(new_workspace.analyses), 1)
+
+        new_workspace.analyses[0].fetch()
         self.assertEqual(new_workspace.analyses[0], analysis)
 
         _test_timestamps(self, gf, analysis, 'description', ['a', 'b', 'c', 'd'])
@@ -412,6 +416,23 @@ class TestData:
 
     def load_external_data(self, nonce=None):
         return self.load_image_data(nonce) + self.load_table_data(nonce) + self.load_code_data(nonce)
+
+
+class GfTestCase(TestCase):
+    def setUp(self):
+        return self.clean_up()
+
+    def tearDown(self):
+        return self.clean_up()
+
+    def clean_up(self):
+        gf = make_gf()
+        for ana in gf.primary_workspace.analyses:
+            ana.delete(delete=True)
+
+        for w in gf.workspaces:
+            if w.workspace_type != WorkspaceType.PRIMARY:
+                w.delete(delete=True)
 
 
 class TestFigures(TestCase):
@@ -636,9 +657,11 @@ class MultiUserTestCase(TestCase):
             yield workspace
 
             for analysis in workspace.analyses:
+                analysis.fetch()
                 yield analysis
 
                 for fig in analysis.figures:
+                    fig.fetch()
                     yield fig
 
                     for rev in fig.revisions:
@@ -695,13 +718,13 @@ class TestPermissions(MultiUserTestCase):
             # they do not have access)
             for w in client.workspaces:
                 for ana in w.analyses:
+                    ana.fetch()
                     ana.workspace = other_client.primary_workspace
 
                     for patch in [False, True]:
                         with self.assertRaises(UnauthorizedError,
                                                msg=f"Unauthorized move granted on: {ana} -> {ana.workspace}"):
                             ana.save(patch=patch)
-
 
                     # Likewise with figures
                     for fig in ana.figures:
@@ -716,6 +739,7 @@ class TestPermissions(MultiUserTestCase):
             # (to which they do)
             for w in other_client.workspaces:
                 for ana in w.analyses:
+                    ana.fetch()
                     ana.workspace = client.primary_workspace
 
                     for patch in [False, True]:
@@ -737,6 +761,7 @@ class TestPermissions(MultiUserTestCase):
             # Attempt to create analyses and figures in workspaces that you do not control
             for w in client.workspaces:
                 for ana in w.analyses:
+                    ana.fetch()
                     new_ana = self.clone_gf_object(ana, other_client)
                     new_ana.api_id = None  # pretend it's a new object
 
@@ -933,3 +958,106 @@ class TestWorkspaceMemberManagement(MultiUserTestCase):
                 self.assertEqual(len(workspace.get_members()), 1)
                 self.assertIn(client.username, [m.username for m in workspace.get_members()])
                 self.assertNotIn(other_client.username, [m.username for m in workspace.get_members()])
+
+
+class TestSizeCalculation(GfTestCase):
+    def test_size_read_only(self):
+        """Tests that we cannot manually change the size of objects"""
+        gf = make_gf()
+
+        initial_workspace_size = gf.primary_workspace.size_bytes
+        gf.primary_workspace.size_bytes = initial_workspace_size + 10
+        gf.primary_workspace.save()
+
+        gf.primary_workspace.fetch()
+        self.assertEqual(gf.primary_workspace.size_bytes, initial_workspace_size)
+
+        ana = gf.Analysis(name="test analysis", workspace=gf.primary_workspace).create()
+        self.assertEqual(ana.size_bytes, 0)
+        ana.size_bytes = 10
+        ana.save()
+        ana.fetch()
+        self.assertEqual(ana.size_bytes, 0)
+
+        fig = gf.Figure(name="test figure", analysis=ana, size_bytes=123).create()
+        self.assertEqual(fig.size_bytes, 0)
+        fig.size_bytes = 123
+        fig.save()
+        fig.fetch()
+        self.assertEqual(fig.size_bytes, 0)
+
+    def test_size(self):
+        gf = make_gf()
+
+        initial_workspace_size = gf.primary_workspace.size_bytes
+
+        # Create a new analysis. Initial size should be 0
+        ana = gf.Analysis(name="test analysis", workspace=gf.primary_workspace).create()
+        self.assertEqual(ana.size_bytes, 0)
+        ana.fetch()
+        self.assertEqual(ana.size_bytes, 0)
+
+        # Create a bunch of figures & revisions, each revision of arbitrary size 7
+        num_figures = 3
+        num_revisions = 4
+        rev_size = 7
+        for fig_idx in range(num_figures):
+            fig = gf.Figure(name=f"figure {fig_idx}", analysis=ana).create()
+            self.assertEqual(fig.size_bytes, 0)
+            fig.fetch()
+            self.assertEqual(fig.size_bytes, 0)
+
+            for rev_idx in range(num_revisions):
+                rev = gf.Revision(figure=fig, data=[TextData(name="text", contents="1234567")]).create()
+                self.assertEqual(rev.size_bytes, 7)
+                fig.fetch()
+                self.assertEqual(rev.size_bytes, 7)
+
+        self.assertEqual(gf.primary_workspace.fetch().size_bytes,
+                         initial_workspace_size + rev_size * num_figures * num_revisions)
+        self.assertEqual(ana.fetch().size_bytes, rev_size * num_figures * num_revisions)
+
+        deleted_revisions = 0
+        deleted_figures = 0
+        for fig in ana.figures[:-1]:
+            fig.fetch()
+            self.assertEqual(fig.size_bytes, rev_size * num_revisions)
+
+            # Delete a revision
+            fig.revisions[0].delete(delete=True)
+            deleted_revisions += 1
+
+            # Make sure changes propagated properly
+            fig.fetch()
+            self.assertEqual(fig.size_bytes, rev_size * (num_revisions - 1))
+
+            ana.fetch()
+            self.assertEqual(ana.size_bytes, rev_size * (num_figures - deleted_figures) * num_revisions - rev_size * deleted_revisions)
+
+            gf.primary_workspace.fetch()
+            self.assertEqual(gf.primary_workspace.size_bytes,
+                             initial_workspace_size + rev_size * (num_figures - deleted_figures) * num_revisions - \
+                             rev_size * deleted_revisions)
+
+            # Delete the whole figure
+            fig.delete(delete=True)
+            deleted_figures += 1
+            deleted_revisions = 0
+            ana.fetch()
+            self.assertEqual(ana.size_bytes, rev_size * (num_figures - deleted_figures) * num_revisions)
+
+            gf.primary_workspace.fetch()
+            self.assertEqual(gf.primary_workspace.size_bytes,
+                             initial_workspace_size + rev_size * (num_figures - deleted_figures) * num_revisions)
+
+        # At this point, we should have a single figure left, with all of its revisions intact
+        ana.fetch()
+        self.assertEqual(ana.size_bytes, rev_size * num_revisions)
+
+        gf.primary_workspace.fetch()
+        self.assertEqual(gf.primary_workspace.size_bytes, initial_workspace_size + rev_size * num_revisions)
+
+        # Delete the analysis
+        ana.delete(delete=True)
+        gf.primary_workspace.fetch()
+        self.assertEqual(gf.primary_workspace.size_bytes, initial_workspace_size)

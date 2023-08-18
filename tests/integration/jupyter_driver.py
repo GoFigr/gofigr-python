@@ -55,11 +55,12 @@ def run_notebook(driver, jupyter_url):
         driver.find_element(by=By.CSS_SELECTOR, value="#restart_run_all").click()
         time.sleep(5)
     except selenium.common.exceptions.NoSuchElementException:
-        # For Jupyter Notebook 5.x
+        # For Jupyter Notebook 5.x or 7.0+
         find_element_with_alternatives(driver, by=By.CSS_SELECTOR,
                                        possible_values=[
                                            'button[data-jupyter-action="jupyter-notebook:confirm-restart-kernel-and-run-all-cells"]',
-                                           "button[data-command='runmenu:restart-and-run-all']"
+                                           "button[data-command='runmenu:restart-and-run-all']",
+                                           "button[data-command='notebook:restart-run-all']"
                                        ]).click()
         time.sleep(5)
 
@@ -85,11 +86,16 @@ def run_lab(driver, jupyter_url):
     time.sleep(10)
 
     # Restart and run all button
-    driver.find_element(by=By.CSS_SELECTOR, value="button[data-command='runmenu:restart-and-run-all']").click()
+    find_element_with_alternatives(driver, by=By.CSS_SELECTOR, possible_values=[
+        "button[data-command='runmenu:restart-and-run-all']",
+        "button[data-command='notebook:restart-run-all']"
+    ]).click()
     time.sleep(5)
 
     # Confirm
-    driver.find_element(by=By.CSS_SELECTOR, value=".jp-Dialog-button.jp-mod-warn").click()
+    find_element_with_alternatives(driver, by=By.CSS_SELECTOR, possible_values=[
+        ".jp-Dialog-button.jp-mod-warn"
+    ]).click()
     time.sleep(5)
 
 
@@ -97,6 +103,9 @@ def run_attempt(args, working_dir, reader, writer, attempt):
     proc = subprocess.Popen(["jupyter", args.service, "--no-browser", args.notebook_path],
                             stdout=writer,
                             stderr=writer)
+
+    start_time = datetime.now()
+    timed_out = True
 
     driver = None
     success = False
@@ -107,6 +116,11 @@ def run_attempt(args, working_dir, reader, writer, attempt):
             m = re.match(r'.*(http.*\?token=\w+).*', line)
             if m is not None:
                 jupyter_url = m.group(1)
+            elif "/tree" in line:
+                raise RuntimeError("Found a URL but not a token. Are you using password authentication?")
+
+            if (datetime.now() - start_time).total_seconds() >= args.timeout:
+                raise RuntimeError("Timed out")
 
             time.sleep(0.5)
 
@@ -124,7 +138,7 @@ def run_attempt(args, working_dir, reader, writer, attempt):
             opts.add_argument('--headless=new')
 
         print(f"Headless: {args.headless}")
-        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()),
+        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager(driver_version="114.0.5735.90").install()),
                                   options=opts)
         driver.implicitly_wait(30.0)
 
@@ -135,8 +149,6 @@ def run_attempt(args, working_dir, reader, writer, attempt):
         else:
             raise ValueError(f"Unsupported service: {args.service}")
 
-        start_time = datetime.now()
-        timed_out = True
         while (datetime.now() - start_time).total_seconds() < args.timeout:
             if os.path.exists(output_path + ".done"):
                 timed_out = False
