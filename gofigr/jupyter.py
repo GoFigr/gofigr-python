@@ -556,7 +556,10 @@ class Publisher:
             backend.close(fig)
 
         with SuppressDisplayTrap():
-            display(HTML(f"<a href='{rev.revision_url}'>View on GoFigr</a>"))
+            display(HTML(f"""
+            <div style='margin-top: 1em; margin-bottom: 1em; margin-left: auto; margin-right: auto;'>
+                <a href='{rev.revision_url}'>View on GoFigr</a>
+            </div>"""))
 
         return rev
 
