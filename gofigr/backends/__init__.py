@@ -23,7 +23,7 @@ def get_all_function_arguments(frame):
 
     # Kwargs
     if arg_values.keywords:
-        for arg_value in arg_values.locals[arg_values.keywords]:
+        for arg_value in arg_values.locals[arg_values.keywords].values():
             yield arg_value
 
 class GoFigrBackend(ABC):
