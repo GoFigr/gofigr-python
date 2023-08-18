@@ -55,7 +55,7 @@ def run_listener(port, callback, queue_instance):
 
     async def _async_helper():
         queue_instance.put("started")  # will unblock the calling method in the main Jupyter thread
-        async with serve(handle_message, "localhost", port):
+        async with serve(handle_message, "0.0.0.0", port):
             await asyncio.Future()  # run forever
 
     asyncio.run(_async_helper())
@@ -97,7 +97,7 @@ def run_listener_async(callback):
 
     if _CALLBACK_THREAD is not None:
         _STOP_CALLBACK_THREAD = True
-        time.sleep(1)
+        _CALLBACK_THREAD.join(2.0)
 
     _QUEUE = multiprocessing.Queue()
 

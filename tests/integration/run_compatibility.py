@@ -17,16 +17,17 @@ from gofigr.jupyter import from_config_or_env
 
 
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
-def get_gf(username, password):
-    return GoFigr(username=username, password=password, url="https://api-dev.gofigr.io")
+def get_gf(test_user, test_password):
+    return GoFigr(username=test_user, password=test_password, url="https://api-dev.gofigr.io")
 
 
 def clean_up():
     gf = get_gf()
 
-    ana = gf.primary_workspace.get_analysis("Integration tests", create=True)
+    ana = gf.primary_workspace.get_analysis("Integration tests", create=True).fetch()
     print("Cleaning up....")
     for fig in tqdm(ana.figures):
+        fig.fetch()
         for rev in fig.revisions:
             rev.delete(delete=True)
 
@@ -82,8 +83,8 @@ def main():
             else:
                 print("  => Complete")
 
-    clean_up()
-    print("Cleanup complete.")
+        clean_up()
+        print("Cleanup complete.")
 
 
 if __name__ == "__main__":

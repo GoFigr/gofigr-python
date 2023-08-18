@@ -149,13 +149,12 @@ class DefaultWatermark:
         draw.text((self.margin_px[0], self.margin_px[1]), text, fill="black", font=self.font)
         return img
 
-    def apply(self, image, revision):
+    def get_watermark(self, revision):
         """\
-        Adds a QR watermark to an image.
+        Generates just the watermark for a revision.
 
-        :param image: PIL.Image
-        :param revision: instance of FigureRevision
-        :return: PIL.Image containing the watermarked image
+        :param revision: FigureRevision
+        :return: PIL.Image
 
         """
         identifier_text = f'{APP_URL}/r/{revision.api_id}'
@@ -168,4 +167,15 @@ class DefaultWatermark:
                                   background=self.qr_background)
             qr_img = add_margins(qr_img, self.margin_px)
 
-        return stack_vertically(image, stack_horizontally(identifier_img, qr_img))
+        return stack_horizontally(identifier_img, qr_img)
+
+    def apply(self, image, revision):
+        """\
+        Adds a QR watermark to an image.
+
+        :param image: PIL.Image
+        :param revision: instance of FigureRevision
+        :return: PIL.Image containing the watermarked image
+
+        """
+        return stack_vertically(image, self.get_watermark(revision))

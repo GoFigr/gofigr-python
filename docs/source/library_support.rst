@@ -10,10 +10,33 @@ The GoFigr Jupyter extension has been tested with:
 * ``jupyterlab >= 3.6.3``
 * ``matplotlib >= 3.5.3``
 * ``ipython >= 7.34.0``
+* ``plotly >= 4.14.3``
 
 Library support
 ********************
 
-At the moment, GoFigr works with matplotlib and matplotlib-based libraries like seaborn. However, the service itself
-should work with any plotting library which can produce an image.
+GoFigr supports matplotlib (including derivatives like seaborn) and plotly. The plotly support is currently in beta.
+
+The plotly backend can export both static images as well as interactive plots.
+
 We welcome patches which add support for new libraries at https://github.com/GoFigr/gofigr-python.
+
+
+Customizing backends
+**************************
+
+You can enable/disable backends by passing a list to :func:`gofigr.jupyter.configure`. By default, all available
+backends are enabled.
+
+.. code:: python
+
+    %reload_ext gofigr
+
+    from gofigr.jupyter import *
+    from gofigr.backends.matplotlib import MatplotlibBackend
+    from gofigr.backends.plotly import PlotlyBackend
+
+    configure(analysis=FindByName("Documentation examples", create=True),
+              auto_publish=True,
+              watermark=DefaultWatermark(show_qr_code=False),
+              backends=[PlotlyBackend, MatplotlibBackend])
