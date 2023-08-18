@@ -60,8 +60,29 @@ class PlotlyBackend(GoFigrBackend):
     def figure_to_html(self, fig):
         return fig.to_html(include_plotlyjs='cdn')
 
-    def figure_to_watermarked_html(self, fig, rev, watermark):
-        return fig.to_html(include_plotlyjs='cdn').replace("</body>", f"{rev.api_id}</body>")
+    def add_interactive_watermark(self, fig, rev, watermark):
+        orig_height = getattr(fig.layout, "height")
+        if orig_height is None:
+            orig_height = 450  # Plotly default
+
+        margin = 100
+        new_height = 2 * margin + orig_height
+
+        wfig = go.Figure(fig)
+        wfig.update_layout(margin=dict(l=0, r=0, t=margin, b=margin))
+        wfig.update_layout(height=new_height)
+
+        wfig.add_annotation(dict(font=dict(color='black', size=15),
+                                 x=0,
+                                 y=-margin / orig_height,
+                                 showarrow=False,
+                                 text=f"<a href='{rev.revision_url}'>{rev.revision_url}</a>",
+                                 textangle=0,
+                                 xanchor='left',
+                                 xref="paper",
+                                 yref="paper"))
+
+        return wfig
 
     def close(self, fig):
         pass

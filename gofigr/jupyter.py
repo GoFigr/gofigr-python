@@ -303,45 +303,6 @@ DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
 
 def display_interactive(image_data):
     fig_html = image_data.data.decode('utf-8')
-    if "<body>" in fig_html:
-        loader_html = """
-        <script>
-        function resizePlotlies(width=null, height=null) {
-    let plotsChanged = 0;
-    for(const elt of document.getElementsByClassName("plotly-graph-div")) {
-        try {
-            Plotly.relayout(elt, {width: width, height: height});
-            plotsChanged += 1
-        } catch(error) {
-            console.error("Could not update plot size. Error below.")
-            console.error(error);
-        }
-    }
-    return plotsChanged;
-}
-
-function gofigrPlotlyInit(attempt=0) {
-    if(attempt >= 20) {
-        console.error("Could not find any plots to re-layout")
-        return;
-    }
-
-    setTimeout(() => {
-        const plotsChanged = resizePlotlies(window.innerWidth - 200, window.innerHeight - 200);
-        if(plotsChanged === 0) {
-           gofigrPlotlyInit(attempt=attempt + 1)  // try again
-        } else {
-            addEventListener("resize", () => {
-                resizePlotlies(window.innerWidth - 200, window.innerHeight - 200);
-            })
-        }
-    }, 100)
-}
-        </script>
-        
-        <script>gofigrPlotlyInit()</script>"""
-        fig_html = fig_html.replace("<body>", "<body style='margin: 0'>" + loader_html)
-
     fig_b64 = base64.b64encode(fig_html.encode('utf-8')).decode('utf-8')
     display(HTML(f"""
     <iframe src="data:text/html;base64,{fig_b64}" height="800px" width="100%"></iframe>
@@ -472,23 +433,52 @@ class Publisher:
                                            data=backend.figure_to_html(fig).encode('utf-8'),
                                            is_watermarked=False))
 
+            wfig = backend.add_interactive_watermark(fig, rev, self.watermark)
             html_with_watermark = gf.ImageData(name="figure", format="html",
-                                               data=backend.figure_to_watermarked_html(
-                                                   fig, rev, self.watermark).encode('utf-8'),
+                                               data=backend.figure_to_html(wfig).encode('utf-8'),
                                                is_watermarked=True)
             image_data.append(html_with_watermark)
-            image_to_display = html_with_watermark
+            image_to_display = wfig  # display the native Figure
 
         return image_data, image_to_display
 
     def annotate(self, rev):
-        # Annotate the revision
+        """
+        Annotates a FigureRevision using self.annotators.
+        :param rev: revision to annotate
+        :return: annotated revision
+
+        """
         for annotator in self.annotators:
             with MeasureExecution(annotator.__class__.__name__):
                 annotator.annotate(rev)
         return rev
 
-    def publish(self, fig=None, target=None, gf=None, dataframes=None, metadata=None, return_revision=False,
+    def _infer_figure_and_backend(self, fig, backend):
+        """\
+        Given a figure and a backend where one of the values could be null, returns a complete set
+        of a figure to publish and a matching backend.
+
+        :param fig: figure to publish. None to publish the default for the backend
+        :param backend: backend to use. If None, will infer from figure
+        :return: tuple of figure and backend
+        """
+        if fig is None and backend is None:
+            raise ValueError("You did not specify a figure to publish.")
+        elif fig is not None and backend is not None:
+            return fig, backend
+        elif fig is None and backend is not None:
+            fig = backend.get_default_figure()
+
+            if fig is None:
+                raise ValueError("You did not specify a figure to publish, and the backend does not have "
+                                 "a default.")
+        else:
+            backend = get_backend(fig, self.backends)
+
+        return fig, backend
+
+    def publish(self, fig=None, target=None, gf=None, dataframes=None, metadata=None,
                 backend=None, image_options=None, suppress_display=None):
         """\
         Publishes a revision to the server.
@@ -499,30 +489,19 @@ class Publisher:
         :param gf: GoFigure instance
         :param dataframes: dictionary of dataframes to associate & publish with the figure
         :param metadata: metadata (JSON) to attach to this revision
-        :param return_revision: whether to return a FigureRevision object. This is optional, because in normal Jupyter \
         usage this will cause Jupyter to print the whole object which we don't want.
         :param backend: backend to use, e.g. MatplotlibBackend. If None it will be inferred automatically based on \
         figure type
         :param image_options: backend-specific params passed to backend.figure_to_bytes
-        :param native_publish: if used in an auto-publish hook, this will contain a callable which will
-        render the figure using the default IPython publisher.
+        :param suppress_display: if used in an auto-publish hook, this will contain a callable which will
+        suppress the display of this figure using the native IPython backend.
         :return: FigureRevision instance
 
         """
         # pylint: disable=too-many-branches
-        if gf is None:
-            gf = _GF_EXTENSION.gf
-
-        if fig is None:
-            if backend is not None:
-                fig = backend.get_default_figure()
-
-                if fig is None:
-                    raise ValueError("You did not specify a figure to publish.")
-            else:
-                raise ValueError("You did not specify a figure to publish.")
-        elif fig is not None and backend is None:
-            backend = get_backend(fig, self.backends)
+        ext = get_extension()
+        gf = gf if gf is not None else ext.gf
+        fig, backend = self._infer_figure_and_backend(fig, backend)
 
         with MeasureExecution("Resolve target"):
             target = self._resolve_target(gf, fig, target, backend)
@@ -548,10 +527,10 @@ class Publisher:
 
         if image_to_display is not None:
             with SuppressDisplayTrap():
-                if image_to_display.is_interactive:
-                    display_interactive(image_to_display)
-                else:
+                if isinstance(image_to_display, gf.ImageData):
                     display(image_to_display.image)
+                else:
+                    display(image_to_display)
 
             if suppress_display is not None:
                 suppress_display()
@@ -576,9 +555,10 @@ class Publisher:
         if self.clear:
             backend.close(fig)
 
-        print(f"{gf.app_url}/r/{rev.api_id}")
+        with SuppressDisplayTrap():
+            display(HTML(f"<a href='{rev.revision_url}'>View on GoFigr</a>"))
 
-        return rev if return_revision else None
+        return rev
 
 
 def from_config_or_env(env_prefix, config_path):

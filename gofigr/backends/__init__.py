@@ -88,14 +88,14 @@ class GoFigrBackend(ABC):
         """
         raise NotImplementedError
 
-    def figure_to_watermarked_html(self, fig, rev, watermark):
+    def add_interactive_watermark(self, fig, rev, watermark):
         """\
-        Converts a figure to interactive HTML with a watermark (if supported by the backend)
+        Adds watermark to a figure using the backend's native objects (if supported by the backend)
 
-        :param fig: figure to convert to HTML
+        :param fig: figure to watermark
         :param rev: FigureRevision object
         :param watermark: DefaultWatermark instance
-        :return: figure as HTML string
+        :return: modified figure
 
         """
         raise NotImplementedError

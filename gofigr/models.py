@@ -1236,6 +1236,10 @@ class gf_Revision(ShareableModelMixin):
         self.data = other + list(value)
 
     @property
+    def revision_url(self):
+        return f"{self._gf.app_url}/r/{self.api_id}"
+
+    @property
     def image_data(self):
         """Returns only image data (if any)"""
         return [dat for dat in self.data if dat.type == DataType.IMAGE]
