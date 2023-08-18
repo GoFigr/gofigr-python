@@ -86,11 +86,16 @@ def run_lab(driver, jupyter_url):
     time.sleep(10)
 
     # Restart and run all button
-    driver.find_element(by=By.CSS_SELECTOR, value="button[data-command='runmenu:restart-and-run-all']").click()
+    find_element_with_alternatives(driver, by=By.CSS_SELECTOR, possible_values=[
+        "button[data-command='runmenu:restart-and-run-all']",
+        "button[data-command='notebook:restart-run-all']"
+    ]).click()
     time.sleep(5)
 
     # Confirm
-    driver.find_element(by=By.CSS_SELECTOR, value=".jp-Dialog-button.jp-mod-warn").click()
+    find_element_with_alternatives(driver, by=By.CSS_SELECTOR, possible_values=[
+        ".jp-Dialog-button.jp-mod-warn"
+    ]).click()
     time.sleep(5)
 
 
