@@ -233,8 +233,15 @@ class _GoFigrExtension:
         Unregisters all hooks, effectively disabling the plugin.
 
         """
-        self.shell.events.unregister('pre_run_cell', self.pre_run_cell)
-        self.shell.events.unregister('post_run_cell', self.post_run_cell)
+        try:
+            self.shell.events.unregister('pre_run_cell', self.pre_run_cell)
+        except ValueError:
+            pass
+
+        try:
+            self.shell.events.unregister('post_run_cell', self.post_run_cell)
+        except ValueError:
+            pass
 
     def register_hooks(self):
         """\
