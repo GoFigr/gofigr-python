@@ -221,7 +221,7 @@ class _GoFigrExtension:
         """Inserts a handler at the beginning of the list while avoiding double-insertions"""
         handlers = [handler]
         for hnd in self.shell.events.callbacks[event_name]:
-            self.shell.events.unregister('post_execute', handler)
+            self.shell.events.unregister(event_name, hnd)
             if hnd != handler:  # in case it's already registered, skip it
                 handlers.append(hnd)
 
