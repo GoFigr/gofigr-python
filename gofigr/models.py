@@ -1276,3 +1276,15 @@ class gf_Revision(ShareableModelMixin):
     @text_data.setter
     def text_data(self, value):
         return self._replace_data_type(DataType.TEXT, value)
+
+
+class gf_ApiKey(ModelMixin):
+    """Represents a workspace"""
+    # pylint: disable=protected-access
+
+    fields = ["api_id",
+              "name",
+              "token",
+              "created", Timestamp("created_on"),
+              "last_used", Timestamp("updated_on")]
+    endpoint = "api_key/"
