@@ -113,6 +113,45 @@ def pretty_format_name(name):
         return name
 
 
+def login_with_username(config):
+    """Logs in with a username and a password, returning a connected GoFigr client"""
+    while True:
+        username = read_input("Username: ", assert_nonempty)
+        password = read_input("Password: ", assert_nonempty, password=True)
+
+        print("Verifying connection...")
+        try:
+            gf = GoFigr(username=username, password=password, **config)
+            gf.heartbeat(throw_exception=True)
+            print("  => Authenticated successfully")
+            return gf
+        except RuntimeError as e:
+            print(f"{e}. Please try again.")
+
+
+def login_with_api_key(gf, config, config_path):
+    """Using a GoFigr instance connected with a username and a password, switches to API key authentication"""
+    while True:
+        token = read_input("API key (leave blank to generate a new key): ", validator=lambda val: val)
+        print(token)
+        if token in [None, ""]:
+            key_name = read_input("Key name: ", assert_nonempty)
+            apikey = gf.create_api_key(key_name)
+            print(f"  => Your new API key will be saved to {config_path}")
+            config['api_key'] = apikey.token
+        else:
+            config['api_key'] = token
+
+        # Connect with the API key
+        try:
+            gf_key = GoFigr(**config)
+            gf_key.heartbeat(throw_exception=True)
+            print("  => Connected successfully")
+            return gf_key
+        except RuntimeError as e:
+            print(f"{e}. Please try again.")
+
+
 def main():
     """\
     Main entry point
@@ -122,29 +161,21 @@ def main():
     parser.add_argument("-a", "--advanced", action='store_true', help="Configure lesser-used settings.")
     args = parser.parse_args()
 
+    config_path = os.path.join(os.environ['HOME'], '.gofigr')
+
     print("-" * 30)
     print("GoFigr configuration")
     print("-" * 30)
 
-    connection_ok = False
-
     config = {}
-    gf = None
-    while not connection_ok:
-        config['username'] = read_input("Username: ", assert_nonempty)
-        config['password'] = read_input("Password: ", assert_nonempty, password=True)
+    if args.advanced:
+        config['url'] = read_input(f"API URL [{API_URL}]: ", assert_nonempty, default=API_URL)
 
-        if args.advanced:
-            config['url'] = read_input(f"API URL [{API_URL}]: ", assert_nonempty, default=API_URL)
+    # Log in with username + pw first
+    gf_pw_auth = login_with_username(config)
 
-        print("Verifying connection...")
-        try:
-            gf = GoFigr(**config)
-            gf.heartbeat(throw_exception=True)
-            connection_ok = True
-            print("  => Connected successfully")
-        except RuntimeError as e:
-            print(f"{e}. Please try again.")
+    # Switch to API key auth
+    gf = login_with_api_key(gf_pw_auth, config, config_path)
 
     if args.advanced:
         config['auto_publish'] = read_input("Auto-publish all figures [Y/n]: ", yes_no, default='yes')
@@ -166,7 +197,6 @@ def main():
                                default=default_idx)
     config['workspace'] = workspaces[workspace_idx - 1].api_id
 
-    config_path = os.path.join(os.environ['HOME'], '.gofigr')
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(config, f, indent=4)
         f.write("\n")

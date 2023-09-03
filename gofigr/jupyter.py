@@ -695,7 +695,9 @@ def listener_callback(result):
 
 # pylint: disable=too-many-arguments, too-many-locals
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
-def configure(username, password, workspace=None, analysis=None, url=API_URL,
+def configure(username=None, password=None,
+              api_key=None,
+              workspace=None, analysis=None, url=API_URL,
               default_metadata=None, auto_publish=True,
               watermark=None, annotators=DEFAULT_ANNOTATORS,
               notebook_name=None, notebook_path=None,
@@ -703,8 +705,9 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
     """\
     Configures the Jupyter plugin for use.
 
-    :param username: GoFigr username
-    :param password: GoFigr password
+    :param username: GoFigr username (if used instead of API key)
+    :param password: GoFigr password (if used instead of API key)
+    :param api_key: API Key (if used instead of username and password)
     :param url: API URL
     :param workspace: one of: API ID (string), ApiId instance, or FindByName instance
     :param analysis: one of: API ID (string), ApiId instance, or FindByName instance
@@ -724,7 +727,7 @@ def configure(username, password, workspace=None, analysis=None, url=API_URL,
         auto_publish = auto_publish.lower() == "true"  # in case it's coming from an environment variable
 
     with MeasureExecution("Login"):
-        gf = GoFigr(username=username, password=password, url=url)
+        gf = GoFigr(username=username, password=password, url=url, api_key=api_key)
 
     if workspace is None:
         workspace = gf.primary_workspace

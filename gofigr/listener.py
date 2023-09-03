@@ -2,7 +2,7 @@
 Copyright (c) 2023, Flagstaff Solutions, LLC
 All rights reserved.
 
-GoFigr listener is a small embedded HTTP server made available
+GoFigr listener is a small embedded WebSocket server made available
 to Javascript calls within Jupyter/JupyterLab notebooks. We
 use it to capture notebook metadata not readily available to IPython,
 such as the server URL or notebook name.

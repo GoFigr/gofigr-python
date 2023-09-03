@@ -8,6 +8,7 @@ import logging
 
 import requests
 from requests import Session
+from PIL import Image
 
 from gofigr.models import *
 
@@ -81,7 +82,7 @@ class UserInfo:
         if not data:
             return None
 
-        return PIL.Image.open(io.BytesIO(b64decode(data)))
+        return Image.open(io.BytesIO(b64decode(data)))
 
     @staticmethod
     def from_json(obj):
