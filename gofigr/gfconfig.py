@@ -133,7 +133,6 @@ def login_with_api_key(gf, config, config_path):
     """Using a GoFigr instance connected with a username and a password, switches to API key authentication"""
     while True:
         token = read_input("API key (leave blank to generate a new key): ", validator=lambda val: val)
-        print(token)
         if token in [None, ""]:
             key_name = read_input("Key name: ", assert_nonempty)
             apikey = gf.create_api_key(key_name)

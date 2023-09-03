@@ -1279,7 +1279,11 @@ class gf_Revision(ShareableModelMixin):
 
 
 class gf_ApiKey(ModelMixin):
-    """Represents a workspace"""
+    """\
+    Represents an API key. The field 'token' is the actual token used to authenticate, and is always null
+    except at key creation.
+
+    """
     # pylint: disable=protected-access
 
     fields = ["api_id",
