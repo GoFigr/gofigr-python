@@ -19,9 +19,10 @@ from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, Share
     TextData
 
 
-def make_gf(authenticate=True, username=None, password=None):
-    return GoFigr(username=username or os.environ['GF_TEST_USER'],
-                  password=password or os.environ['GF_TEST_PASSWORD'],
+def make_gf(authenticate=True, username=None, password=None, api_key=None):
+    return GoFigr(username=username or (os.environ['GF_TEST_USER'] if api_key is None else None),
+                  password=password or (os.environ['GF_TEST_PASSWORD'] if api_key is None else None),
+                  api_key=api_key,
                   url=os.environ['GF_TEST_API_URL'],
                   authenticate=authenticate)
 
@@ -59,6 +60,105 @@ class TestAuthentication(TestCase):
         bad_gf.username = bad_gf.username + "oops"
         self.assertRaises(RuntimeError, lambda: bad_gf.authenticate())
         self.assertRaises(RuntimeError, lambda: bad_gf.heartbeat())
+
+    def _revoke_all_keys(self):
+        gf1 = make_gf(authenticate=True)
+        gf2 = make_gf(authenticate=True, username=gf1.username + "2")
+
+        # Revoke all keys (if any)
+        for gf in [gf1, gf2]:
+            for ak in gf.list_api_keys():
+                gf.revoke_api_key(ak)
+
+    def setUp(self):
+        self._revoke_all_keys()
+
+    def tearDown(self):
+        self._revoke_all_keys()
+
+    def test_api_key_authentication(self):
+        gf = make_gf(authenticate=True)
+
+        # Create an API key
+        api_key = gf.create_api_key("test key")
+        token = api_key.token
+
+        # Create a client using the key
+        gf_tok = make_gf(username=None, password=None, api_key=token, authenticate=True)
+
+        self.assertEqual(gf_tok.username, gf.username)
+        self.assertEqual(gf_tok.primary_workspace, gf.primary_workspace)
+
+        # Make sure we can create and modify objects
+        ana = gf_tok.Analysis(name="Test analysis", workspace=gf_tok.primary_workspace).create()
+
+        ana.name = "Updated analysis"
+        ana.save()
+        ana.fetch()
+
+        self.assertEqual(ana.name, "Updated analysis")
+
+        # Make sure we can't revoke or create new keys when using API key authentication
+        self.assertRaises(RuntimeError, lambda: gf_tok.create_api_key("should not work"))
+        self.assertRaises(RuntimeError, lambda: gf_tok.revoke_api_key(api_key.api_id))
+
+        ana.fetch()  # Try a fetch before we revoke the key
+
+        # Revoke the key
+        gf.revoke_api_key(api_key.api_id)
+
+        # The token should no longer work
+        self.assertRaises(RuntimeError, lambda: ana.fetch())
+
+    def test_api_key_management(self):
+        gf = make_gf(authenticate=True)
+
+        # There should be no API keys yet
+        self.assertEqual(len(gf.list_api_keys()), 0)
+
+        key1 = gf.create_api_key('test key 1')
+        key2 = gf.create_api_key('test key 2')
+
+        self.assertEqual(key1.name, 'test key 1')
+        self.assertEqual(key2.name, 'test key 2')
+
+        # Token should be available at creation
+        self.assertIsNotNone(key1.token)
+        self.assertIsNotNone(key2.token)
+
+        # Re-retrieve keys from server
+        key1.name, key2.name = None, None
+        key1.fetch()
+        key2.fetch()
+        self.assertEqual(key1.name, 'test key 1')
+        self.assertEqual(key2.name, 'test key 2')
+
+        # Token should no longer be available
+        self.assertIsNone(key1.token)
+        self.assertIsNone(key2.token)
+
+        # Revoke key2
+        gf.revoke_api_key(key2)
+        self.assertEqual(len(gf.list_api_keys()), 1)
+        self.assertEqual(gf.list_api_keys()[0].name, 'test key 1')
+
+    def test_api_key_exclusivity(self):
+        gf = make_gf(authenticate=True)
+        gf2 = make_gf(authenticate=True, username=gf.username + "2")
+
+        # Each user creates their own key
+        key1 = gf.create_api_key('test key 1')
+        key2 = gf2.create_api_key('test key 2')
+
+        # They should only see their own keys
+        self.assertEqual(len(gf.list_api_keys()), 1)
+        self.assertEqual(gf.list_api_keys()[0].name, 'test key 1')
+        self.assertEqual(len(gf2.list_api_keys()), 1)
+        self.assertEqual(gf2.list_api_keys()[0].name, 'test key 2')
+
+        # Trying to get info about other people's keys should fail
+        self.assertRaises(RuntimeError, lambda: gf2.ApiKey(api_id=key1.api_id).fetch())
+        self.assertRaises(RuntimeError, lambda: gf.ApiKey(api_id=key2.api_id).fetch())
 
 
 class TestUsers(TestCase):

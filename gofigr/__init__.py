@@ -8,6 +8,7 @@ import logging
 
 import requests
 from requests import Session
+from PIL import Image
 
 from gofigr.models import *
 
@@ -81,7 +82,7 @@ class UserInfo:
         if not data:
             return None
 
-        return PIL.Image.open(io.BytesIO(b64decode(data)))
+        return Image.open(io.BytesIO(b64decode(data)))
 
     @staticmethod
     def from_json(obj):
@@ -123,13 +124,17 @@ class GoFigr:
     sharing, retrieval of user information, etc.
 
     """
-    def __init__(self, username, password,
+    def __init__(self,
+                 username=None,
+                 password=None,
+                 api_key=None,
                  url=API_URL,
                  authenticate=True):
         """\
 
         :param username: username to connect with
         :param password: password for authentication
+        :param api_key: API key for authentication (specify instead of username & password)
         :param url: API URL
         :param authenticate: whether to authenticate right away. If False, authentication will happen during
         the first request.
@@ -138,9 +143,11 @@ class GoFigr:
         self.service_url = url
         self.username = username
         self.password = password
+        self.api_key = api_key
 
         self._primary_workspace = None
 
+        # Tokens for JWT authentication
         self._access_token = None
         self._refresh_token = None
 
@@ -206,7 +213,31 @@ class GoFigr:
         except ValueError:
             return False
 
-    def _request(self, method, endpoint, throw_exception=True, expected_status=(HTTPStatus.OK, ), **kwargs):
+    def create_api_key(self, name):
+        """Creates an API key with the given name"""
+        # pylint: disable=no-member
+        return self.ApiKey(name=name).create()
+
+    def list_api_keys(self):
+        """Lists all API keys"""
+        # pylint: disable=no-member
+        return self.ApiKey().list()
+
+    def get_api_key(self, api_id):
+        """Gets information about a specific API key"""
+        # pylint: disable=no-member
+        return self.ApiKey(api_id=api_id).fetch()
+
+    def revoke_api_key(self, api_id):
+        """Revokes an API key"""
+        # pylint: disable=no-member
+        if isinstance(api_id, str):
+            return self.ApiKey(api_id=api_id).delete(delete=True)
+        else:
+            return api_id.delete(delete=True)
+
+    def _request(self, method, endpoint, throw_exception=True, expected_status=(HTTPStatus.OK, ),
+                 absolute_url=False, **kwargs):
         """\
         Convenience function for making HTTP requests.
 
@@ -214,20 +245,30 @@ class GoFigr:
         :param endpoint: relative API endpoint
         :param throw_exception: whether to check response status against expected_status and throw an exception
         :param expected_status: list of acceptable response status codes
+        :param absolute_url: if False (default), interpret the endpoint relative to the API URL. Otherwise assume
+        it's fully qualified.
         :param kwargs: extra params passed verbatim to method(...)
         :return: Response
 
         """
-        url = urljoin(self.api_url, endpoint)
+        if not absolute_url:
+            url = urljoin(self.api_url, endpoint)
+        else:
+            url = endpoint
+
         if not hasattr(expected_status, '__iter__'):
             expected_status = [expected_status, ]
 
-        if self._access_token is None:
+        if self._access_token is None and self.api_key is None:
             raise RuntimeError("Please authenticate first")
 
         rqst = requests.session()
         try:
-            response = method(rqst, url, headers={'Authorization': f'Bearer {self._access_token}'}, **kwargs)
+            if self.api_key is None:
+                response = method(rqst, url, headers={'Authorization': f'Bearer {self._access_token}'}, **kwargs)
+            else:
+                response = method(rqst, url, headers={'Authorization': f'Token {self.api_key}'}, **kwargs)
+
             if self._is_expired_token(response):
                 self._refresh_access_token()
                 return self._request(method, endpoint,
@@ -292,12 +333,7 @@ class GoFigr:
             if rqst is not None:
                 rqst.close()
 
-    def authenticate(self):
-        """\
-        Authenticates with the API.
-
-        :return: True
-        """
+    def _authenticate_jwt(self):
         rqst = requests.session()
         try:
             rsp = rqst.post(self.jwt_url,
@@ -313,6 +349,20 @@ class GoFigr:
         finally:
             if rqst is not None:
                 rqst.close()
+
+    def authenticate(self):
+        """\
+        Authenticates with the API.
+
+        :return: True
+        """
+        if self.api_key is not None:
+            # With an API key there's no separate auth step, so we make sure everything works by querying user info
+            info = self.user_info()
+            self.username = info.username
+            return True
+        else:
+            return self._authenticate_jwt()
 
     def user_info(self, username=None):
         """\
