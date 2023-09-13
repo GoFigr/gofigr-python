@@ -519,6 +519,10 @@ class TestData:
 
 
 class GfTestCase(TestCase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.gf = make_gf()
+
     def setUp(self):
         return self.clean_up()
 
@@ -526,7 +530,7 @@ class GfTestCase(TestCase):
         return self.clean_up()
 
     def clean_up(self):
-        gf = make_gf()
+        gf = self.gf
         for ana in gf.primary_workspace.analyses:
             ana.delete(delete=True)
 
@@ -710,6 +714,10 @@ class TestFigures(TestCase):
 
 
 class MultiUserTestCase(TestCase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.n_revisions = 5
+
     def setUp(self):
         self.gf1 = make_gf(username="testuser")
         self.gf2 = make_gf(username="testuser2")
@@ -727,7 +735,7 @@ class MultiUserTestCase(TestCase):
                 ana = workspace.analyses.create(gf.Analysis(name=f"{gf.username}'s test analysis"))
                 fig = ana.figures.create(gf.Figure(name=f"{gf.username}'s test figure"))
 
-                for idx in range(5):
+                for idx in range(self.n_revisions):
                     rev = gf.Revision(metadata={'index': idx},
                                       data=TestData(gf).load_external_data(nonce=idx))
                     fig.revisions.create(rev)

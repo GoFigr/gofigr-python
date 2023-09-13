@@ -809,6 +809,16 @@ class gf_Workspace(ModelMixin, LogsMixin):
         return self.analyses.find_or_create(name=name,
                                             default_obj=self._gf.Analysis(name=name, **kwargs) if create else None)
 
+    def get_invitations(self):
+        """\
+        Gets members of this workspace.
+
+        :return: list of WorkspaceMember objects
+        """
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/invitations/'),
+                                 expected_status=HTTPStatus.OK)
+        return [self._gf.WorkspaceInvitation(**datum, parse=True) for datum in response.json()]
+
     def get_members(self):
         """\
         Gets members of this workspace.
@@ -1284,11 +1294,58 @@ class gf_ApiKey(ModelMixin):
     except at key creation.
 
     """
-    # pylint: disable=protected-access
 
     fields = ["api_id",
               "name",
               "token",
-              "created", Timestamp("created_on"),
-              "last_used", Timestamp("updated_on")]
+              Timestamp("created"),
+              Timestamp("last_used")]
     endpoint = "api_key/"
+
+
+class gf_WorkspaceInvitation(ModelMixin):
+    """\
+    Represents an API key. The field 'token' is the actual token used to authenticate, and is always null
+    except at key creation.
+
+    """
+    # pylint: disable=protected-access
+
+    def _require_token(self):
+        if self.token is None:
+            raise ValueError("This action requires a valid token")
+
+    def fetch(self):
+        """\
+        Updates all fields from the server. Note that any unsaved local changes will be overwritten.
+
+        :return: self
+        """
+        if self.token is not None:
+            obj = self._gf._get(urljoin(self.endpoint, self.token)).json()
+            self._has_data = True
+        else:
+            self._check_api_id()
+            obj = self._gf._get(urljoin(self.endpoint, self.api_id)).json()
+            self._has_data = True
+
+        return self._update_properties(obj)
+
+    def delete(self, **kwargs):
+        return self.client._delete(urljoin(self.endpoint, self.api_id))
+
+    def accept(self):
+        """Accepts this invitation"""
+        self._require_token()
+        return self.client._post(urljoin(self.endpoint, self.token + "/accept"), json={})
+
+    fields = ["api_id",
+              "email",
+              "initiator",
+              "token",
+              "status",
+              Timestamp("created"),
+              Timestamp("expiry"),
+              LinkedEntityField("workspace", lambda gf: gf.Workspace, lazy=True, many=False),
+              "membership_type"]
+    endpoint = "invitations/workspace/"
