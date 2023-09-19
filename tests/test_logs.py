@@ -7,29 +7,14 @@ from collections import Counter
 from unittest import TestCase
 
 from gofigr import WorkspaceType
-from tests.test_client import make_gf
+from tests.test_client import make_gf, GfTestCase
 
 
 def get_action_counts(logs):
     return tuple(sorted(Counter([log.action for log in logs]).items()))
 
 
-class TestFigures(TestCase):
-    def setUp(self):
-        return self.clean_up()
-
-    def tearDown(self):
-        return self.clean_up()
-
-    def clean_up(self):
-        gf = make_gf()
-        for ana in gf.primary_workspace.analyses:
-            ana.delete(delete=True)
-
-        for w in gf.workspaces:
-            if w.workspace_type != WorkspaceType.PRIMARY:
-                w.delete(delete=True)
-
+class TestFigures(GfTestCase):
     def test_logs(self):
         gf = make_gf()
 
