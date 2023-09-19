@@ -334,6 +334,9 @@ def _test_timestamps(test_case, gf, obj, prop_name, vals, delay_seconds=0.5):
 
     for val in vals:
         time.sleep(delay_seconds)
+        if obj.prefetched:
+            obj.fetch()
+
         setattr(obj, prop_name, val)
         obj.save()
 
@@ -836,6 +839,7 @@ class TestPermissions(MultiUserTestCase):
 
                     # Likewise with figures
                     for fig in ana.figures:
+                        fig.fetch()
                         fig.analysis = other_client.primary_workspace.analyses[0]
 
                         for patch in [False, True]:
@@ -857,6 +861,7 @@ class TestPermissions(MultiUserTestCase):
 
                     # Same with figures
                     for fig in ana.figures:
+                        fig.fetch()
                         fig.analysis = client.primary_workspace.analyses[0]
 
                         for patch in [False, True]:

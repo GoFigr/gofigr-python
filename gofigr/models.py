@@ -220,7 +220,7 @@ class LinkedEntityField(Field):
             return value.api_id
 
     def to_internal_value(self, gf, data):
-        make_prefetched = lambda obj: self.entity_type(gf)(parse=True, **obj)
+        make_prefetched = lambda obj: self.entity_type(gf)(parse=True, prefetched=True, **obj)
         make_not_prefetched = lambda api_id: self.entity_type(gf)(api_id=api_id, lazy=self.lazy)
         if self.prefetched is True:
             make_one = make_prefetched
@@ -300,7 +300,7 @@ class ModelMixin(abc.ABC):
     endpoint = None
     _gf = None  # GoFigr instance. Will be set dynamically.
 
-    def __init__(self, api_id=None, lazy=False, parse=False, **kwargs):
+    def __init__(self, api_id=None, lazy=False, parse=False, prefetched=False, **kwargs):
         """
 
         :param api_id: API ID
@@ -309,6 +309,7 @@ class ModelMixin(abc.ABC):
         :param parse: if True, the fields' to_internal_value will be called on all properties. Otherwise, properties \
         will be stored verbatim. This is to support direct object creation from Python (i.e. parse = False), and \
         creation from JSON primitives (i.e. parse = True).
+        :param prefetched: True if this is a shallow, prefetched instance. False otherwise.
         :param kwargs:
 
         """
@@ -318,6 +319,7 @@ class ModelMixin(abc.ABC):
 
         self.api_id = api_id
         self.lazy = lazy
+        self.prefetched = prefetched
         self._has_data = not lazy
         fields = [Field(x) if isinstance(x, str) else x.clone()
                   for x in self.fields]
@@ -438,6 +440,10 @@ class ModelMixin(abc.ABC):
             else:
                 raise RuntimeError("API ID is None. Did you forget to create() the object first?")
 
+        if self.prefetched:
+            raise RuntimeError("This is a shallow instance. Please call fetch() before making and "
+                               "saving modifications.")
+
         if silent:
             params = "?silent=true"
         else:
@@ -466,6 +472,7 @@ class ModelMixin(abc.ABC):
         self._check_api_id()
         obj = self._gf._get(urljoin(self.endpoint, self.api_id)).json()
         self._has_data = True
+        self.prefetched = False
         return self._update_properties(obj)
 
     def create(self, update=False):
