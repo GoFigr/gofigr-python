@@ -1312,8 +1312,7 @@ class gf_ApiKey(ModelMixin):
 
 class gf_WorkspaceInvitation(ModelMixin):
     """\
-    Represents an API key. The field 'token' is the actual token used to authenticate, and is always null
-    except at key creation.
+    Represents an invitation to join a workspace.
 
     """
     # pylint: disable=protected-access
