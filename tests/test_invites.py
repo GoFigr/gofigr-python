@@ -11,7 +11,7 @@ import numpy as np
 from gofigr import UnauthorizedError
 from gofigr.models import WorkspaceMembership
 
-from tests.test_client import GfTestCase, MultiUserTestCase
+from tests.test_client import MultiUserTestCase
 
 
 def has_invite(workspace, invite):
@@ -19,6 +19,7 @@ def has_invite(workspace, invite):
         if inv.api_id == invite.api_id:
             return True
     return False
+
 
 class TestInvitations(MultiUserTestCase):
     def __init__(self, *args, **kwargs):

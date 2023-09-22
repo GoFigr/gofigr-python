@@ -129,7 +129,8 @@ class GoFigr:
                  password=None,
                  api_key=None,
                  url=API_URL,
-                 authenticate=True):
+                 authenticate=True,
+                 anonymous=False):
         """\
 
         :param username: username to connect with
@@ -138,12 +139,14 @@ class GoFigr:
         :param url: API URL
         :param authenticate: whether to authenticate right away. If False, authentication will happen during
         the first request.
+        :param anonymous: True for anonymous access. Default False.
 
         """
         self.service_url = url
         self.username = username
         self.password = password
         self.api_key = api_key
+        self.anonymous = anonymous
 
         self._primary_workspace = None
 
@@ -251,6 +254,7 @@ class GoFigr:
         :return: Response
 
         """
+        # pylint: disable=too-many-branches
         if not absolute_url:
             url = urljoin(self.api_url, endpoint)
         else:
@@ -259,12 +263,14 @@ class GoFigr:
         if not hasattr(expected_status, '__iter__'):
             expected_status = [expected_status, ]
 
-        if self._access_token is None and self.api_key is None:
+        if self._access_token is None and self.api_key is None and not self.anonymous:
             raise RuntimeError("Please authenticate first")
 
         rqst = requests.session()
         try:
-            if self.api_key is None:
+            if self.anonymous:
+                response = method(rqst, url, **kwargs)
+            elif self.api_key is None:
                 response = method(rqst, url, headers={'Authorization': f'Bearer {self._access_token}'}, **kwargs)
             else:
                 response = method(rqst, url, headers={'Authorization': f'Token {self.api_key}'}, **kwargs)
@@ -356,7 +362,10 @@ class GoFigr:
 
         :return: True
         """
-        if self.api_key is not None:
+        if self.anonymous:
+            self.username = None
+            return True
+        elif self.api_key is not None:
             # With an API key there's no separate auth step, so we make sure everything works by querying user info
             info = self.user_info()
             self.username = info.username

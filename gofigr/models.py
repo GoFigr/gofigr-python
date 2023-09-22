@@ -470,7 +470,7 @@ class ModelMixin(abc.ABC):
         :return: self
         """
         self._check_api_id()
-        obj = self._gf._get(urljoin(self.endpoint, self.api_id)).json()
+        obj = self._gf._get(urljoin(self.endpoint, self.api_id + "/")).json()
         self._has_data = True
         self.prefetched = False
         return self._update_properties(obj)
@@ -508,7 +508,7 @@ class ModelMixin(abc.ABC):
         if 'delete' not in kwargs or not kwargs['delete']:
             raise RuntimeError("Specify delete=True to delete this object. This cannot be undone.")
 
-        return self._gf._delete(urljoin(self.endpoint, self.api_id))
+        return self._gf._delete(urljoin(self.endpoint, self.api_id + "/"))
 
     def __repr__(self):
         return str(self.to_json())
@@ -1355,3 +1355,39 @@ class gf_WorkspaceInvitation(ModelMixin):
               LinkedEntityField("workspace", lambda gf: gf.Workspace, lazy=True, many=False),
               "membership_type"]
     endpoint = "invitations/workspace/"
+
+
+class gf_MetadataProxy(ModelMixin):
+    """\
+    Represents a proxy object for sharing metadata between the GoFigr extension (server-side) and the Jupyter client.
+
+    """
+    # pylint: disable=protected-access
+    def fetch(self):
+        """\
+        Updates all fields from the server. Note that any unsaved local changes will be overwritten.
+
+        :return: self
+        """
+        obj = self._gf._get(urljoin(self.endpoint, self.token)).json()
+        self._has_data = True
+        return self._update_properties(obj)
+
+    def delete(self, **kwargs):
+        return self.client._delete(urljoin(self.endpoint, self.token))
+
+    def save(self, *args, **kwargs):  # pylint: disable=unused-argument
+        return self.client._post(urljoin(self.endpoint, self.token), json={'metadata': self.metadata})
+
+    def update_metadata(self, metadata):
+        """Accepts this invitation"""
+        self._require_token()
+        return self.client._post(urljoin(self.endpoint, self.token), json=metadata)
+
+    fields = ["api_id",
+              "initiator",
+              "token",
+              Timestamp("created"),
+              Timestamp("expiry"),
+              JSONField("metadata")]
+    endpoint = "metadata/"
