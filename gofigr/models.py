@@ -1377,7 +1377,10 @@ class gf_MetadataProxy(ModelMixin):
         return self.client._delete(urljoin(self.endpoint, self.token))
 
     def save(self, *args, **kwargs):  # pylint: disable=unused-argument
-        return self.client._post(urljoin(self.endpoint, self.token), json={'metadata': self.metadata})
+        response = self.client._post(urljoin(self.endpoint, self.token), json={'metadata': self.metadata})
+        if response.json() is not None:
+            self._update_properties(response.json())
+        return self
 
     def update_metadata(self, metadata):
         """Accepts this invitation"""
@@ -1389,5 +1392,6 @@ class gf_MetadataProxy(ModelMixin):
               "token",
               Timestamp("created"),
               Timestamp("expiry"),
+              Timestamp("updated"),
               JSONField("metadata")]
     endpoint = "metadata/"

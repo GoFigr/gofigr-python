@@ -48,12 +48,20 @@ class TestMetadataProxy(MultiUserTestCase):
             self.assertIsNotNone(getattr(meta2, prop))
             self.assertEqual(getattr(meta, prop), getattr(meta2, prop))
 
+        self.assertIsNone(meta.updated)
+        self.assertIsNone(meta2.updated)
+
         meta.metadata = {"abc": "xyz"}
         meta.save()
 
         meta2.fetch()
         self.assertEqual(meta.metadata, {"abc": "xyz"})
         self.assertEqual(meta.metadata, meta2.metadata)
+
+        self.assertIsNotNone(meta.updated)
+        self.assertIsNotNone(meta2.updated)
+        self.assertEqual(meta.updated, meta2.updated)
+        self.assertLess((datetime.now(tz=tz.tzlocal()) - meta.updated).total_seconds(), 10)
 
         # User 2 should not be able to fetch any of the metadata, even with a valid token
         u2_meta = self.gf2.MetadataProxy(token=meta.token)
