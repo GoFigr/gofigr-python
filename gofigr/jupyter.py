@@ -20,7 +20,7 @@ import six
 
 from gofigr import GoFigr, API_URL
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
-    PipFreezeAnnotator, NotebookMetadataAnnotator
+    PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator
 from gofigr.backends import get_backend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
@@ -360,8 +360,8 @@ def parse_model_instance(model_class, value, find_by_name):
         return ValueError(f"Unsupported target specification: {value}. Please specify an API ID, or use FindByName.")
 
 
-DEFAULT_ANNOTATORS = (NotebookMetadataAnnotator, CellIdAnnotator, CellCodeAnnotator, SystemAnnotator,
-                      PipFreezeAnnotator)
+DEFAULT_ANNOTATORS = (NotebookMetadataAnnotator, EnvironmentAnnotator, CellIdAnnotator, CellCodeAnnotator,
+                      SystemAnnotator, PipFreezeAnnotator)
 DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
 
 

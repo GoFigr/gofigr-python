@@ -105,6 +105,8 @@ class SystemAnnotator(Annotator):
 NOTEBOOK_PATH = "notebook_path"
 NOTEBOOK_NAME = "notebook_name"
 NOTEBOOK_URL = "url"
+NOTEBOOK_KERNEL = "kernel"
+PYTHON_VERSION = "python_version"
 
 
 class NotebookMetadataAnnotator(Annotator):
@@ -148,6 +150,17 @@ class NotebookMetadataAnnotator(Annotator):
 
 
 class NotebookNameAnnotator(NotebookMetadataAnnotator):
+    """(Deprecated) Annotates revisions with notebook name & path"""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         print("NotebookNameAnnotator is deprecated. Please use NotebookMetadataAnnotator", file=sys.stderr)
+
+
+class EnvironmentAnnotator(Annotator):
+    """Annotates revisions with the python version & the kernel info"""
+    def annotate(self, revision):
+        if revision.metadata is None:
+            revision.metadata = {}
+
+        revision.metadata[NOTEBOOK_KERNEL] = sys.executable
+        revision.metadata[PYTHON_VERSION] = sys.version
