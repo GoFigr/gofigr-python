@@ -9,8 +9,6 @@ import sys
 from abc import ABC
 from urllib.parse import unquote, urlparse
 
-import ipynbname
-
 from gofigr import CodeLanguage
 
 PATH_WARNING = "To fix this warning, you can manually specify the notebook name & path in the call to configure(). " \

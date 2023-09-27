@@ -10,22 +10,17 @@ of how Jupyter is running, i.e. it works even with password/token auth and SSH t
 
 # pylint: disable=global-statement
 
-import json
 import multiprocessing
-import queue
-import socket
 import sys
 import time
-import traceback
-from multiprocessing import Process
 
-import asyncio
+from queue import Empty as QueueEmpty
+
 from threading import Thread
 from urllib.parse import urljoin
 
 import pkg_resources
 from IPython.core.display import Javascript
-from websockets.server import serve
 
 _CALLBACK_THREAD = None
 _STOP_CALLBACK_THREAD = False
@@ -50,6 +45,7 @@ def callback_thread(callback, queue, proxy):
 
 
 def wait_for_metadata(queue, timeout):
+    """Creates a callable which waits for metadata to be fetched, up to a given timeout (seconds)"""
     def _waiter():
         try:
             res = queue.get(block=True, timeout=timeout)
@@ -57,7 +53,7 @@ def wait_for_metadata(queue, timeout):
                 print(f"Unexpected proxy message: {res}", file=sys.stderr)
 
             queue.task_done()
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"Unable to retrieve metadata from the GoFigr proxy: {e}", file=sys.stderr)
 
     return _waiter
@@ -91,11 +87,11 @@ def run_proxy_async(gf, callback):
 
         res = mp_queue.get(block=True, timeout=5)
         if res != QUEUE_MSG_STARTED:
-            raise queue.Empty()
+            raise QueueEmpty()
 
         mp_queue.task_done()
 
-    except queue.Empty:
+    except QueueEmpty:
         print("GoFigr JavaScript proxy did not start and functionality may be limited.",
               file=sys.stderr)
 
@@ -103,6 +99,7 @@ def run_proxy_async(gf, callback):
 
 
 def get_javascript_loader(gf, proxy):
+    """Creates a Javascript loader for GoFigr. Intended to be display()'d in the call to configure()"""
     endpoint = urljoin(gf.api_url, "metadata/" + proxy.token)
     loader_body = pkg_resources.resource_string("gofigr.resources", "loader.js").decode('utf-8')
     loader = f"const endpoint=\"{endpoint}\";\n" + loader_body
