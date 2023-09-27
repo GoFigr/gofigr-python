@@ -104,9 +104,15 @@ class SystemAnnotator(Annotator):
         return revision
 
 
-class NotebookNameAnnotator(Annotator):
-    """"Annotates revisions with the name & path of the current notebook"""
-    def infer_from_metadata(self):
+NOTEBOOK_PATH = "notebook_path"
+NOTEBOOK_NAME = "notebook_name"
+NOTEBOOK_URL = "url"
+
+
+class NotebookMetadataAnnotator(Annotator):
+    """"Annotates revisions with notebook metadata, including filename & path, as well as the full URL"""
+
+    def parse_metadata(self):
         """Infers the notebook path & name from metadata passed through the WebSocket (if available)"""
         meta = self.extension.notebook_metadata
         if meta is None:
@@ -121,27 +127,29 @@ class NotebookNameAnnotator(Annotator):
         if not os.path.exists(full_path):
             print(f"The inferred path for the notebook does not exist: {full_path}. {PATH_WARNING}", file=sys.stderr)
 
-        return full_path, notebook_name
+        return {NOTEBOOK_PATH: full_path,
+                NOTEBOOK_NAME: notebook_name,
+                NOTEBOOK_URL: meta.get('url')}
 
     def annotate(self, revision):
         if revision.metadata is None:
             revision.metadata = {}
 
         try:
-            if 'notebook_name' not in revision.metadata:
-                revision.metadata['notebook_name'] = ipynbname.name()
-            if 'notebook_path' not in revision.metadata:
-                revision.metadata['notebook_path'] = str(ipynbname.path())
-
+            if NOTEBOOK_NAME not in revision.metadata or NOTEBOOK_PATH not in revision.metadata:
+                revision.metadata.update(self.parse_metadata())
         except Exception:  # pylint: disable=broad-exception-caught
-            try:
-                revision.metadata['notebook_path'], revision.metadata['notebook_name'] = self.infer_from_metadata()
-            except Exception:  # pylint: disable=broad-exception-caught
-                print(f"GoFigr could not automatically obtain the name of the currently"
-                      f" running notebook. {PATH_WARNING}",
-                      file=sys.stderr)
+            print(f"GoFigr could not automatically obtain the name of the currently"
+                  f" running notebook. {PATH_WARNING}",
+                  file=sys.stderr)
 
-                revision.metadata['notebook_name'] = "N/A"
-                revision.metadata['notebook_path'] = "N/A"
+            revision.metadata[NOTEBOOK_NAME] = "N/A"
+            revision.metadata[NOTEBOOK_PATH] = "N/A"
 
         return revision
+
+
+class NotebookNameAnnotator(NotebookMetadataAnnotator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        print("NotebookNameAnnotator is deprecated. Please use NotebookMetadataAnnotator", file=sys.stderr)

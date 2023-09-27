@@ -19,12 +19,12 @@ import PIL
 import six
 
 from gofigr import GoFigr, API_URL
-from gofigr.annotators import NotebookNameAnnotator, CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
-    PipFreezeAnnotator
+from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
+    PipFreezeAnnotator, NotebookMetadataAnnotator
 from gofigr.backends import get_backend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
-from gofigr.listener import run_listener_async
+from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
 from gofigr.watermarks import DefaultWatermark
 
@@ -154,6 +154,7 @@ class _GoFigrExtension:
         self.workspace = None  # current workspace
         self.analysis = None  # current analysis
         self.publisher = None  # current Publisher instance
+        self.wait_for_metadata = None  # callable which waits for metadata to become available
 
         self.deferred_revisions = []
 
@@ -209,6 +210,10 @@ class _GoFigrExtension:
 
         """
         self.cell = result.info
+
+        if self.notebook_metadata is None and self.wait_for_metadata is not None:
+            self.wait_for_metadata()
+            self.wait_for_metadata = None
 
         while len(self.deferred_revisions) > 0:
             rev = self.deferred_revisions.pop(0)
@@ -355,7 +360,7 @@ def parse_model_instance(model_class, value, find_by_name):
         return ValueError(f"Unsupported target specification: {value}. Please specify an API ID, or use FindByName.")
 
 
-DEFAULT_ANNOTATORS = (NotebookNameAnnotator, CellIdAnnotator, CellCodeAnnotator, SystemAnnotator,
+DEFAULT_ANNOTATORS = (NotebookMetadataAnnotator, CellIdAnnotator, CellCodeAnnotator, SystemAnnotator,
                       PipFreezeAnnotator)
 DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
 
@@ -687,10 +692,10 @@ def find_workspace_by_name(gf, search):
         return matches[0]
 
 
-def listener_callback(result):
-    """WebSocket callback"""
-    if result is not None and isinstance(result, dict) and result['message_type'] == "metadata":
-        _GF_EXTENSION.notebook_metadata = result
+def proxy_callback(result):
+    """Proxy callback"""
+    if result is not None and hasattr(result, 'metadata'):
+        _GF_EXTENSION.notebook_metadata = result.metadata
 
 
 # pylint: disable=too-many-arguments, too-many-locals
@@ -769,22 +774,10 @@ def configure(username=None, password=None,
     extension.publisher = publisher
     extension.auto_publish = auto_publish
 
-    listener_port = run_listener_async(listener_callback)
+    proxy, extension.wait_for_metadata = run_proxy_async(gf, proxy_callback)
 
     with SuppressDisplayTrap():
-        display(Javascript(f"""
-        var ws_url = "ws://" + window.location.hostname + ":{listener_port}";
-    
-        document._ws_gf = new WebSocket(ws_url);
-        document._ws_gf.onopen = () => {{
-          console.log("GoFigr WebSocket open at " + ws_url);
-          document._ws_gf.send(JSON.stringify(
-          {{
-            message_type: "metadata",
-            url: document.URL
-          }}))
-        }}
-        """))
+        display(get_javascript_loader(gf, proxy))
 
 
 @require_configured

@@ -4,14 +4,11 @@ All rights reserved.
 
 """
 import time
-from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta
 
-import numpy as np
 from dateutil.tz import tz
 
 from gofigr import UnauthorizedError, GoFigr
-from gofigr.models import WorkspaceMembership
 
 from tests.test_client import MultiUserTestCase
 
