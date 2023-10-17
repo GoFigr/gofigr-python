@@ -1,0 +1,90 @@
+"""\
+Copyright (c) 2023, Flagstaff Solutions, LLC
+All rights reserved.
+
+"""
+import inspect
+import io
+import sys
+import time
+
+from PIL import Image, ImageDraw, ImageFont
+
+from gofigr.backends import GoFigrBackend, get_all_function_arguments
+from html2image import Html2Image
+
+import py3Dmol
+
+
+class WatermarkedView(py3Dmol.view):
+    NATIVE_PROPERTIES = ["wrapped_obj", "extra_html", "_make_html"]
+
+    def __init__(self, wrapped_obj, extra_html):
+        super().__init__()
+        self.wrapped_obj = wrapped_obj
+        self.extra_html = extra_html
+
+    def _make_html(self):
+        return self.wrapped_obj._make_html() + self.extra_html
+
+
+class Py3DmolBackend(GoFigrBackend):
+    """Plotly backend for GoFigr"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hti = Html2Image(size=(640, 480))
+
+    def is_compatible(self, fig):
+        return isinstance(fig, py3Dmol.view)
+
+    def is_interactive(self, fig):
+        return True
+
+    def find_figures(self, shell, data):
+        frames = inspect.stack()
+        # Make sure there's an actual figure being published, as opposed to Plotly initialization scripts
+        if 'application/3dmoljs_load.v0' not in data.keys():
+            return
+
+        # Walk through the stack in *reverse* order (from top to bottom), to find the first call
+        # in case display() was called recursively
+        for f in reversed(frames):
+            if "repr_html" in f.function and "py3dmol" in f.filename.lower():
+                for arg_value in get_all_function_arguments(f):
+                    if self.is_compatible(arg_value):
+                        yield arg_value
+
+                break
+
+    # pylint: disable=useless-return
+    def get_default_figure(self, silent=False):
+        if not silent:
+            print("py3Dmol does not have a default figure. Please specify a figure to publish.", file=sys.stderr)
+
+        return None
+
+    def get_title(self, fig):
+        title = getattr(fig, "title", None)
+        if not isinstance(title, str):
+            return None
+        else:
+            return title
+
+    def figure_to_bytes(self, fig, fmt, params):
+        if fmt == "png":
+            path, = self.hti.screenshot(html_str=self.figure_to_html(fig), save_as="py3dmol.png")
+
+            with open(path, 'rb') as f:
+                return f.read()
+
+        raise ValueError(f"Py3Dmol does not support {fmt.upper()}")
+
+    def figure_to_html(self, fig):
+        return fig._make_html()  # pylint: disable=protected-access
+
+    def add_interactive_watermark(self, fig, rev, watermark):
+        watermark_html = f"<div><a href='{rev.revision_url}'>{rev.revision_url}</a></div>"
+        return WatermarkedView(fig, watermark_html)
+
+    def close(self, fig):
+        pass

@@ -62,7 +62,7 @@ class GfDisplayPublisher:
 
         :param data: dictionary of mimetypes -> data
         :param args: implementation-dependent
-        :param kwargs: implementation-dependend
+        :param kwargs: implementation-dependent
         :return: None
 
         """
@@ -88,7 +88,7 @@ class GfDisplayPublisher:
         :return:
         """
         if item == "pub":
-            return super().__getattribute__(self.pub)
+            return super().__getattribute__(item)
 
         return getattr(self.pub, item)
 
