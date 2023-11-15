@@ -21,7 +21,7 @@ import six
 from gofigr import GoFigr, API_URL
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
     PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator
-from gofigr.backends import get_backend
+from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
 from gofigr.proxy import run_proxy_async, get_javascript_loader
@@ -698,6 +698,13 @@ def proxy_callback(result):
         _GF_EXTENSION.notebook_metadata = result.metadata
 
 
+def _make_backend(backend):
+    if isinstance(backend, GoFigrBackend):
+        return backend
+    else:
+        return backend()
+
+
 # pylint: disable=too-many-arguments, too-many-locals
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username=None, password=None,
@@ -767,7 +774,7 @@ def configure(username=None, password=None,
                           default_metadata=default_metadata,
                           watermark=watermark,
                           annotators=[make_annotator(extension) for make_annotator in annotators],
-                          backends=[make_backend() for make_backend in backends])
+                          backends=[_make_backend(bck) for bck in backends])
     extension.gf = gf
     extension.analysis = analysis
     extension.workspace = workspace

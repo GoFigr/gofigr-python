@@ -30,9 +30,10 @@ class WatermarkedView(py3Dmol.view):
 
 class Py3DmolBackend(GoFigrBackend):
     """Plotly backend for GoFigr"""
-    def __init__(self, *args, **kwargs):
+    def __init__(self, debug=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.hti = Html2Image(size=(640, 480))
+        self.debug = debug
 
     def is_compatible(self, fig):
         return isinstance(fig, py3Dmol.view)
@@ -40,19 +41,35 @@ class Py3DmolBackend(GoFigrBackend):
     def is_interactive(self, fig):
         return True
 
+    def _debug(self, text):
+        if self.debug:
+            print(text)
+
     def find_figures(self, shell, data):
+        self._debug("Looking for py3dmol figures...")
+        self._debug(f"Available MIME types: {data.keys()}")
+
         frames = inspect.stack()
         # Make sure there's an actual figure being published, as opposed to Plotly initialization scripts
         if 'application/3dmoljs_load.v0' not in data.keys():
+            self._debug("Could not locate 3dmoljs MIME type. Stopping search early.")
             return
+        else:
+            self._debug("3dmoljs MIME found")
 
         # Walk through the stack in *reverse* order (from top to bottom), to find the first call
         # in case display() was called recursively
-        for f in reversed(frames):
+        for idx, f in enumerate(reversed(frames)):
+            self._debug(f"Frame {idx + 1}: function={f.function} file={f.filename}")
             if "repr_html" in f.function and "py3dmol" in f.filename.lower():
-                for arg_value in get_all_function_arguments(f):
+                self._debug("Found repr_html call")
+                for arg_idx, arg_value in enumerate(get_all_function_arguments(f)):
+                    self._debug(f"Inspecting argument {arg_idx + 1}: {arg_value.__class__ if not arg_value is None else None}")
                     if self.is_compatible(arg_value):
+                        self._debug("Argument is compatible with GoFigr")
                         yield arg_value
+                    else:
+                        self._debug("Argument not compatible.")
 
                 break
 
