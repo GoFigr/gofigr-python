@@ -16,7 +16,7 @@ import pkg_resources
 from PIL import Image
 
 from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership, \
-    TextData
+    TextData, ThumbnailMixin
 
 
 def make_gf(authenticate=True, username=None, password=None, api_key=None):
@@ -797,6 +797,10 @@ class MultiUserTestCase(TestCase):
                 # VIEW
                 with self.assertRaises(UnauthorizedError, msg=f"Unauthorized view access granted to {own_obj}"):
                     not_own_obj.fetch()
+
+                if isinstance(not_own_obj, ThumbnailMixin):
+                    with self.assertRaises(UnauthorizedError, msg=f"Unauthorized thumbnail access granted to {own_obj}"):
+                        not_own_obj.get_thumbnail(256)
 
                 # DELETE
                 with self.assertRaises(UnauthorizedError, msg=f"Unauthorized delete granted to {own_obj}"):

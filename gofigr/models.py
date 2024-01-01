@@ -790,6 +790,35 @@ class LogsMixin:
         return [LogItem.from_json(datum, gf=self._gf, parent=self) for datum in response.json()]
 
 
+class ThumbnailMixin:
+    """\
+    Mixin for entities which support the /log/ endpoint.
+
+    """
+    def get_thumbnail(self, size):
+        """\
+        Retrieves the thumbnail image.
+        :param size: size in pixels
+
+        :return: PIL.Image if available or None
+        """
+        # pylint: disable=protected-access
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/thumbnail/{size}'),
+                                 expected_status=HTTPStatus.OK)
+
+        data = response.json()
+        thumb_b64 = data.get('thumbnail')
+
+        if not thumb_b64:
+            return None
+
+        img_data = b64decode(thumb_b64)
+        bio = io.BytesIO(img_data)
+        img = PIL.Image.open(bio)
+        img.load()
+        return img
+
+
 class gf_Workspace(ModelMixin, LogsMixin):
     """Represents a workspace"""
     # pylint: disable=protected-access
@@ -894,7 +923,7 @@ class gf_Workspace(ModelMixin, LogsMixin):
         return Recents(analyses, figures)
 
 
-class gf_Analysis(ShareableModelMixin, LogsMixin):
+class gf_Analysis(ShareableModelMixin, LogsMixin, ThumbnailMixin):
     """Represents an analysis"""
     # pylint: disable=protected-access
 
@@ -922,7 +951,7 @@ class gf_Analysis(ShareableModelMixin, LogsMixin):
                                            default_obj=self._gf.Figure(name=name, **kwargs) if create else None)
 
 
-class gf_Figure(ShareableModelMixin):
+class gf_Figure(ShareableModelMixin, ThumbnailMixin):
     """Represents a figure"""
     fields = ["api_id",
               "name",
@@ -1229,7 +1258,7 @@ class TableData(Data):
         self.data = value.to_csv().encode(self.encoding) if value is not None else None
 
 
-class gf_Revision(ShareableModelMixin):
+class gf_Revision(ShareableModelMixin, ThumbnailMixin):
     """Represents a figure revision"""
     fields = ["api_id", "revision_index", "size_bytes",
               JSONField("metadata"),
