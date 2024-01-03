@@ -216,10 +216,21 @@ class GoFigr:
         except ValueError:
             return False
 
-    def create_api_key(self, name):
-        """Creates an API key with the given name"""
+    def create_api_key(self, name, expiry=None, workspace=None):
+        """\
+        Creates an API key
+
+        :param name: name of the key to create
+        :param expiry: expiration date. If None, the key will not expire.
+        :param workspace: workspace for which the key is to be valid. If None, key will have access to the same
+        workspaces as the user.
+        :return: ApiKey instance
+        """
+        if expiry is not None and expiry.tzinfo is None:
+            expiry = expiry.astimezone()
+
         # pylint: disable=no-member
-        return self.ApiKey(name=name).create()
+        return self.ApiKey(name=name, expiry=expiry, workspace=workspace).create()
 
     def list_api_keys(self):
         """Lists all API keys"""
@@ -417,6 +428,9 @@ class GoFigr:
             return self._primary_workspace
 
         primaries = [w for w in self.workspaces if w.workspace_type == "primary"]
+        primaries = [w for w in primaries if any(wm.username == self.username \
+                                                 and wm.membership_type == WorkspaceMembership.OWNER
+                                                 for wm in w.get_members())]
         pw = assert_one(primaries,
                         "No primary workspace found. Please contact support.",
                         "Multiple primary workspaces found. Please contact support.")

@@ -61,7 +61,7 @@ class TestAuthentication(TestCase):
         self.assertRaises(RuntimeError, lambda: bad_gf.authenticate())
         self.assertRaises(RuntimeError, lambda: bad_gf.heartbeat())
 
-    def _revoke_all_keys(self):
+    def _cleanup(self):
         gf1 = make_gf(authenticate=True)
         gf2 = make_gf(authenticate=True, username=gf1.username + "2")
 
@@ -70,27 +70,36 @@ class TestAuthentication(TestCase):
             for ak in gf.list_api_keys():
                 gf.revoke_api_key(ak)
 
+            for member in gf.primary_workspace.get_members():
+                if member.username != gf.username:
+                    gf.primary_workspace.remove_member(member.username)
+
+
     def setUp(self):
-        self._revoke_all_keys()
+        self._cleanup()
 
     def tearDown(self):
-        self._revoke_all_keys()
+        self._cleanup()
 
-    def test_api_key_authentication(self):
-        gf = make_gf(authenticate=True)
+    def _list_workspaces_for_key(self, gf, api_key):
+        gf_tok = make_gf(username=None, password=None, api_key=api_key.token, authenticate=True)
+        return gf_tok.workspaces
 
-        # Create an API key
-        api_key = gf.create_api_key("test key")
-        token = api_key.token
+    def _use_api_key(self, gf, api_key, workspace=None):
+        if workspace is None:
+            workspace = gf.primary_workspace
 
         # Create a client using the key
-        gf_tok = make_gf(username=None, password=None, api_key=token, authenticate=True)
+        gf_tok = make_gf(username=None, password=None, api_key=api_key.token, authenticate=True)
 
         self.assertEqual(gf_tok.username, gf.username)
-        self.assertEqual(gf_tok.primary_workspace, gf.primary_workspace)
+
+        other_worx = gf_tok.Workspace(api_id=workspace.api_id).fetch()
+        self.assertEqual(other_worx.api_id, workspace.api_id)
+        self.assertEqual(other_worx.name, workspace.name)
 
         # Make sure we can create and modify objects
-        ana = gf_tok.Analysis(name="Test analysis", workspace=gf_tok.primary_workspace).create()
+        ana = gf_tok.Analysis(name="Test analysis", workspace=workspace).create()
 
         ana.name = "Updated analysis"
         ana.save()
@@ -103,6 +112,16 @@ class TestAuthentication(TestCase):
         self.assertRaises(RuntimeError, lambda: gf_tok.revoke_api_key(api_key.api_id))
 
         ana.fetch()  # Try a fetch before we revoke the key
+        return ana
+
+    def test_api_key_authentication(self):
+        gf = make_gf(authenticate=True)
+
+        # Create an API key
+        api_key = gf.create_api_key("test key")
+
+        # Authenticate and perform some operations with the key
+        ana = self._use_api_key(gf, api_key)
 
         # Revoke the key
         gf.revoke_api_key(api_key.api_id)
@@ -159,6 +178,71 @@ class TestAuthentication(TestCase):
         # Trying to get info about other people's keys should fail
         self.assertRaises(RuntimeError, lambda: gf2.ApiKey(api_id=key1.api_id).fetch())
         self.assertRaises(RuntimeError, lambda: gf.ApiKey(api_id=key2.api_id).fetch())
+
+    def test_api_key_expiration(self):
+        gf = make_gf(authenticate=True)
+        key1 = gf.create_api_key('test key 1', expiry=datetime.now() + timedelta(seconds=3))
+        token = key1.token
+        self._use_api_key(gf, key1)
+
+        key1.fetch()  # this will set token to None (only available at creation), so we need to restore it
+        key1.token = token
+        self.assertIsNotNone(key1.expiry)
+
+        # Wait for key to expire
+        time.sleep(4)
+        self.assertRaises(RuntimeError, lambda: self._use_api_key(gf, key1))
+
+    def test_api_key_scopes(self):
+        gf = make_gf(authenticate=True)
+        worx2 = gf.Workspace(name="workspace 2").create()
+
+        key_unscoped = gf.create_api_key('test key')
+        key1 = gf.create_api_key('test key 1', workspace=gf.primary_workspace)
+        key2 = gf.create_api_key('test key 2', workspace=worx2)
+
+        self.assertIsNone(key_unscoped.fetch_and_preserve_token().workspace)
+        self.assertEqual(key1.fetch_and_preserve_token().workspace.api_id, gf.primary_workspace.api_id)
+        self.assertEqual(key2.fetch_and_preserve_token().workspace.api_id, worx2.api_id)
+
+        # Unscoped key should work for both workspaces
+        self._use_api_key(gf, key_unscoped, workspace=gf.primary_workspace)
+        self._use_api_key(gf, key_unscoped, workspace=worx2)
+
+        # Key 1 should only work for the primary workspace
+        self._use_api_key(gf, key1, workspace=gf.primary_workspace)
+        self.assertRaises(RuntimeError, lambda: self._use_api_key(gf, key1, workspace=worx2))
+
+        # The workspace shouldn't be visible at all
+        self.assertNotIn(worx2.api_id, [w.api_id for w in self._list_workspaces_for_key(gf, key1)])
+        self.assertIn(gf.primary_workspace.api_id, [w.api_id for w in self._list_workspaces_for_key(gf, key1)])
+
+        # Key 2 should only work for the second workspace
+        self.assertRaises(RuntimeError, lambda: self._use_api_key(gf, key2, workspace=gf.primary_workspace))
+        self._use_api_key(gf, key2, workspace=worx2)
+
+        self.assertIn(worx2.api_id, [w.api_id for w in self._list_workspaces_for_key(gf, key2)])
+        self.assertNotIn(gf.primary_workspace.api_id, [w.api_id for w in self._list_workspaces_for_key(gf, key2)])
+
+    def test_api_key_scope_permissions(self):
+        gf1 = make_gf(authenticate=True)
+        gf2 = make_gf(authenticate=True, username=gf1.username + "2")
+
+        # We should be unable to create keys with scopes in workspaces to which we don't have access
+        self.assertRaises(RuntimeError,
+                          lambda: gf1.create_api_key('test key 1', workspace=gf2.primary_workspace))
+        self.assertRaises(RuntimeError,
+                          lambda: gf2.create_api_key('test key 2', workspace=gf1.primary_workspace))
+
+        # User 1 shares his workspace with User 2. User 2 should now be able to create a scoped key.
+        gf1.primary_workspace.add_member(gf2.username, WorkspaceMembership.CREATOR)
+        key2 = gf2.create_api_key('test key 2', workspace=gf1.primary_workspace)
+        self._use_api_key(gf2, key2, gf1.primary_workspace)
+
+        # User 1 unshares the workspace. Even though User's 2 key was created successfully, it should
+        # no longer work
+        gf1.primary_workspace.remove_member(gf2.username)
+        self.assertRaises(RuntimeError, lambda: self._use_api_key(gf2, key2, gf1.primary_workspace))
 
 
 class TestUsers(TestCase):

@@ -231,7 +231,9 @@ class LinkedEntityField(Field):
         else:
             raise ValueError(f"Invalid prefetch value: {self.prefetched}. Must be True, False or 'infer'.")
 
-        if self.many:
+        if data is None:
+            return None
+        elif self.many:
             sorted_vals = [make_one(api_id) for api_id in data]
             if self.sort_key is not None:
                 sorted_vals = sorted(sorted_vals, key=self.sort_key)
@@ -862,7 +864,7 @@ class gf_Workspace(ModelMixin, LogsMixin):
         :return: list of WorkspaceMember objects
         """
         response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/members/'),
-                                  expected_status=HTTPStatus.OK)
+                                 expected_status=HTTPStatus.OK)
         return [WorkspaceMember.from_json(datum) for datum in response.json()]
 
     def add_member(self, username, membership_type):
@@ -1335,8 +1337,23 @@ class gf_ApiKey(ModelMixin):
               "name",
               "token",
               Timestamp("created"),
-              Timestamp("last_used")]
+              Timestamp("last_used"),
+              Timestamp("expiry"),
+              LinkedEntityField("workspace", lambda gf: gf.Workspace, lazy=True, many=False),]
     endpoint = "api_key/"
+
+    def fetch_and_preserve_token(self):
+        """\
+        Like fetch(), but preserves the token if present. This is useful because the token is only available
+        at creation, so calling fetch() will always set it to None.
+
+        :return:
+        """
+        # pylint: disable=access-member-before-definition,attribute-defined-outside-init
+        tok = self.token
+        self.fetch()
+        self.token = tok
+        return self
 
 
 class gf_WorkspaceInvitation(ModelMixin):

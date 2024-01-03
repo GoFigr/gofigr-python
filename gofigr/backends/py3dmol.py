@@ -4,19 +4,16 @@ All rights reserved.
 
 """
 import inspect
-import io
 import sys
-import time
-
-from PIL import Image, ImageDraw, ImageFont
-
-from gofigr.backends import GoFigrBackend, get_all_function_arguments
-from html2image import Html2Image
 
 import py3Dmol
+from html2image import Html2Image
+
+from gofigr.backends import GoFigrBackend, get_all_function_arguments
 
 
 class WatermarkedView(py3Dmol.view):
+    """Overrides py3Dmol.view to include a GoFigr watermark"""
     NATIVE_PROPERTIES = ["wrapped_obj", "extra_html", "_make_html"]
 
     def __init__(self, wrapped_obj, extra_html):
@@ -25,14 +22,15 @@ class WatermarkedView(py3Dmol.view):
         self.extra_html = extra_html
 
     def _make_html(self):
+        # pylint: disable=protected-access
         return self.wrapped_obj._make_html() + self.extra_html
 
 
 class Py3DmolBackend(GoFigrBackend):
     """Plotly backend for GoFigr"""
-    def __init__(self, debug=False, *args, **kwargs):
+    def __init__(self, *args, debug=False, image_size=(1920, 1080), **kwargs):
         super().__init__(*args, **kwargs)
-        self.hti = Html2Image(size=(640, 480))
+        self.hti = Html2Image(size=image_size)
         self.debug = debug
 
     def is_compatible(self, fig):
@@ -64,7 +62,8 @@ class Py3DmolBackend(GoFigrBackend):
             if "repr_html" in f.function and "py3dmol" in f.filename.lower():
                 self._debug("Found repr_html call")
                 for arg_idx, arg_value in enumerate(get_all_function_arguments(f)):
-                    self._debug(f"Inspecting argument {arg_idx + 1}: {arg_value.__class__ if not arg_value is None else None}")
+                    self._debug(f"Inspecting argument {arg_idx + 1}: "
+                                f"{arg_value.__class__ if not arg_value is None else None}")
                     if self.is_compatible(arg_value):
                         self._debug("Argument is compatible with GoFigr")
                         yield arg_value
