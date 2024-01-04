@@ -24,8 +24,9 @@ dependencies = [
 requires-python = ">=3.7"
 
 [project.optional-dependencies]
-dev = ["pip-tools", "bumpver", "build", "twine", "pylint", "flake8", "sphinx", "sphinx_rtd_theme", "sphinxcontrib-jquery",
-       "seaborn", "matplotlib", "tqdm", "selenium", "webdriver-manager", "openpyxl"]
+dev = ["pip-tools", "bumpver", "build", "twine", "pylint", "flake8", "sphinx", "sphinx_rtd_theme",
+       "sphinxcontrib-jquery", "seaborn", "matplotlib", "tqdm", "selenium", "webdriver-manager", "openpyxl",
+       "py3Dmol", "html2image"]
 
 [project.urls]
 Homepage = "https://www.gofigr.io"
