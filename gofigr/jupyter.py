@@ -18,7 +18,7 @@ from uuid import UUID
 import PIL
 import six
 
-from gofigr import GoFigr, API_URL
+from gofigr import GoFigr, API_URL, UnauthorizedError
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
     PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator
 from gofigr.backends import get_backend, GoFigrBackend
@@ -742,12 +742,22 @@ def configure(username=None, password=None,
         gf = GoFigr(username=username, password=password, url=url, api_key=api_key)
 
     if workspace is None:
-        workspace = gf.primary_workspace
+        if gf.primary_workspace is not None:
+            workspace = gf.primary_workspace
+        elif len(gf.workspaces) == 1:  # this will happen if we're using a scoped API token
+            workspace = gf.workspaces[0]
+            print(f"Defaulting to workspace \"{workspace.name}\" ({workspace.api_id})")
+        else:
+            raise ValueError("Please specify a workspace")
     else:
         workspace = parse_model_instance(gf.Workspace, workspace, lambda search: find_workspace_by_name(gf, search))
 
     with MeasureExecution("Fetch workspace"):
-        workspace.fetch()
+        try:
+            workspace.fetch()
+        except UnauthorizedError as e:
+            raise UnauthorizedError(f"Permission denied for workspace {workspace.api_id}. "
+                                    f"Are you using a restricted API key?") from e
 
     if analysis is None:
         raise ValueError("Please specify an analysis")

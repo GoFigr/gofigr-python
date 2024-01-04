@@ -431,6 +431,11 @@ class GoFigr:
         primaries = [w for w in primaries if any(wm.username == self.username \
                                                  and wm.membership_type == WorkspaceMembership.OWNER
                                                  for wm in w.get_members())]
+
+        if self.api_key is not None and len(primaries) == 0:
+            self._primary_workspace = None
+            return self._primary_workspace
+
         pw = assert_one(primaries,
                         "No primary workspace found. Please contact support.",
                         "Multiple primary workspaces found. Please contact support.")
