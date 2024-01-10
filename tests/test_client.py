@@ -531,35 +531,6 @@ class TestAnalysis(TestCase):
         self.assertEqual(analysis.description, "New description")
         self.assertEqual(analysis.workspace, gf.primary_workspace)
 
-    def test_lazy_loading(self):
-        gf = make_gf()
-        workspace = gf.primary_workspace
-
-        analysis = gf.Analysis(name="test", description="test", workspace=workspace)
-        analysis.create()
-
-        # Since no data is actually loaded until needed, this should work despite the ID being bad
-        bad_lazy_analysis = gf.Analysis(analysis.api_id + "bad", lazy=True)
-
-        # ... but this should now fail
-        self.assertRaises(RuntimeError, lambda: bad_lazy_analysis.name)
-
-        # This should work just fine
-        lazy_analysis = gf.Analysis(analysis.api_id, lazy=True)
-        self.assertEqual(lazy_analysis.api_id, analysis.api_id)
-        self.assertEqual(lazy_analysis.name, analysis.name)
-        self.assertEqual(lazy_analysis.description, analysis.description)
-        self.assertEqual(lazy_analysis.workspace, analysis.workspace)
-
-        # Values assigned to lazy properties should not be overridden
-        # when the data is fetched
-        lazy_analysis2 = gf.Analysis(analysis.api_id, lazy=True)
-        lazy_analysis2.name = "new name"
-        self.assertEqual(lazy_analysis2.api_id, analysis.api_id)
-        self.assertEqual(lazy_analysis2.name, "new name")
-        self.assertEqual(lazy_analysis2.description, analysis.description)
-        self.assertEqual(lazy_analysis2.workspace, analysis.workspace)
-
 
 class TestData:
     def __init__(self, gf):
@@ -747,8 +718,8 @@ class TestFigures(TestCase):
             for server_rev in [server_rev1, server_rev2]:
                 # Fetch all data objects
                 self.assertEqual(server_rev.metadata, {'index': idx})
-                self.assertEqual(server_rev.figure, fig)
-                self.assertEqual(server_rev.figure.analysis, ana)
+                self.assertEqual(server_rev.figure.fetch(), fig)
+                self.assertEqual(server_rev.figure.analysis.fetch(), ana)
 
                 # Validate image data
                 for data_getter, expected_length, fields_to_check in \

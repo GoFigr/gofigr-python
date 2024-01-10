@@ -190,14 +190,13 @@ class LinkedEntityField(Field):
     Represents a linked entity (or a collection of them), e.g. an Analysis inside a Workspace.
     """
     # pylint: disable=too-many-arguments
-    def __init__(self, name, entity_type, lazy, many=False,
+    def __init__(self, name, entity_type, many=False,
                  read_only=False, backlink_property=None, parent=None,
                  derived=False, sort_key=None, prefetched=False):
         """\
 
         :param name: field name
         :param entity_type: type of the linked entity, e.g. Analysis, Figure, etc.
-        :param lazy: if True, the entity will only load once its properties are accessed or assigned to
         :param many: if False, will create a single linked entity. If True, will resolve to a LinkedEntityCollection
         :param read_only: Makes the collection of linked entities read-only. Only relevant if many=True.
         :param backlink_property: name of property in the linked entity which will point back to the parent
@@ -209,7 +208,6 @@ class LinkedEntityField(Field):
         """
         super().__init__(name, parent=parent, derived=derived)
         self.entity_type = entity_type
-        self.lazy = lazy
         self.many = many
         self.read_only = read_only
         self.backlink_property = backlink_property
@@ -217,7 +215,7 @@ class LinkedEntityField(Field):
         self.prefetched = prefetched
 
     def clone(self):
-        return LinkedEntityField(self.name, self.entity_type, self.lazy,
+        return LinkedEntityField(self.name, self.entity_type,
                                  many=self.many, read_only=self.read_only,
                                  backlink_property=self.backlink_property,
                                  parent=self.parent, derived=self.derived,
@@ -234,7 +232,7 @@ class LinkedEntityField(Field):
 
     def to_internal_value(self, gf, data):
         make_prefetched = lambda obj: self.entity_type(gf)(parse=True, prefetched=True, **obj)
-        make_not_prefetched = lambda api_id: self.entity_type(gf)(api_id=api_id, lazy=self.lazy)
+        make_not_prefetched = lambda api_id: self.entity_type(gf)(api_id=api_id)
         if self.prefetched is True:
             make_one = make_prefetched
         elif self.prefetched is False:
@@ -260,7 +258,7 @@ class LinkedEntityField(Field):
 class DataField(LinkedEntityField):
     """Customizes a LinkedEntityField so that the entity data is fully embedded in the representation"""
     def clone(self):
-        return DataField(self.name, self.entity_type, self.lazy,
+        return DataField(self.name, self.entity_type,
                          many=self.many, read_only=self.read_only,
                          backlink_property=self.backlink_property,
                          parent=self.parent, derived=self.derived,
@@ -346,12 +344,10 @@ class ModelMixin(abc.ABC):
     endpoint = None
     _gf = None  # GoFigr instance. Will be set dynamically.
 
-    def __init__(self, api_id=None, lazy=False, parse=False, prefetched=False, **kwargs):
+    def __init__(self, api_id=None, parse=False, prefetched=False, **kwargs):
         """
 
         :param api_id: API ID
-        :param lazy: if True, parameters won't be fetched from server until needed. Otherwise they will \
-        be fetched right away.
         :param parse: if True, the fields' to_internal_value will be called on all properties. Otherwise, properties \
         will be stored verbatim. This is to support direct object creation from Python (i.e. parse = False), and \
         creation from JSON primitives (i.e. parse = True).
@@ -359,14 +355,8 @@ class ModelMixin(abc.ABC):
         :param kwargs:
 
         """
-        if lazy and len(kwargs) > 0:
-            raise ValueError("Parameter values for lazy instances will be fetched on first use and "
-                             "cannot be supplied in the constructor")
-
         self.api_id = api_id
-        self.lazy = lazy
         self.prefetched = prefetched
-        self._has_data = not lazy
         fields = [Field(x) if isinstance(x, str) else x.clone()
                   for x in self.fields]
         for fld in fields:
@@ -375,44 +365,10 @@ class ModelMixin(abc.ABC):
 
         # Set all fields to None by default
         for name in self.fields:
-            if not lazy and not hasattr(self, name):
+            if not hasattr(self, name):
                 setattr(self, name, None)
 
         self._update_properties(kwargs, parse=parse)
-
-    def __getattr__(self, item):
-        # Note that this function is only called if the attribute isn't found through
-        # the usual means
-        err = AttributeError(f"No such attribute: {item}")
-        if item not in self.fields:
-            raise err
-        elif not self.lazy:
-            raise err
-        else:  # lazy AND item in self.fields
-            if self._has_data:  # already fetched and no dice
-                raise err
-
-            self.fetch()
-            return getattr(self, item)
-
-    def __setattr__(self, key, value):
-        try:
-            # We may be setting attributes in the constructor where these properties
-            # only partially exist. In that case, we want to avoid infinite recursion
-            # (hence call to getter from super). We also want to avoid fetching any data if
-            # these key attributes are still missing (hence try-except).
-            lazy_fields = super().__getattribute__('fields')
-            is_lazy = super().__getattribute__('lazy')
-            has_data = super().__getattribute__('_has_data')
-
-            do_fetch = key != 'api_id' and key in lazy_fields and is_lazy and not has_data
-        except AttributeError:
-            do_fetch = False
-
-        if do_fetch:
-            self.fetch()
-
-        return super().__setattr__(key, value)
 
     def __eq__(self, other):
         repr1 = self.to_json()
@@ -874,7 +830,7 @@ class gf_Workspace(ModelMixin, LogsMixin):
               "description",
               "workspace_type",
               "size_bytes",
-              LinkedEntityField("analyses", lambda gf: gf.Analysis, lazy=True, many=True, derived=True,
+              LinkedEntityField("analyses", lambda gf: gf.Analysis, many=True, derived=True,
                                 backlink_property='workspace',
                                 prefetched='infer')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "workspace/"
@@ -978,8 +934,8 @@ class gf_Analysis(ShareableModelMixin, LogsMixin, ThumbnailMixin):
               "name",
               "description",
               "size_bytes",
-              LinkedEntityField("workspace", lambda gf: gf.Workspace, lazy=True, many=False),
-              LinkedEntityField("figures", lambda gf: gf.Figure, lazy=True, many=True, derived=True,
+              LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),
+              LinkedEntityField("figures", lambda gf: gf.Figure, many=True, derived=True,
                                 backlink_property='analysis',
                                 prefetched='infer')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "analysis/"
@@ -1005,8 +961,8 @@ class gf_Figure(ShareableModelMixin, ThumbnailMixin):
               "name",
               "description",
               "size_bytes",
-              LinkedEntityField("analysis", lambda gf: gf.Analysis, lazy=True, many=False),
-              LinkedEntityField("revisions", lambda gf: gf.Revision, lazy=False, prefetched=True, many=True,
+              LinkedEntityField("analysis", lambda gf: gf.Analysis, many=False),
+              LinkedEntityField("revisions", lambda gf: gf.Revision, prefetched=True, many=True,
                                 derived=True, backlink_property='figure')
               ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "figure/"
@@ -1291,8 +1247,8 @@ class gf_Revision(ShareableModelMixin, ThumbnailMixin):
     """Represents a figure revision"""
     fields = ["api_id", "revision_index", "size_bytes",
               JSONField("metadata"),
-              LinkedEntityField("figure", lambda gf: gf.Figure, lazy=True, many=False),
-              DataField("data", lambda gf: gf.Data, lazy=False, many=True, prefetched=True),
+              LinkedEntityField("figure", lambda gf: gf.Figure, many=False),
+              DataField("data", lambda gf: gf.Data, many=True, prefetched=True),
               ] + TIMESTAMP_FIELDS
 
     endpoint = "revision/"
@@ -1399,7 +1355,7 @@ class gf_ApiKey(ModelMixin):
               Timestamp("created"),
               Timestamp("last_used"),
               Timestamp("expiry"),
-              LinkedEntityField("workspace", lambda gf: gf.Workspace, lazy=True, many=False),]
+              LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),]
     endpoint = "api_key/"
 
     def fetch_and_preserve_token(self):
@@ -1458,7 +1414,7 @@ class gf_WorkspaceInvitation(ModelMixin):
               "status",
               Timestamp("created"),
               Timestamp("expiry"),
-              LinkedEntityField("workspace", lambda gf: gf.Workspace, lazy=True, many=False),
+              LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),
               "membership_type"]
     endpoint = "invitations/workspace/"
 
