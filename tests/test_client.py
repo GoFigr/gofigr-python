@@ -16,7 +16,7 @@ import pkg_resources
 from PIL import Image
 
 from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership, \
-    TextData, ThumbnailMixin
+    ThumbnailMixin
 
 
 def make_gf(authenticate=True, username=None, password=None, api_key=None):
@@ -426,6 +426,10 @@ def _test_timestamps(test_case, gf, obj, prop_name, vals, delay_seconds=0.5):
 
         server_obj = obj.__class__(api_id=obj.api_id).fetch()
 
+        if hasattr(obj, 'fetch_data'):
+            obj.fetch_data()
+            server_obj.fetch_data()
+
         # We're not too strict about creation time, but all these objects are created
         # in the unit test and should be fairly recent (~1min)
         test_case.assertLess(datetime.now().astimezone() - obj.created_on,
@@ -676,7 +680,7 @@ class TestFigures(TestCase):
             time.sleep(0.05)
             rev = gf.Revision(metadata={'index': idx},
                               data=TestData(gf).load_external_data(nonce=idx))
-            rev = fig.revisions.create(rev)
+            rev = fig.revisions.create(rev).fetch_data()
 
             for parent in [fig, ana, workspace]:
                 parent.fetch()
@@ -710,6 +714,9 @@ class TestFigures(TestCase):
             self.assertLessEqual((datetime.now().astimezone() - item.timestamp).total_seconds(), 120)
 
     def test_revisions(self):
+        def _order_data(data):
+            return sorted(data, key=lambda d: str(d.data))
+
         gf = make_gf()
         workspace = gf.Workspace(name="test workspace").create()
         ana = workspace.analyses.create(gf.Analysis(name="test analysis 1"))
@@ -719,7 +726,8 @@ class TestFigures(TestCase):
         for idx in range(5):
             rev = gf.Revision(metadata={'index': idx},
                               data=TestData(gf).load_external_data(nonce=idx))
-            rev = fig.revisions.create(rev)
+
+            rev = fig.revisions.create(rev, preserve_data=True)
             fig.fetch()  # to update timestamps
             ana.fetch()  # ...
 
@@ -728,22 +736,25 @@ class TestFigures(TestCase):
             # Validate general revision metadata
             # Fetch the server revision in 2 different ways: (1) directly using API ID, and (2) through the figure
             server_rev1 = gf.Revision(rev.api_id).fetch()
+            server_rev1.fetch_data()
+
             server_rev2, = [x for x in gf.Figure(fig.api_id).fetch().revisions if x.api_id == rev.api_id]
 
             # server_rev2 is a shallow copy, so fetch everything here
             server_rev2.fetch()
+            server_rev2.fetch_data()
 
             for server_rev in [server_rev1, server_rev2]:
-                self.assertEqual(rev, server_rev)
+                # Fetch all data objects
                 self.assertEqual(server_rev.metadata, {'index': idx})
                 self.assertEqual(server_rev.figure, fig)
                 self.assertEqual(server_rev.figure.analysis, ana)
 
                 # Validate image data
                 for data_getter, expected_length, fields_to_check in \
-                    [(lambda r: r.image_data, 3, ["name", "data", "is_watermarked", "format"]),
-                     (lambda r: r.code_data, 2, ["name", "data", "language", "contents"]),
-                     (lambda r: r.table_data, 2, ["name", "data", "format", "dataframe"])]:
+                    [(lambda r: _order_data(r.image_data), 3, ["name", "data", "is_watermarked", "format"]),
+                     (lambda r: _order_data(r.code_data), 2, ["name", "data", "language", "contents"]),
+                     (lambda r: _order_data(r.table_data), 2, ["name", "data", "format", "dataframe"])]:
                     self.assertEqual(len(data_getter(server_rev)), expected_length)
                     for img, srv_img in zip(data_getter(rev), data_getter(server_rev)):
                         for field_name in fields_to_check:
@@ -771,7 +782,7 @@ class TestFigures(TestCase):
                                     for code in server_rev.code_data]
 
             server_rev.save()
-            server_rev = gf.Revision(rev.api_id).fetch()
+            server_rev = gf.Revision(rev.api_id).fetch().fetch_data()
 
             for img in server_rev.image_data:
                 self.assertEqual(img.name, "updated image")
@@ -1209,7 +1220,7 @@ class TestSizeCalculation(GfTestCase):
             self.assertEqual(fig.size_bytes, 0)
 
             for rev_idx in range(num_revisions):
-                rev = gf.Revision(figure=fig, data=[TextData(name="text", contents="1234567")]).create()
+                rev = gf.Revision(figure=fig, data=[gf.TextData(name="text", contents="1234567")]).create()
                 self.assertEqual(rev.size_bytes, 7)
                 fig.fetch()
                 self.assertEqual(rev.size_bytes, 7)
