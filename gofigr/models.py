@@ -3,6 +3,8 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+# Many of the properties here are defined dynamically based on Field specifications, so no-member isn't meaningful
+# pylint: disable=no-member
 
 import abc
 import io
@@ -383,6 +385,11 @@ class ModelMixin(abc.ABC):
     def __hash__(self):
         raise RuntimeError("Model instances are not hashable")
 
+    @classmethod
+    def from_json(cls, data):
+        """Parses an instance of this class from JSON data"""
+        return cls(**data, parse=True)
+
     def to_json(self, include_derived=True, include_none=False):
         """\
         Serializes this model to JSON primitives.
@@ -472,7 +479,6 @@ class ModelMixin(abc.ABC):
         """
         self._check_api_id()
         obj = self._gf._get(urljoin(self.endpoint, self.api_id + "/")).json()
-        self._has_data = True
         self.prefetched = False
         return self._update_properties(obj)
 
@@ -1050,8 +1056,10 @@ class gf_Data(ModelMixin):
 
         # Assign metadata fields
         for meta in self.metadata_fields:
-            if meta.name not in self.metadata:
-                self.metadata[meta.name] = meta.default if meta.name not in kwargs else kwargs[meta.name]
+            if meta.name in kwargs:
+                self.metadata[meta.name] = kwargs[meta.name]
+            elif meta.name not in self.metadata:
+                self.metadata[meta.name] = meta.default
 
     def specialize(self):
         """Creates a specialized data instance, e.g. ImageData, based on the data type"""
@@ -1391,11 +1399,9 @@ class gf_WorkspaceInvitation(ModelMixin):
         """
         if self.token is not None:
             obj = self._gf._get(urljoin(self.endpoint, self.token)).json()
-            self._has_data = True
         else:
             self._check_api_id()
             obj = self._gf._get(urljoin(self.endpoint, self.api_id)).json()
-            self._has_data = True
 
         return self._update_properties(obj)
 
@@ -1432,7 +1438,6 @@ class gf_MetadataProxy(ModelMixin):
         :return: self
         """
         obj = self._gf._get(urljoin(self.endpoint, self.token)).json()
-        self._has_data = True
         return self._update_properties(obj)
 
     def delete(self, **kwargs):

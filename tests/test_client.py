@@ -487,7 +487,7 @@ class TestAnalysis(TestCase):
         for ana in [analysis, analysis2]:
             self.assertEqual(ana.name, "Post-update name")
             self.assertEqual(ana.description, "Pre-update description")
-            self.assertEqual(ana.workspace, workspace)
+            self.assertEqual(ana.workspace.fetch(), workspace)
 
         analysis2.name = "another name"
         analysis2.description = "another description"
@@ -497,7 +497,7 @@ class TestAnalysis(TestCase):
         for ana in [analysis, analysis2]:
             self.assertEqual(ana.name, "another name")
             self.assertEqual(ana.description, "another description")
-            self.assertEqual(ana.workspace, workspace)
+            self.assertEqual(ana.workspace.fetch(), workspace)
 
         # Assign to a new workspace
         new_workspace = gf.Workspace(name="New workspace", description="abc").create()
@@ -529,7 +529,7 @@ class TestAnalysis(TestCase):
         analysis.fetch()
         self.assertEqual(analysis.name, "Test analysis")
         self.assertEqual(analysis.description, "New description")
-        self.assertEqual(analysis.workspace, gf.primary_workspace)
+        self.assertEqual(analysis.workspace.fetch(), gf.primary_workspace)
 
 
 class TestData:
