@@ -1066,6 +1066,7 @@ class gf_Data(ModelMixin):
 
     @property
     def local_id(self):
+        """Reserved for internal API use"""
         if self.metadata is None or 'local_id' not in self.metadata:
             return None
 
@@ -1073,6 +1074,7 @@ class gf_Data(ModelMixin):
 
     @local_id.setter
     def local_id(self, value):
+        """Reserved for internal API use"""
         if self.metadata is None:
             self.metadata = {}
 
@@ -1080,6 +1082,7 @@ class gf_Data(ModelMixin):
 
     @property
     def is_shallow(self):
+        """True if this is a shallow data object without the byte payload"""
         return self.api_id is not None and self.data is None
 
     def specialize(self):
