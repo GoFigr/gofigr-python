@@ -12,6 +12,7 @@ from base64 import b64encode, b64decode
 from collections import namedtuple
 from http import HTTPStatus
 from urllib.parse import urljoin
+from uuid import uuid4
 
 import PIL
 import dateutil.parser
@@ -194,7 +195,7 @@ class LinkedEntityField(Field):
     # pylint: disable=too-many-arguments
     def __init__(self, name, entity_type, many=False,
                  read_only=False, backlink_property=None, parent=None,
-                 derived=False, sort_key=None, prefetched=False):
+                 derived=False, sort_key=None, prefetched='infer'):
         """\
 
         :param name: field name
@@ -205,7 +206,8 @@ class LinkedEntityField(Field):
         :param parent: parent object
         :param derived: True if derived (won't be transmitted through the API)
         :param sort_key: sort key (callable) for entities. None if no sort (default).
-        :param prefetched: True if supplying prefetched JSON objects as opposed to just API IDs
+        :param prefetched: True if supplying prefetched JSON objects as opposed to just API IDs, False otherwise.
+        'infer' to infer automatically.
 
         """
         super().__init__(name, parent=parent, derived=derived)
@@ -267,7 +269,7 @@ class DataField(LinkedEntityField):
                          sort_key=self.sort_key, prefetched=self.prefetched)
 
     def _assert_not_shallow(self, obj):
-        if obj._shallow:  # pylint: disable=protected-access
+        if obj.api_id is not None and obj.data is None:  # pylint: disable=protected-access
             raise ValueError("This is a shallow Data object without any data. It cannot be saved. "
                              "Please call fetch() first.")
 
@@ -320,11 +322,6 @@ class NestedEntityField(Field):
 
 
 class NestedMixin(abc.ABC):
-    """Represents a small object directly nested in its parent's representation
-    (i.e. cannot be manipulated on its own)"""
-
-    _gf = None  # GoFigr instance. Will be set dynamically.
-
     """\
     Nested objects: these are not standalone (cannot be manipulated based on API ID), but are directly embedded
     inside other objects.
@@ -1039,7 +1036,6 @@ class gf_Data(ModelMixin):
     DATA_TYPE = None
 
     fields = ["api_id",
-              "_shallow",
               "name",
               "type",
               JSONField("metadata"),
@@ -1060,6 +1056,31 @@ class gf_Data(ModelMixin):
                 self.metadata[meta.name] = kwargs[meta.name]
             elif meta.name not in self.metadata:
                 self.metadata[meta.name] = meta.default
+
+        # Assign a new local ID (unless one already exists)
+        if 'local_id' in kwargs:
+            self.local_id = kwargs['local_id']
+
+        if self.local_id is None:
+            self.local_id = str(uuid4())
+
+    @property
+    def local_id(self):
+        if self.metadata is None or 'local_id' not in self.metadata:
+            return None
+
+        return self.metadata['local_id']
+
+    @local_id.setter
+    def local_id(self, value):
+        if self.metadata is None:
+            self.metadata = {}
+
+        self.metadata['local_id'] = value
+
+    @property
+    def is_shallow(self):
+        return self.api_id is not None and self.data is None
 
     def specialize(self):
         """Creates a specialized data instance, e.g. ImageData, based on the data type"""
@@ -1275,22 +1296,37 @@ class gf_Revision(ShareableModelMixin, ThumbnailMixin):
         other = [dat for dat in self.data if dat.type != data_type]
         self.data = other + list(value)
 
-    def create(self, update=False, preserve_data=False):
+    def create(self, update=False):
         """\
         Creates a Revision on the server.
 
         :param update: True to update the object if it already exists
-        :param preserve_data: if True, will preserve data contents. Otherwise,
-        they will be set to a shallow copy returned by the server.
         :return: self
 
         """
+        self._assert_data_not_shallow()
+
+        # The server will return a shallow copy of the data objects, without the byte payload.
+        # Instead of requesting that data separately (slow), we simply preserve the submitted data.
         data_copy = self.data
         super().create(update=update)
-        if preserve_data:
-            self.data = data_copy  # pylint: disable=attribute-defined-outside-init
 
+        # Fill in API IDs for data objects
+        local_id_to_api_id = {obj.local_id: obj.api_id for obj in self.data}
+        for datum in data_copy:
+            datum.api_id = local_id_to_api_id[datum.local_id]
+
+        self.data = data_copy  # pylint: disable=attribute-defined-outside-init
         return self
+
+    def save(self, create=False, patch=False, silent=False):
+        self._assert_data_not_shallow()
+        return super().save(create=create, patch=patch, silent=silent)
+
+    def _assert_data_not_shallow(self, message="This revision contains shallow data. Did you call fetch_data?"):
+        for datum in self.data:
+            if datum.is_shallow:
+                raise RuntimeError(message)
 
     def fetch_data(self):
         """Fetches all data objects"""
@@ -1304,8 +1340,10 @@ class gf_Revision(ShareableModelMixin, ThumbnailMixin):
 
     def _update_properties(self, props, parse=True):
         super()._update_properties(props, parse=parse)
-        if self.data is not None:
-            self.data = [dat.specialize() for dat in self.data]
+        if self.data is None:
+            self.data = []
+
+        self.data = [dat.specialize() for dat in self.data]
         return self
 
     @property

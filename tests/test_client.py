@@ -651,7 +651,7 @@ class TestFigures(TestCase):
             time.sleep(0.05)
             rev = gf.Revision(metadata={'index': idx},
                               data=TestData(gf).load_external_data(nonce=idx))
-            rev = fig.revisions.create(rev).fetch_data()
+            rev = fig.revisions.create(rev)
 
             for parent in [fig, ana, workspace]:
                 parent.fetch()
@@ -698,7 +698,7 @@ class TestFigures(TestCase):
             rev = gf.Revision(metadata={'index': idx},
                               data=TestData(gf).load_external_data(nonce=idx))
 
-            rev = fig.revisions.create(rev, preserve_data=True)
+            rev = fig.revisions.create(rev)
             fig.fetch()  # to update timestamps
             ana.fetch()  # ...
 
@@ -857,6 +857,8 @@ class MultiUserTestCase(TestCase):
         for client, other_client in self.client_pairs:
             for own_obj in self.list_all_objects(client):
                 own_obj.fetch()  # own_obj may be a shallow copy, so fetch everything first
+                if hasattr(own_obj, 'fetch_data'):
+                    own_obj.fetch_data()
 
                 not_own_obj = self.clone_gf_object(own_obj, other_client)
 
@@ -886,6 +888,9 @@ class MultiUserTestCase(TestCase):
 
                 # Make sure the properties didn't actually change
                 own_obj2 = self.clone_gf_object(own_obj, client, bare=True).fetch()
+                if hasattr(own_obj2, 'fetch_data'):
+                    own_obj2.fetch_data()
+
                 self.assertEqual(str(own_obj.to_json()), str(own_obj2.to_json()))
 
 

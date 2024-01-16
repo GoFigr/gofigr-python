@@ -5,6 +5,13 @@ from gofigr.models import DataType
 from tests.test_client import make_gf
 
 
+def _remove_local_id(json_data):
+    if 'metadata' in json_data and 'local_id' in json_data['metadata']:
+        del json_data['metadata']['local_id']
+
+    return json_data
+
+
 class TestMixins(unittest.TestCase):
     def test_metadata_defaults(self):
         """\
@@ -13,9 +20,8 @@ class TestMixins(unittest.TestCase):
         gf = make_gf()
         img = gf.ImageData(data=bytes([1, 2, 3]))
 
-        self.assertEqual(img.to_json(include_none=True),
+        self.assertEqual(_remove_local_id(img.to_json(include_none=True)),
                          {'api_id': None,
-                          '_shallow': None,
                           'name': None,
                           'type': 'image',
                           'metadata': {'is_watermarked': False, 'format': None},  # metadata defaults should be present
@@ -34,9 +40,8 @@ class TestMixins(unittest.TestCase):
         gf = make_gf()
         img = gf.ImageData(name="test image", data=bytes([1, 2, 3]), is_watermarked=True, format="png")
 
-        self.assertEqual(img.to_json(include_none=True),
+        self.assertEqual(_remove_local_id(img.to_json(include_none=True)),
                          {'api_id': None,
-                          '_shallow': None,
                          'name': 'test image',
                           'type': 'image',
                           'metadata': {'is_watermarked': True, 'format': 'png'},
@@ -58,9 +63,8 @@ class TestMixins(unittest.TestCase):
                            metadata={'is_watermarked': False, 'format': "eps"},
                            is_watermarked=True, format="png")
 
-        self.assertEqual(img.to_json(include_none=True),
+        self.assertEqual(_remove_local_id(img.to_json(include_none=True)),
                          {'api_id': None,
-                          '_shallow': None,
                           'name': 'test image',
                           'type': 'image',
                           'metadata': {'is_watermarked': True, 'format': 'png'},
