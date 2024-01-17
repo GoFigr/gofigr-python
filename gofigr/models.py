@@ -962,7 +962,7 @@ class DataType(abc.ABC):
     TEXT = "text"
 
 
-class MetadataProxy:
+class MetadataProxyField:
     """Field which is embedded inside the JSON metadata"""
     def __init__(self, name, default=None):
         """
@@ -1105,8 +1105,8 @@ class gf_ImageData(gf_Data):
 
     DATA_TYPE = DataType.IMAGE
 
-    is_watermarked = MetadataProxy("is_watermarked", default=False)
-    format = MetadataProxy("format")
+    is_watermarked = MetadataProxyField("is_watermarked", default=False)
+    format = MetadataProxyField("format")
     metadata_fields = [is_watermarked, format]
 
     @property
@@ -1147,9 +1147,9 @@ class gf_CodeData(gf_Data):
 
     DATA_TYPE = DataType.CODE
 
-    language = MetadataProxy("language")
-    format = MetadataProxy("format")
-    encoding = MetadataProxy("encoding", default="utf-8")
+    language = MetadataProxyField("language")
+    format = MetadataProxyField("format")
+    encoding = MetadataProxyField("encoding", default="utf-8")
     metadata_fields = [language, format, encoding]
 
     def __init__(self, contents=None, **kwargs):
@@ -1189,7 +1189,7 @@ class gf_TextData(gf_Data):
     # pylint: disable=no-member
 
     DATA_TYPE = DataType.TEXT
-    encoding = MetadataProxy("encoding", default="utf-8")
+    encoding = MetadataProxyField("encoding", default="utf-8")
     metadata_fields = [encoding]
 
     def __init__(self, contents=None, **kwargs):
@@ -1220,8 +1220,8 @@ class gf_TableData(gf_Data):
     # pylint: disable=no-member
 
     DATA_TYPE = DataType.DATA_FRAME
-    format = MetadataProxy("format")
-    encoding = MetadataProxy("encoding", default="utf-8")
+    format = MetadataProxyField("format")
+    encoding = MetadataProxyField("encoding", default="utf-8")
     metadata_fields = [format, encoding]
 
     def __init__(self, dataframe=None, **kwargs):

@@ -29,17 +29,17 @@ class TestMetadataProxy(MultiUserTestCase):
         gf = self.gf1
 
         # First make sure we can't create proxies which don't expire or expire too far into the future
-        meta = gf.MetadataProxy(expiry=None).create()
+        meta = gf.MetadataProxyField(expiry=None).create()
         self.assertIsNotNone(meta.expiry)
         self.assertLess((meta.expiry - meta.created).total_seconds(), 24 * 3600)
 
-        meta = gf.MetadataProxy(expiry=datetime.now() + timedelta(days=7)).create()
+        meta = gf.MetadataProxyField(expiry=datetime.now() + timedelta(days=7)).create()
         self.assertIsNotNone(meta.expiry)
         self.assertLess((meta.expiry - meta.created).total_seconds(), 24 * 3600)
 
-        meta = gf.MetadataProxy(expiry=datetime.now(tz=tz.tzlocal()) + timedelta(seconds=4)).create()
+        meta = gf.MetadataProxyField(expiry=datetime.now(tz=tz.tzlocal()) + timedelta(seconds=4)).create()
 
-        meta2 = gf.MetadataProxy(token=meta.token).fetch()
+        meta2 = gf.MetadataProxyField(token=meta.token).fetch()
         for prop in ['token', 'api_id', 'initiator']:
             self.assertIsNotNone(getattr(meta, prop))
             self.assertIsNotNone(getattr(meta2, prop))
@@ -61,7 +61,7 @@ class TestMetadataProxy(MultiUserTestCase):
         self.assertLess((datetime.now(tz=tz.tzlocal()) - meta.updated).total_seconds(), 10)
 
         # User 2 should not be able to fetch any of the metadata, even with a valid token
-        u2_meta = self.gf2.MetadataProxy(token=meta.token)
+        u2_meta = self.gf2.MetadataProxyField(token=meta.token)
         self.assertRaises(UnauthorizedError, lambda: u2_meta.fetch())
 
         # However, they should be able to update the metadata

@@ -46,6 +46,13 @@ class UnauthorizedError(RuntimeError):
     pass
 
 
+class MethodNotAllowedError(RuntimeError):
+    """\
+    Thrown if a given REST action is not supported/allowed.
+    """
+    pass
+
+
 class UserInfo:
     """\
     Stores basic information about a user: username, email, etc.
@@ -296,6 +303,8 @@ class GoFigr:
             if throw_exception and response.status_code not in expected_status:
                 if response.status_code == HTTPStatus.FORBIDDEN:
                     raise UnauthorizedError(f"Unauthorized: {response.content}")
+                elif response.status_code == HTTPStatus.METHOD_NOT_ALLOWED:
+                    raise MethodNotAllowedError(f"Method not allowed: {response.content}")
                 else:
                     raise RuntimeError(f"Request to {url} returned {response.status_code}: {response.content}")
 

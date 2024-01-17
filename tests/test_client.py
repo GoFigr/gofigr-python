@@ -14,10 +14,10 @@ import numpy as np
 import pandas as pd
 import pkg_resources
 from PIL import Image
-from gofigr.models import gf_Revision
+from gofigr.models import gf_Revision, gf_Data
 
 from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership, \
-    ThumbnailMixin
+    ThumbnailMixin, MethodNotAllowedError
 
 
 def make_gf(authenticate=True, username=None, password=None, api_key=None):
@@ -779,7 +779,7 @@ class TestFigures(TestCase):
 class MultiUserTestCase(TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.n_revisions = 5
+        self.n_revisions = 2
 
     def setUp(self):
         self.gf1 = make_gf(username="testuser")
@@ -836,7 +836,10 @@ class MultiUserTestCase(TestCase):
                     yield fig
 
                     for rev in fig.revisions:
+                        rev.fetch()
                         yield rev
+                        yield from rev.data
+
 
     def clone_gf_object(self, obj, client, bare=False):
         cloned_obj = self.get_gf_type(obj, client)(api_id=obj.api_id)
@@ -863,7 +866,8 @@ class MultiUserTestCase(TestCase):
                         not_own_obj.get_thumbnail(256)
 
                 # DELETE
-                with self.assertRaises(UnauthorizedError, msg=f"Unauthorized delete granted to {own_obj}"):
+                with self.assertRaises(MethodNotAllowedError if isinstance(not_own_obj, gf_Data) else UnauthorizedError,
+                                       msg=f"Unauthorized delete granted to {own_obj}"):
                     not_own_obj.delete(delete=True)
 
                 # UPDATE
@@ -875,7 +879,10 @@ class MultiUserTestCase(TestCase):
                     raise ValueError(f"Don't know how to update {not_own_obj}")
 
                 for patch in [False, True]:
-                    with self.assertRaises(UnauthorizedError, msg=f"Unauthorized update granted on {own_obj}"):
+                    with self.assertRaises(MethodNotAllowedError \
+                                                   if isinstance(not_own_obj, gf_Data) \
+                                                   else UnauthorizedError,
+                                           msg=f"Unauthorized update granted on {own_obj}"):
                         not_own_obj.save(patch=patch)
 
                 # Make sure the properties didn't actually change
