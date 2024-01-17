@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pkg_resources
 from PIL import Image
+from gofigr.models import gf_Revision
 
 from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership, \
     ThumbnailMixin
@@ -426,10 +427,6 @@ def _test_timestamps(test_case, gf, obj, prop_name, vals, delay_seconds=0.5):
 
         server_obj = obj.__class__(api_id=obj.api_id).fetch()
 
-        if hasattr(obj, 'fetch_data'):
-            obj.fetch_data()
-            server_obj.fetch_data()
-
         # We're not too strict about creation time, but all these objects are created
         # in the unit test and should be fairly recent (~1min)
         test_case.assertLess(datetime.now().astimezone() - obj.created_on,
@@ -707,13 +704,11 @@ class TestFigures(TestCase):
             # Validate general revision metadata
             # Fetch the server revision in 2 different ways: (1) directly using API ID, and (2) through the figure
             server_rev1 = gf.Revision(rev.api_id).fetch()
-            server_rev1.fetch_data()
 
             server_rev2, = [x for x in gf.Figure(fig.api_id).fetch().revisions if x.api_id == rev.api_id]
 
             # server_rev2 is a shallow copy, so fetch everything here
             server_rev2.fetch()
-            server_rev2.fetch_data()
 
             for server_rev in [server_rev1, server_rev2]:
                 # Fetch all data objects
@@ -753,7 +748,7 @@ class TestFigures(TestCase):
                                     for code in server_rev.code_data]
 
             server_rev.save()
-            server_rev = gf.Revision(rev.api_id).fetch().fetch_data()
+            server_rev = gf.Revision(rev.api_id).fetch()
 
             for img in server_rev.image_data:
                 self.assertEqual(img.name, "updated image")
@@ -857,8 +852,6 @@ class MultiUserTestCase(TestCase):
         for client, other_client in self.client_pairs:
             for own_obj in self.list_all_objects(client):
                 own_obj.fetch()  # own_obj may be a shallow copy, so fetch everything first
-                if hasattr(own_obj, 'fetch_data'):
-                    own_obj.fetch_data()
 
                 not_own_obj = self.clone_gf_object(own_obj, other_client)
 
@@ -888,9 +881,6 @@ class MultiUserTestCase(TestCase):
 
                 # Make sure the properties didn't actually change
                 own_obj2 = self.clone_gf_object(own_obj, client, bare=True).fetch()
-                if hasattr(own_obj2, 'fetch_data'):
-                    own_obj2.fetch_data()
-
                 self.assertEqual(str(own_obj.to_json()), str(own_obj2.to_json()))
 
 

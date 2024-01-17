@@ -1299,6 +1299,22 @@ class gf_Revision(ShareableModelMixin, ThumbnailMixin):
         other = [dat for dat in self.data if dat.type != data_type]
         self.data = other + list(value)
 
+    def _restore_data(self, data_copy):
+        """\
+        Restores data from a copy. This function is necessary because the API only returns shallow data objects
+        (no bytes) which, based on the base ModelMixin, will overwrite actual data in this object.
+
+        :param data_copy:
+        :return:
+        """
+        # Fill in API IDs for data objects
+        local_id_to_api_id = {obj.local_id: obj.api_id for obj in self.data}
+        for datum in data_copy:
+            datum.api_id = local_id_to_api_id[datum.local_id]
+
+        self.data = data_copy  # pylint: disable=attribute-defined-outside-init
+        return self
+
     def create(self, update=False):
         """\
         Creates a Revision on the server.
@@ -1314,17 +1330,32 @@ class gf_Revision(ShareableModelMixin, ThumbnailMixin):
         data_copy = self.data
         super().create(update=update)
 
-        # Fill in API IDs for data objects
-        local_id_to_api_id = {obj.local_id: obj.api_id for obj in self.data}
-        for datum in data_copy:
-            datum.api_id = local_id_to_api_id[datum.local_id]
+        self._restore_data(data_copy)
+        return self
 
-        self.data = data_copy  # pylint: disable=attribute-defined-outside-init
+    def fetch(self, fetch_data=True):
+        """\
+        Overrides the default fetch to retrieve the data objects (with byte payload) as well. This override
+        is necessary because the API only returns shallow data objects by default.
+
+        :param fetch_data: whether to retrieve full data objects
+        :return: self
+        """
+        super().fetch()
+        if fetch_data:
+            self.fetch_data()
         return self
 
     def save(self, create=False, patch=False, silent=False):
         self._assert_data_not_shallow()
-        return super().save(create=create, patch=patch, silent=silent)
+
+        # The server will return a shallow copy of the data objects, without the byte payload.
+        # Instead of requesting that data separately (slow), we simply preserve the submitted data.
+        data_copy = self.data
+        super().save(create=create, patch=patch, silent=silent)
+
+        self._restore_data(data_copy)
+        return self
 
     def _assert_data_not_shallow(self, message="This revision contains shallow data. Did you call fetch_data?"):
         for datum in self.data:
