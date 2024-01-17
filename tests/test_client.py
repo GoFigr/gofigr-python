@@ -419,8 +419,7 @@ def _test_timestamps(test_case, gf, obj, prop_name, vals, delay_seconds=0.5):
 
     for val in vals:
         time.sleep(delay_seconds)
-        if obj.prefetched:
-            obj.fetch()
+        obj.fetch()
 
         setattr(obj, prop_name, val)
         obj.save()

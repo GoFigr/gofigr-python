@@ -195,7 +195,7 @@ class LinkedEntityField(Field):
     # pylint: disable=too-many-arguments
     def __init__(self, name, entity_type, many=False,
                  read_only=False, backlink_property=None, parent=None,
-                 derived=False, sort_key=None, prefetched='infer'):
+                 derived=False, sort_key=None):
         """\
 
         :param name: field name
@@ -206,8 +206,6 @@ class LinkedEntityField(Field):
         :param parent: parent object
         :param derived: True if derived (won't be transmitted through the API)
         :param sort_key: sort key (callable) for entities. None if no sort (default).
-        :param prefetched: True if supplying prefetched JSON objects as opposed to just API IDs, False otherwise.
-        'infer' to infer automatically.
 
         """
         super().__init__(name, parent=parent, derived=derived)
@@ -216,14 +214,13 @@ class LinkedEntityField(Field):
         self.read_only = read_only
         self.backlink_property = backlink_property
         self.sort_key = sort_key
-        self.prefetched = prefetched
 
     def clone(self):
         return LinkedEntityField(self.name, self.entity_type,
                                  many=self.many, read_only=self.read_only,
                                  backlink_property=self.backlink_property,
                                  parent=self.parent, derived=self.derived,
-                                 sort_key=self.sort_key, prefetched=self.prefetched)
+                                 sort_key=self.sort_key)
 
     def to_representation(self, value):
         if value is None:
@@ -235,16 +232,9 @@ class LinkedEntityField(Field):
             return value.api_id
 
     def to_internal_value(self, gf, data):
-        make_prefetched = lambda obj: self.entity_type(gf)(parse=True, prefetched=True, **obj)
+        make_prefetched = lambda obj: self.entity_type(gf)(parse=True, **obj)
         make_not_prefetched = lambda api_id: self.entity_type(gf)(api_id=api_id)
-        if self.prefetched is True:
-            make_one = make_prefetched
-        elif self.prefetched is False:
-            make_one = make_not_prefetched
-        elif self.prefetched == "infer":
-            make_one = lambda obj: make_not_prefetched(obj) if isinstance(obj, str) else make_prefetched(obj)
-        else:
-            raise ValueError(f"Invalid prefetch value: {self.prefetched}. Must be True, False or 'infer'.")
+        make_one = lambda obj: make_not_prefetched(obj) if isinstance(obj, str) else make_prefetched(obj)
 
         if data is None:
             return None
@@ -266,7 +256,7 @@ class DataField(LinkedEntityField):
                          many=self.many, read_only=self.read_only,
                          backlink_property=self.backlink_property,
                          parent=self.parent, derived=self.derived,
-                         sort_key=self.sort_key, prefetched=self.prefetched)
+                         sort_key=self.sort_key)
 
     def _assert_not_shallow(self, obj):
         if obj.api_id is not None and obj.data is None:  # pylint: disable=protected-access
@@ -343,19 +333,17 @@ class ModelMixin(abc.ABC):
     endpoint = None
     _gf = None  # GoFigr instance. Will be set dynamically.
 
-    def __init__(self, api_id=None, parse=False, prefetched=False, **kwargs):
+    def __init__(self, api_id=None, parse=False, **kwargs):
         """
 
         :param api_id: API ID
         :param parse: if True, the fields' to_internal_value will be called on all properties. Otherwise, properties \
         will be stored verbatim. This is to support direct object creation from Python (i.e. parse = False), and \
         creation from JSON primitives (i.e. parse = True).
-        :param prefetched: True if this is a shallow, prefetched instance. False otherwise.
         :param kwargs:
 
         """
         self.api_id = api_id
-        self.prefetched = prefetched
         fields = [Field(x) if isinstance(x, str) else x.clone()
                   for x in self.fields]
         for fld in fields:
@@ -445,10 +433,6 @@ class ModelMixin(abc.ABC):
             else:
                 raise RuntimeError("API ID is None. Did you forget to create() the object first?")
 
-        if self.prefetched:
-            raise RuntimeError("This is a shallow instance. Please call fetch() before making and "
-                               "saving modifications.")
-
         if silent:
             params = "?silent=true"
         else:
@@ -476,7 +460,6 @@ class ModelMixin(abc.ABC):
         """
         self._check_api_id()
         obj = self._gf._get(urljoin(self.endpoint, self.api_id + "/")).json()
-        self.prefetched = False
         return self._update_properties(obj)
 
     def create(self, update=False):
@@ -834,8 +817,7 @@ class gf_Workspace(ModelMixin, LogsMixin):
               "workspace_type",
               "size_bytes",
               LinkedEntityField("analyses", lambda gf: gf.Analysis, many=True, derived=True,
-                                backlink_property='workspace',
-                                prefetched='infer')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+                                backlink_property='workspace')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "workspace/"
 
     def get_analysis(self, name, create=True, **kwargs):
@@ -939,8 +921,7 @@ class gf_Analysis(ShareableModelMixin, LogsMixin, ThumbnailMixin):
               "size_bytes",
               LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),
               LinkedEntityField("figures", lambda gf: gf.Figure, many=True, derived=True,
-                                backlink_property='analysis',
-                                prefetched='infer')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+                                backlink_property='analysis')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "analysis/"
 
     def get_figure(self, name, create=True, **kwargs):
@@ -965,7 +946,7 @@ class gf_Figure(ShareableModelMixin, ThumbnailMixin):
               "description",
               "size_bytes",
               LinkedEntityField("analysis", lambda gf: gf.Analysis, many=False),
-              LinkedEntityField("revisions", lambda gf: gf.Revision, prefetched=True, many=True,
+              LinkedEntityField("revisions", lambda gf: gf.Revision, many=True,
                                 derived=True, backlink_property='figure')
               ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "figure/"
@@ -1280,7 +1261,7 @@ class gf_Revision(ShareableModelMixin, ThumbnailMixin):
     fields = ["api_id", "revision_index", "size_bytes",
               JSONField("metadata"),
               LinkedEntityField("figure", lambda gf: gf.Figure, many=False),
-              DataField("data", lambda gf: gf.Data, many=True, prefetched=True),
+              DataField("data", lambda gf: gf.Data, many=True),
               ] + TIMESTAMP_FIELDS
 
     endpoint = "revision/"
