@@ -77,7 +77,7 @@ def run_proxy_async(gf, callback):
 
     mp_queue = multiprocessing.JoinableQueue()
 
-    proxy = gf.MetadataProxyField().create()
+    proxy = gf.MetadataProxy().create()
 
     try:
         _STOP_CALLBACK_THREAD = False
