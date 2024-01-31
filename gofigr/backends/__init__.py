@@ -108,6 +108,13 @@ class GoFigrBackend(ABC):
         """
         raise NotImplementedError
 
+    def get_backend_name(self):
+        """\
+        Gets a human-readable name of this backend.
+        :return: backend name, a string
+        """
+        raise NotImplementedError
+
 
 def get_backend(figure, backends):
     """\

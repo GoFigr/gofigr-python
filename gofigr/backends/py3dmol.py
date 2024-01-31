@@ -33,6 +33,9 @@ class Py3DmolBackend(GoFigrBackend):
         self.hti = Html2Image(size=image_size)
         self.debug = debug
 
+    def get_backend_name(self):
+        return "py3dmol"
+
     def is_compatible(self, fig):
         return isinstance(fig, py3Dmol.view)
 

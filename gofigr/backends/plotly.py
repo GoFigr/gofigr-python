@@ -12,6 +12,9 @@ from gofigr.backends import GoFigrBackend, get_all_function_arguments
 
 class PlotlyBackend(GoFigrBackend):
     """Plotly backend for GoFigr"""
+    def get_backend_name(self):
+        return "plotly"
+
     def is_compatible(self, fig):
         return isinstance(fig, go.Figure)
 

@@ -10,6 +10,7 @@ from abc import ABC
 from urllib.parse import unquote, urlparse
 
 from gofigr import CodeLanguage
+from gofigr.context import RevisionContext
 
 PATH_WARNING = "To fix this warning, you can manually specify the notebook name & path in the call to configure(). " \
                "Please see https://gofigr.io/docs/gofigr-python/latest/customization.html#notebook-name-path " \
@@ -107,6 +108,7 @@ NOTEBOOK_NAME = "notebook_name"
 NOTEBOOK_URL = "url"
 NOTEBOOK_KERNEL = "kernel"
 PYTHON_VERSION = "python_version"
+BACKEND_NAME = "backend"
 
 
 class NotebookMetadataAnnotator(Annotator):
@@ -164,3 +166,13 @@ class EnvironmentAnnotator(Annotator):
 
         revision.metadata[NOTEBOOK_KERNEL] = sys.executable
         revision.metadata[PYTHON_VERSION] = sys.version
+
+
+class BackendAnnotator(Annotator):
+    """Annotates revisions with the python version & the kernel info"""
+    def annotate(self, revision):
+        if revision.metadata is None:
+            revision.metadata = {}
+
+        context = RevisionContext.get(revision)
+        revision.metadata[BACKEND_NAME] = context.backend.get_backend_name() if context and context.backend else "N/A"
