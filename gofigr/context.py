@@ -11,12 +11,14 @@ class RevisionContext:
     a lot of disjointed state around.
 
     """
-    def __init__(self, backend=None):
+    def __init__(self, backend=None, extension=None):
         """\
 
         :param backend: GoFigr backend which originated this figure
+        :param extension: GoFigr Jupyter extension
         """
         self.backend = backend
+        self.extension = extension
 
     @staticmethod
     def get(obj):

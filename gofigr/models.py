@@ -1162,7 +1162,7 @@ class gf_CodeData(gf_Data):
         if contents is not None:
             self.contents = contents
 
-        self.format = "text"
+        self.format = kwargs.get("format", "text")
 
     @property
     def contents(self):

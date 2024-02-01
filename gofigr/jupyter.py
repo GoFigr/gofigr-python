@@ -21,7 +21,7 @@ import six
 
 from gofigr import GoFigr, API_URL, UnauthorizedError
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
-    PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator
+    PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator
 from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
@@ -363,7 +363,7 @@ def parse_model_instance(model_class, value, find_by_name):
 
 
 DEFAULT_ANNOTATORS = (NotebookMetadataAnnotator, EnvironmentAnnotator, CellIdAnnotator, CellCodeAnnotator,
-                      SystemAnnotator, PipFreezeAnnotator, BackendAnnotator)
+                      SystemAnnotator, PipFreezeAnnotator, BackendAnnotator, HistoryAnnotator)
 DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
 
 
@@ -570,7 +570,7 @@ class Publisher:
         if metadata is not None:
             combined_meta.update(metadata)
 
-        context = RevisionContext(backend=backend)
+        context = RevisionContext(backend=backend, extension=ext)
         with MeasureExecution("Bare revision"):
             # Create a bare revision first to get the API ID
             rev = gf.Revision(figure=target, metadata=combined_meta)
