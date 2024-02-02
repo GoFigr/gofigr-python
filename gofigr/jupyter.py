@@ -12,7 +12,6 @@ import json
 import os
 import sys
 from collections import namedtuple
-from datetime import datetime
 from functools import wraps
 from uuid import UUID
 
@@ -29,6 +28,7 @@ from gofigr.context import RevisionContext
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
 from gofigr.watermarks import DefaultWatermark
+from gofigr.widget import GoFigrWidget
 
 try:
     from IPython.core.display_functions import display
@@ -578,6 +578,7 @@ class Publisher:
 
             context.attach(rev)
 
+
         deferred = False
         if _GF_EXTENSION.cell is None:
             deferred = True
@@ -611,16 +612,18 @@ class Publisher:
         with MeasureExecution("Final save"):
             rev.save(silent=True)
 
+            # Calling .save() above will update internal properties based on the response from the server.
+            # In our case, this will result in rev.figure becoming a shallow object with just the API ID. Here
+            # we restore it from our cached copy, to avoid a separate API call.
+            rev.figure = target
+
         fig._gf_is_published = True
 
         if self.clear:
             backend.close(fig)
 
         with SuppressDisplayTrap():
-            display(HTML(f"""
-            <div style='margin-top: 1em; margin-bottom: 1em; margin-left: auto; margin-right: auto;'>
-                <a href='{rev.revision_url}' target="_blank">View on GoFigr</a>
-            </div>"""))
+            GoFigrWidget(rev).show()
 
         return rev
 

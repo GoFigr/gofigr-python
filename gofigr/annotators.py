@@ -184,6 +184,7 @@ class BackendAnnotator(Annotator):
 
 
 class HistoryAnnotator(Annotator):
+    """Annotates revisions with IPython execution history"""
     def annotate(self, revision):
         context = RevisionContext.get(revision)
 

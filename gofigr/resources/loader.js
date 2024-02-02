@@ -15,3 +15,9 @@ let data = {
 };
 
 xhr.send(JSON.stringify(data));
+
+// Load CSS
+document.getElementsByTagName('head')[0].insertAdjacentHTML(
+   'beforeend',
+    '<link href="data:text/css;base64,' + gofigr_css + '" rel="stylesheet"/>'
+   );

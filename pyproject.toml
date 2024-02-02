@@ -19,7 +19,8 @@ classifiers = [
 keywords = ["science", "visualization", "version control", "plotting", "data", "reproducibility"]
 dependencies = [
     "numpy", "pandas", "pyqrcode", "pillow", "matplotlib", "dateutils",
-    "python-dateutil", "ipython", "requests", "pypng", "plotly", "kaleido"
+    "python-dateutil", "ipython", "requests", "pypng", "plotly", "kaleido",
+    "humanize"
 ]
 requires-python = ">=3.7"
 
