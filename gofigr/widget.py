@@ -4,12 +4,13 @@ All rights reserved.
 
 """
 from base64 import b64encode
+from uuid import uuid4
 
 import humanize
-from IPython.core.display import HTML
+from IPython.core.display import HTML, Javascript
 from IPython.core.display_functions import display
 
-from gofigr.utils import read_resource_b64
+from gofigr.utils import read_resource_b64, read_resource_text
 
 """
 const link = document.createElement('a');
@@ -33,6 +34,8 @@ WIDGET_STYLE = "margin-top: 1rem; margin-bottom: 1rem; margin-left: auto; margin
                "display: flex !important; border: 1px solid transparent; border-color: #cedcef; padding: 0.75em; " + \
                "border-radius: 0.35rem; flex-wrap: wrap; "
 
+MESSAGE_STYLE = "padding-top: 0.25rem; "
+
 ROW_STYLE = "width: 100%; display: flex; flex-wrap: wrap;"
 
 BREAK_STYLE = "flex-basis: 100%; height: 0;"
@@ -51,6 +54,8 @@ Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://f
 33.9V336c0 26.5-21.5 48-48 48H208c-26.5 0-48-21.5-48-48V48c0-26.5 21.5-48 48-48zM48 128h80v64H64V448H256V416h64v48c0 
 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V176c0-26.5 21.5-48 48-48z"/></svg>"""
 
+FA_COPY_LIGHT = FA_COPY.replace("#ffffff", "#0d53b1")
+
 FA_DOWNLOAD = """<svg xmlns="http://www.w3.org/2000/svg" height="1rem" width="1rem" viewBox="0 0 512 512"><!--!Font 
 Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 
 2024 Fonticons, Inc.--><path fill="#ffffff" d="M288 32c0-17.7-14.3-32-32-32s-32 14.3-32 
@@ -65,10 +70,20 @@ def timestamp_to_local_tz(dt_tz):
     return dt_tz.astimezone(tz=None)
 
 
+class CopyButton:
+    def __init__(self, label):
+        self.label = label
+
+    def to_html(self):
+        return self.label
+
+
 class GoFigrWidget:
     def __init__(self, revision):
         self.revision = revision
         self._logo_b64 = None
+        self.id = f"gf-widget-{str(uuid4())}"
+        self.alert_id = f"{self.id}-alert"
 
     def get_logo_b64(self):
         if self._logo_b64 is not None:
@@ -89,28 +104,54 @@ class GoFigrWidget:
                           href="data:image/{image_format};base64,{b64encode(img.data).decode('ascii')}">
                           {label}</a>"""
 
+    def _render_template(self, name, mapping):
+        template = read_resource_text("gofigr.resources", name).replace("\n", "")
+        for key, value in mapping.items():
+            template = template.replace(key, value)
+        template = template.replace("\"", "'")
+        return template
+
     def get_copy_link(self, label, watermark, image_format="png"):
         matches = [img for img in self.revision.image_data
                    if img.format and img.format.lower() == image_format.lower() and img.is_watermarked == watermark]
         if len(matches) == 0:
             return ""
-        else:
-            img = matches[0]
-            return f"""<button style="{COPY_BUTTON_STYLE}">{label}</button>"""
+
+        img = matches[0]
+        onclick = self._render_template("copy_image.js",
+                                        {"_ALERT_ID_": self.alert_id,
+                                         "_ERROR_MESSAGE_": "Unable to copy image. "
+                                                            "Are you running over HTTPS and/or localhost?",
+                                         "_SUCCESS_MESSAGE_": "Image copied to clipboard!",
+                                         "_IMAGE_B64_": b64encode(img.data).decode('ascii')})
+        return f"""<button onclick="{onclick}" style="{COPY_BUTTON_STYLE}">{label}</button>"""
+
+    def get_text_copy_link(self, label, text):
+        onclick = read_resource_text("gofigr.resources", "copy_text.js").replace("\n", "")
+        onclick = onclick.replace("_TEXT_", text)
+        onclick = onclick.replace("_ALERT_ID_", self.alert_id)
+        onclick = onclick.replace("_SUCCESS_MESSAGE_", "Link copied to clipboard!")
+        onclick = onclick.replace("_ERROR_MESSAGE_", "Unable to copy link. Are you running over HTTPS and/or localhost?")
+        onclick = onclick.replace("\"", "'")
+
+        return f"""<span onclick="{onclick}" style="cursor: pointer; color: #0d53b1; ">{label}</span>"""
 
     def show(self):
-        logob64 = self.get_logo_b64()
+        logo_b64 = self.get_logo_b64()
+        copy_url = self.get_text_copy_link(f"<span>{self.revision.figure.name}</span><span style='margin-left: 0.5rem'>{FA_COPY_LIGHT}</span>",
+                                           self.revision.revision_url)
 
         return display(HTML(f"""
             <div style="{WIDGET_STYLE}">
                 <div style="{ROW_STYLE + "margin-bottom: 0.5rem"}">
-                <span>Successfully published "{self.revision.figure.name}" on {timestamp_to_local_tz(self.revision.created_on).strftime("%x at %X")}.</span> 
+                <span>Successfully published {copy_url} 
+                on {timestamp_to_local_tz(self.revision.created_on).strftime("%x at %X")}.</span> 
                 <span style="margin-left: 0.25rem;"> Revision size: {humanize.naturalsize(self.revision.size_bytes)}</span>
                 </div>
                             
                 <div style="{ROW_STYLE}">
                 <!-- Logo -->
-                <img src="data:image;base64,{logob64}" alt="GoFigr.io logo" style='width: 3em; height: 3em'/>
+                <img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" style='width: 3em; height: 3em'/>
                 
                 <!-- View on GoFigr -->
                 <a href='{self.revision.revision_url}' target="_blank" style="{VIEW_BUTTON_STYLE}">{FA_VIEW}<span> View on GoFigr</span></a>
@@ -123,5 +164,8 @@ class GoFigrWidget:
                 {self.get_copy_link(FA_COPY + "<span> Copy</span>", True, "png")}
                 {self.get_copy_link(FA_COPY + "<span> Copy (no watermark)</span>", False, "png")}
                 
+                </div>
+                
+                <div id={self.alert_id} style="{ROW_STYLE + MESSAGE_STYLE}">
                 </div>
             </div>"""))
