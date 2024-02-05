@@ -5,6 +5,7 @@ All rights reserved.
 """
 
 
+# pylint: disable=protected-access
 class RevisionContext:
     """\
     Stores publishing context for a revision. We created this class so that we don't have to pass

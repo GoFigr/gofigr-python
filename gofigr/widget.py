@@ -3,21 +3,16 @@ Copyright (c) 2024, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+# pylint: disable=trailing-whitespace
+
 from base64 import b64encode
 from uuid import uuid4
 
 import humanize
-from IPython.core.display import HTML, Javascript
+from IPython.core.display import HTML
 from IPython.core.display_functions import display
 
 from gofigr.utils import read_resource_b64, read_resource_text
-
-"""
-const link = document.createElement('a');
-                link.href = `data:image/${obj.metadata.format};base64,${result.data}`;
-                link.download = props.downloadName + "." + obj.metadata.format;
-                link.click();
-                """
 
 
 BUTTON_STYLE = "padding-top: 0.25em; padding-bottom: 0.25em; padding-left: 0.5em; padding-right: 0.5em; " + \
@@ -70,22 +65,21 @@ def timestamp_to_local_tz(dt_tz):
     return dt_tz.astimezone(tz=None)
 
 
-class CopyButton:
-    def __init__(self, label):
-        self.label = label
-
-    def to_html(self):
-        return self.label
-
-
 class GoFigrWidget:
+    """Generates HTML/Javascript for the GoFigr Jupyter widget shown under each figure"""
+
     def __init__(self, revision):
+        """
+
+        :param revision: gf.Revision instance
+        """
         self.revision = revision
         self._logo_b64 = None
         self.id = f"gf-widget-{str(uuid4())}"
         self.alert_id = f"{self.id}-alert"
 
     def get_logo_b64(self):
+        """Reads the GoFigr logo and returns it as a base64 string"""
         if self._logo_b64 is not None:
             return self._logo_b64
 
@@ -93,6 +87,7 @@ class GoFigrWidget:
         return self._logo_b64
 
     def get_download_link(self, label, watermark, image_format="png"):
+        """Generates HTML for the download link"""
         matches = [img for img in self.revision.image_data
                    if img.format and img.format.lower() == image_format.lower() and img.is_watermarked == watermark]
         if len(matches) == 0:
@@ -105,6 +100,7 @@ class GoFigrWidget:
                           {label}</a>"""
 
     def _render_template(self, name, mapping):
+        """Renders a JavaScript template with the given variable mappings"""
         template = read_resource_text("gofigr.resources", name).replace("\n", "")
         for key, value in mapping.items():
             template = template.replace(key, value)
@@ -112,6 +108,7 @@ class GoFigrWidget:
         return template
 
     def get_copy_link(self, label, watermark, image_format="png"):
+        """Generates HTML/JS for the copy image button"""
         matches = [img for img in self.revision.image_data
                    if img.format and img.format.lower() == image_format.lower() and img.is_watermarked == watermark]
         if len(matches) == 0:
@@ -127,18 +124,24 @@ class GoFigrWidget:
         return f"""<button onclick="{onclick}" style="{COPY_BUTTON_STYLE}">{label}</button>"""
 
     def get_text_copy_link(self, label, text):
+        """Generates HTML/JS for the copy link button"""
         onclick = read_resource_text("gofigr.resources", "copy_text.js").replace("\n", "")
         onclick = onclick.replace("_TEXT_", text)
         onclick = onclick.replace("_ALERT_ID_", self.alert_id)
         onclick = onclick.replace("_SUCCESS_MESSAGE_", "Link copied to clipboard!")
-        onclick = onclick.replace("_ERROR_MESSAGE_", "Unable to copy link. Are you running over HTTPS and/or localhost?")
+        onclick = onclick.replace("_ERROR_MESSAGE_", "Unable to copy link. Make sure your Jupyter instance is "
+                                                     "running over HTTPS and/or on localhost.")
         onclick = onclick.replace("\"", "'")
 
         return f"""<span onclick="{onclick}" style="cursor: pointer; color: #0d53b1; ">{label}</span>"""
 
     def show(self):
+        """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
-        copy_url = self.get_text_copy_link(f"<span>{self.revision.figure.name}</span><span style='margin-left: 0.5rem'>{FA_COPY_LIGHT}</span>",
+        copy_url = self.get_text_copy_link(f"<span style='margin-left: 0.5rem;'>"
+                                           f"{self.revision.figure.name}</span>"
+                                           f"<span style='margin-left: 0.25rem; margin-right: 0.25rem';>"
+                                           f"{FA_COPY_LIGHT}</span>",
                                            self.revision.revision_url)
 
         return display(HTML(f"""
@@ -146,7 +149,8 @@ class GoFigrWidget:
                 <div style="{ROW_STYLE + "margin-bottom: 0.5rem"}">
                 <span>Successfully published {copy_url} 
                 on {timestamp_to_local_tz(self.revision.created_on).strftime("%x at %X")}.</span> 
-                <span style="margin-left: 0.25rem;"> Revision size: {humanize.naturalsize(self.revision.size_bytes)}</span>
+                <span style="margin-left: 0.25rem;"> 
+                Revision size: {humanize.naturalsize(self.revision.size_bytes)}</span>
                 </div>
                             
                 <div style="{ROW_STYLE}">
@@ -154,7 +158,8 @@ class GoFigrWidget:
                 <img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" style='width: 3em; height: 3em'/>
                 
                 <!-- View on GoFigr -->
-                <a href='{self.revision.revision_url}' target="_blank" style="{VIEW_BUTTON_STYLE}">{FA_VIEW}<span> View on GoFigr</span></a>
+                <a href='{self.revision.revision_url}' target="_blank" style="{VIEW_BUTTON_STYLE}">{FA_VIEW}
+                <span> View on GoFigr</span></a>
                 
                 <!-- Download -->
                 {self.get_download_link(FA_DOWNLOAD + "<span> Download</span>", True, "png")}

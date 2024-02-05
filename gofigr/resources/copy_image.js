@@ -14,4 +14,10 @@ fetch(dataURL).then(res => res.blob()).then(blob_data => {
                 document.getElementById("_ALERT_ID_").innerHTML = "";
             }, 4000);
         });
-});
+}).catch(err => {
+    console.log(err);
+            document.getElementById("_ALERT_ID_").innerHTML = "_ERROR_MESSAGE_";
+            setTimeout(() => {
+                document.getElementById("_ALERT_ID_").innerHTML = "";
+            }, 4000);
+})

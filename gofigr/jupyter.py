@@ -35,8 +35,6 @@ try:
 except ModuleNotFoundError:
     from IPython.core.display import display
 
-from IPython.core.display import HTML
-
 
 DISPLAY_TRAP = None
 

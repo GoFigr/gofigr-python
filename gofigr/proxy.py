@@ -7,7 +7,6 @@ running inside the Python kernel. This mechanism enables the frontend to securel
 of how Jupyter is running, i.e. it works even with password/token auth and SSH tunneling.
 
 """
-import base64
 # pylint: disable=global-statement
 
 import multiprocessing
