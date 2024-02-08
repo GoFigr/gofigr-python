@@ -3,8 +3,12 @@ Copyright (c) 2023, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+import contextlib
 import inspect
+import io
+import os
 import sys
+import tempfile
 
 import py3Dmol
 from html2image import Html2Image
@@ -28,9 +32,12 @@ class WatermarkedView(py3Dmol.view):
 
 class Py3DmolBackend(GoFigrBackend):
     """Plotly backend for GoFigr"""
-    def __init__(self, *args, debug=False, image_size=(1920, 1080), **kwargs):
+    def __init__(self, *args, debug=False, image_size=(1920, 1080),
+                 disable_logging=True, **kwargs):
         super().__init__(*args, **kwargs)
-        self.hti = Html2Image(size=image_size)
+        self.hti = Html2Image(size=image_size,
+                              custom_flags="--disable-3d-apis",
+                              disable_logging=disable_logging)
         self.debug = debug
 
     def get_backend_name(self):
@@ -52,7 +59,7 @@ class Py3DmolBackend(GoFigrBackend):
 
         frames = inspect.stack()
         # Make sure there's an actual figure being published, as opposed to Plotly initialization scripts
-        if 'application/3dmoljs_load.v0' not in data.keys():
+        if not any('3dmoljs' in x for x in data.keys()):
             self._debug("Could not locate 3dmoljs MIME type. Stopping search early.")
             return
         else:
@@ -62,8 +69,8 @@ class Py3DmolBackend(GoFigrBackend):
         # in case display() was called recursively
         for idx, f in enumerate(reversed(frames)):
             self._debug(f"Frame {idx + 1}: function={f.function} file={f.filename}")
-            if "repr_html" in f.function and "py3dmol" in f.filename.lower():
-                self._debug("Found repr_html call")
+            if ("show" in f.function or "repr_html" in f.function) and "py3dmol" in f.filename.lower():
+                self._debug("Found make_html call")
                 for arg_idx, arg_value in enumerate(get_all_function_arguments(f)):
                     self._debug(f"Inspecting argument {arg_idx + 1}: "
                                 f"{arg_value.__class__ if not arg_value is None else None}")
@@ -91,10 +98,11 @@ class Py3DmolBackend(GoFigrBackend):
 
     def figure_to_bytes(self, fig, fmt, params):
         if fmt == "png":
-            path, = self.hti.screenshot(html_str=self.figure_to_html(fig), save_as="py3dmol.png")
+            with tempfile.NamedTemporaryFile(suffix=".png", dir=self.hti.output_path) as ntf:
+                self.hti.screenshot(html_str=self.figure_to_html(fig), save_as=os.path.basename(ntf.name))
 
-            with open(path, 'rb') as f:
-                return f.read()
+                with open(ntf.name, 'rb') as f:
+                    return f.read()
 
         raise ValueError(f"Py3Dmol does not support {fmt.upper()}")
 

@@ -3,6 +3,7 @@ Copyright (c) 2023, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+import sys
 from argparse import ArgumentParser
 
 import numpy as np
@@ -83,28 +84,6 @@ def one(xs):
         raise ValueError(xs)
 
 
-def summarize_results(df):
-    """Summarizes test results"""
-    collapsed_results = {}
-    for col in df.columns:
-        if df[col].dtype == bool:
-
-            failing = df[~df[col]]
-            passing = df[df[col]]
-            if len(failing) == 0:
-                collapsed_results[col] = "✓"
-            else:
-                collapsed_results[col] = f"{len(passing)}/{len(df)} passed\n✗: " + \
-                                         ", ".join(failing['test_name']) + \
-                                         "\n" + "✓: " + ", ".join(passing['test_name'])
-        elif col == "error":
-            collapsed_results[col] = ", ".join([str(x) for x in df[col] if x is not None])
-        elif col != 'test_name':
-            collapsed_results[col] = ", ".join([str(x) for x in df[col].unique()])
-
-    return collapsed_results
-
-
 TEST_COLUMNS = ['number_of_revisions',
                 'notebook_name',
                 'notebook_path',
@@ -115,7 +94,8 @@ TEST_COLUMNS = ['number_of_revisions',
                 'image_html',
                 'text',
                 'cell_code',
-                'cell_id']
+                'backend',
+                'history']
 
 COLUMN_ORDER = ['platform',
                 'name',
@@ -132,22 +112,69 @@ COLUMN_ORDER = ['platform',
                 'ipython',
                 'ipykernel',
                 'matplotlib',
-                'plotly'] + TEST_COLUMNS
+                'plotly',
+                'test_name',
+                'error',
+                'elapsed_seconds'] + TEST_COLUMNS
+
+
+def abbreviate(text, max_len=100):
+    if len(text) <= max_len:
+        return text
+    else:
+        return text[0:max_len - 3] + "..."
+
+
+def summarize_results(df):
+    """Summarizes test results"""
+    all_tests = []
+    passed_tests = []
+    failed_tests = []
+    for _, row in df.iterrows():
+        test_name = row['test_name']
+        is_plotly = "plotly" in test_name.lower()
+        is_py3dmol = 'py3dmol' in test_name.lower()
+        is_matplotlib = 'mpl' in test_name.lower()
+
+        for col in TEST_COLUMNS:
+            check_name = f"{test_name}>{col}"
+            all_tests.append(check_name)
+            if row[col] is True:  # test passed
+                passed_tests.append(check_name)
+            elif is_matplotlib and col in ['image_html', 'image_html_watermark']:  # matplotlib isn't interactive
+                pass
+            elif is_plotly and col in ["image_eps"]:  # plotly doesn't support EPS, so this failure is expected
+                pass
+            elif is_py3dmol and col in ["image_svg", "image_eps"]:  # similarly for py3dmol
+                pass
+            else:
+                failed_tests.append(check_name)
+
+    return pd.DataFrame({'name': [one(df['name'])],
+                         'result': ["success" if len(failed_tests) == 0 else "failed"],
+                         'all_tests': [len(all_tests)],
+                         'passed_tests': [len(passed_tests)],
+                         'failed_tests': [len(failed_tests)],
+                         'failed_tests_detail': [abbreviate(", ".join(failed_tests))]})
 
 
 def summarize_all(path):
     """Finds all integration tests in a directory, summarizes them, and returns the combined dataframe"""
-    summaries = []
+    frames = []
+    summary_frames = []
     for name in os.listdir(path):
         full = os.path.join(path, name)
         if os.path.isdir(full):
             print(f"{name}...")
-            summary = summarize_results(parse_results(full))
-            summaries.append(summary)
+            df = parse_results(full)
+            frames.append(df)
+            summary_frames.append(summarize_results(df))
 
-    df = pd.DataFrame(summaries).sort_values(by=['python_minor_version', 'service'])[COLUMN_ORDER]
-    df.loc[:, TEST_COLUMNS] = df[TEST_COLUMNS].fillna(value='E')
-    return df
+    df = pd.concat(frames).sort_values(by=['python_minor_version', 'service'])[COLUMN_ORDER]
+    df.loc[:, TEST_COLUMNS] = df[TEST_COLUMNS].fillna(value='N/A')
+
+    df_summary = pd.concat(summary_frames)
+    return df, df_summary
 
 
 def main():
@@ -155,12 +182,26 @@ def main():
     parser = ArgumentParser(description="Generates a compatibility report")
     parser.add_argument("directory", help="Directory containing integration test results")
     parser.add_argument("output", help="Where to save the output Excel file")
+    parser.add_argument("detailed_output", help="Where to save the detailed Excel file")
     args = parser.parse_args()
 
-    df = summarize_all(args.directory)
-    print(df)
-    df.to_excel(args.output, index=False)
+    df_detail, df_summary = summarize_all(args.directory)
+    print("\n=== Result summary ===")
+    print(df_summary)
+    print("\n")
+
+    df_summary.to_excel(args.output, index=False)
     print(f"Saved to {args.output}")
+
+    df_detail.to_excel(args.detailed_output, index=False)
+    print(f"Saved detailed output to {args.detailed_output}")
+
+    if (df_summary['result'] != "success").any():
+        df_failed = df_summary[df_summary['result'] != "success"]
+        print(f"\n\n  => There were {len(df_failed)} test failures.", file=sys.stderr)
+        sys.exit(1)
+    else:
+        print("\n\n  => All tests were successful.")
 
 
 if __name__ == "__main__":

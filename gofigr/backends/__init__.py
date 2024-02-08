@@ -26,6 +26,7 @@ def get_all_function_arguments(frame):
         for arg_value in arg_values.locals[arg_values.keywords].values():
             yield arg_value
 
+
 class GoFigrBackend(ABC):
     """Base class for figure backends, e.g. matplotlib or plotly"""
     def is_compatible(self, fig):
@@ -113,6 +114,10 @@ class GoFigrBackend(ABC):
         Gets a human-readable name of this backend.
         :return: backend name, a string
         """
+        raise NotImplementedError
+
+    def get_supported_image_formats(self):
+        """Gets a list of supported image formats"""
         raise NotImplementedError
 
 

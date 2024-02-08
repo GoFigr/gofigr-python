@@ -21,13 +21,20 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 
 
-def find_element_with_alternatives(driver, by, possible_values):
+def find_element_with_alternatives(driver, by, possible_values, delay_seconds=0.1, max_wait_seconds=5):
     """Calls driver.find_element using alternative names until the element is found, or raises an exception"""
-    for val in possible_values:
-        try:
-            return driver.find_element(by=by, value=val)
-        except selenium.common.exceptions.NoSuchElementException:
-            continue  # try next possible value
+    print(f"Looking for {possible_values}")
+
+    start_time = datetime.now()
+    while (datetime.now() - start_time).total_seconds() < max_wait_seconds:
+        for val in possible_values:
+            try:
+                elt = driver.find_element(by=by, value=val)
+                print(f"  => Found {val}")
+                return elt
+            except selenium.common.exceptions.NoSuchElementException:
+                time.sleep(delay_seconds)
+                continue  # try next possible value
 
     raise RuntimeError(f"No such element. Tried: " + ", ".join(possible_values))
 
@@ -36,7 +43,6 @@ def run_notebook(driver, jupyter_url):
     """Runs a notebook in the classic notebook UI"""
     print("Running classic notebook...")
 
-    nav_url = None
     if '/tree' in jupyter_url:
         # Running Notebook 7
         nav_url = jupyter_url.replace("/tree?token=", "/notebooks/integration_tests.ipynb?factory=Notebook&token=")
@@ -45,24 +51,21 @@ def run_notebook(driver, jupyter_url):
 
     driver.get(nav_url)
     print(f"Navigating to {nav_url}...")
-    print("Waiting for navigate...")
-    time.sleep(10)
 
     try:
         # For Jupyter Notebook 6.x
-        driver.find_element(by=By.CSS_SELECTOR, value="#kernellink").click()
-        time.sleep(5)
-        driver.find_element(by=By.CSS_SELECTOR, value="#restart_run_all").click()
-        time.sleep(5)
-    except selenium.common.exceptions.NoSuchElementException:
+        find_element_with_alternatives(driver, by=By.CSS_SELECTOR, possible_values=["#kernellink"]).click()
+        find_element_with_alternatives(driver, by=By.CSS_SELECTOR, possible_values=["#restart_run_all"]).click()
+    except RuntimeError:
         # For Jupyter Notebook 5.x or 7.0+
         find_element_with_alternatives(driver, by=By.CSS_SELECTOR,
                                        possible_values=[
                                            'button[data-jupyter-action="jupyter-notebook:confirm-restart-kernel-and-run-all-cells"]',
                                            "button[data-command='runmenu:restart-and-run-all']",
-                                           "button[data-command='notebook:restart-run-all']"
+                                           "button[data-command='notebook:restart-run-all']",
+                                           "jp-button[data-command='runmenu:restart-and-run-all']",
+                                           "jp-button[data-command='notebook:restart-run-all']",
                                        ]).click()
-        time.sleep(5)
 
     # Confirm
     print("Confirming...")
@@ -75,28 +78,24 @@ def run_notebook(driver, jupyter_url):
         driver.save_screenshot("confirmation_failed.png")
         print("Confirmation failed, but continuing anyway...")
 
-    time.sleep(5)
-
     print("UI done. Waiting for execution...")
 
 
 def run_lab(driver, jupyter_url):
     driver.get(jupyter_url.replace("/lab?token=", "/lab/tree/integration_tests.ipynb?token="))
 
-    time.sleep(10)
-
     # Restart and run all button
     find_element_with_alternatives(driver, by=By.CSS_SELECTOR, possible_values=[
         "button[data-command='runmenu:restart-and-run-all']",
-        "button[data-command='notebook:restart-run-all']"
+        "button[data-command='notebook:restart-run-all']",
+        "jp-button[data-command='runmenu:restart-and-run-all']",
+        "jp-button[data-command='notebook:restart-run-all']"
     ]).click()
-    time.sleep(5)
 
     # Confirm
     find_element_with_alternatives(driver, by=By.CSS_SELECTOR, possible_values=[
         ".jp-Dialog-button.jp-mod-warn"
     ]).click()
-    time.sleep(5)
 
 
 def run_attempt(args, working_dir, reader, writer, attempt):
@@ -138,9 +137,9 @@ def run_attempt(args, working_dir, reader, writer, attempt):
             opts.add_argument('--headless=new')
 
         print(f"Headless: {args.headless}")
-        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager(driver_version="114.0.5735.90").install()),
+        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()),
                                   options=opts)
-        driver.implicitly_wait(30.0)
+        driver.implicitly_wait(1.0)
 
         if args.service == "notebook":
             run_notebook(driver, jupyter_url)
@@ -186,9 +185,8 @@ def main():
     parser.add_argument("--timeout", type=int, default=300,
                         help="Timeout in seconds (max 300s) for the notebook to finish execution")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode")
-    parser.add_argument("--retries", type=int, default=5,
-                        help="Maximum number of execution attempts. The tests are flaky due to Selenium not "
-                             "being able to find UI elements or them not loading in time.")
+    parser.add_argument("--retries", type=int, default=1,
+                        help="Maximum number of execution attempts.")
     args = parser.parse_args()
 
     working_dir = os.path.dirname(args.notebook_path)

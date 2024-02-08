@@ -72,3 +72,6 @@ class MatplotlibBackend(GoFigrBackend):
 
     def close(self, fig):
         plt.close(fig)
+
+    def get_supported_image_formats(self):
+        return ["png", "eps", "pdf", "jpeg", "jpg", "svg", "tiff"]

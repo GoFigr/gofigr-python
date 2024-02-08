@@ -17,7 +17,7 @@ source venv/bin/activate
 pip install --upgrade pip
 
 cd "$GF_DIR"
-pip install -e .
+pip install -e .[dev]
 
 cd "$WORKING_DIR"
 pip install $DEPENDENCIES
