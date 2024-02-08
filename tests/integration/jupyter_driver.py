@@ -139,7 +139,7 @@ def run_attempt(args, working_dir, reader, writer, attempt):
         print(f"Headless: {args.headless}")
         driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()),
                                   options=opts)
-        driver.implicitly_wait(1.0)
+        driver.implicitly_wait(5.0)
 
         if args.service == "notebook":
             run_notebook(driver, jupyter_url)
@@ -185,8 +185,7 @@ def main():
     parser.add_argument("--timeout", type=int, default=300,
                         help="Timeout in seconds (max 300s) for the notebook to finish execution")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode")
-    parser.add_argument("--retries", type=int, default=1,
-                        help="Maximum number of execution attempts.")
+    parser.add_argument("--retries", type=int, default=5, help="Maximum number of execution attempts.")
     args = parser.parse_args()
 
     working_dir = os.path.dirname(args.notebook_path)

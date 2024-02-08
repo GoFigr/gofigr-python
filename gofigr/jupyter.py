@@ -467,6 +467,9 @@ class Publisher:
         image_to_display = None
         image_data = []
         for fmt in self.image_formats:
+            if fmt.lower() not in backend.get_supported_image_formats():
+                continue
+
             if fmt.lower() == "png":
                 img = PIL.Image.open(io.BytesIO(backend.figure_to_bytes(fig, fmt, image_options)))
                 img.load()

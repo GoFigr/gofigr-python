@@ -130,25 +130,29 @@ def summarize_results(df):
     all_tests = []
     passed_tests = []
     failed_tests = []
-    for _, row in df.iterrows():
-        test_name = row['test_name']
-        is_plotly = "plotly" in test_name.lower()
-        is_py3dmol = 'py3dmol' in test_name.lower()
-        is_matplotlib = 'mpl' in test_name.lower()
 
-        for col in TEST_COLUMNS:
-            check_name = f"{test_name}>{col}"
-            all_tests.append(check_name)
-            if row[col] is True:  # test passed
-                passed_tests.append(check_name)
-            elif is_matplotlib and col in ['image_html', 'image_html_watermark']:  # matplotlib isn't interactive
-                pass
-            elif is_plotly and col in ["image_eps"]:  # plotly doesn't support EPS, so this failure is expected
-                pass
-            elif is_py3dmol and col in ["image_svg", "image_eps"]:  # similarly for py3dmol
-                pass
-            else:
-                failed_tests.append(check_name)
+    if 'test_name' not in df.columns:  # none of the tests have run
+        failed_tests.append("None of the tests have run")
+    else:
+        for _, row in df.iterrows():
+            test_name = row['test_name']
+            is_plotly = "plotly" in test_name.lower()
+            is_py3dmol = 'py3dmol' in test_name.lower()
+            is_matplotlib = 'mpl' in test_name.lower()
+
+            for col in TEST_COLUMNS:
+                check_name = f"{test_name}>{col}"
+                all_tests.append(check_name)
+                if row[col] is True:  # test passed
+                    passed_tests.append(check_name)
+                elif is_matplotlib and col in ['image_html', 'image_html_watermark']:  # matplotlib isn't interactive
+                    pass
+                elif is_plotly and col in ["image_eps"]:  # plotly doesn't support EPS, so this failure is expected
+                    pass
+                elif is_py3dmol and col in ["image_svg", "image_eps"]:  # similarly for py3dmol
+                    pass
+                else:
+                    failed_tests.append(check_name)
 
     return pd.DataFrame({'name': [one(df['name'])],
                          'result': ["success" if len(failed_tests) == 0 else "failed"],

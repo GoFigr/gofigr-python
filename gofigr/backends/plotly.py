@@ -90,3 +90,6 @@ class PlotlyBackend(GoFigrBackend):
 
     def close(self, fig):
         pass
+
+    def get_supported_image_formats(self):
+        return ["png", "jpeg", "jpg", "svg", "pdf", "eps", "tiff"]

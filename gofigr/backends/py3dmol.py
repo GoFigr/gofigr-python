@@ -3,10 +3,9 @@ Copyright (c) 2023, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-import contextlib
 import inspect
-import io
 import os
+import re
 import sys
 import tempfile
 
@@ -18,8 +17,6 @@ from gofigr.backends import GoFigrBackend, get_all_function_arguments
 
 class WatermarkedView(py3Dmol.view):
     """Overrides py3Dmol.view to include a GoFigr watermark"""
-    NATIVE_PROPERTIES = ["wrapped_obj", "extra_html", "_make_html"]
-
     def __init__(self, wrapped_obj, extra_html):
         super().__init__()
         self.wrapped_obj = wrapped_obj
@@ -35,9 +32,8 @@ class Py3DmolBackend(GoFigrBackend):
     def __init__(self, *args, debug=False, image_size=(1920, 1080),
                  disable_logging=True, **kwargs):
         super().__init__(*args, **kwargs)
-        self.hti = Html2Image(size=image_size,
-                              custom_flags="--disable-3d-apis",
-                              disable_logging=disable_logging)
+        self.image_size = image_size
+        self.hti = Html2Image(size=image_size, disable_logging=disable_logging)
         self.debug = debug
 
     def get_backend_name(self):
@@ -52,6 +48,13 @@ class Py3DmolBackend(GoFigrBackend):
     def _debug(self, text):
         if self.debug:
             print(text)
+
+    def _infer_size(self, html):
+        m = re.search(r'position: relative; width: (\d+)px; height: (\d+)px', html)
+        if m is None:
+            return self.image_size
+        else:
+            return int(m.group(1)), int(m.group(2))
 
     def find_figures(self, shell, data):
         self._debug("Looking for py3dmol figures...")
@@ -99,7 +102,10 @@ class Py3DmolBackend(GoFigrBackend):
     def figure_to_bytes(self, fig, fmt, params):
         if fmt == "png":
             with tempfile.NamedTemporaryFile(suffix=".png", dir=self.hti.output_path) as ntf:
-                self.hti.screenshot(html_str=self.figure_to_html(fig), save_as=os.path.basename(ntf.name))
+                fig_html = self.figure_to_html(fig)
+                width, height = self._infer_size(fig_html)
+                self.hti.screenshot(html_str=fig_html, save_as=os.path.basename(ntf.name),
+                                    size=(width, height))
 
                 with open(ntf.name, 'rb') as f:
                     return f.read()
@@ -112,6 +118,9 @@ class Py3DmolBackend(GoFigrBackend):
     def add_interactive_watermark(self, fig, rev, watermark):
         watermark_html = f"<div><a href='{rev.revision_url}'>{rev.revision_url}</a></div>"
         return WatermarkedView(fig, watermark_html)
+
+    def get_supported_image_formats(self):
+        return ["png"]
 
     def close(self, fig):
         pass
