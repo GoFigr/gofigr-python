@@ -38,7 +38,7 @@ except ModuleNotFoundError:
 
 PY3DMOL_PRESENT = False
 try:
-    import py3Dmol
+    import py3Dmol  # pylint: disable=unused-import
     from gofigr.backends.py3dmol import Py3DmolBackend
     PY3DMOL_PRESENT = True
 except ModuleNotFoundError:
@@ -371,9 +371,9 @@ def parse_model_instance(model_class, value, find_by_name):
 
 DEFAULT_ANNOTATORS = (NotebookMetadataAnnotator, EnvironmentAnnotator, CellIdAnnotator, CellCodeAnnotator,
                       SystemAnnotator, PipFreezeAnnotator, BackendAnnotator, HistoryAnnotator)
-DEFAULT_BACKENDS = [MatplotlibBackend, PlotlyBackend]
+DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
 if PY3DMOL_PRESENT:
-    DEFAULT_BACKENDS.append(Py3DmolBackend)
+    DEFAULT_BACKENDS = DEFAULT_BACKENDS + (Py3DmolBackend,)
 
 
 class Publisher:
