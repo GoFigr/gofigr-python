@@ -3,6 +3,7 @@ Copyright (c) 2024, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+from abc import ABC
 # pylint: disable=trailing-whitespace
 
 from base64 import b64encode
@@ -27,6 +28,11 @@ COPY_BUTTON_STYLE = BUTTON_STYLE + "background-color: #2c7df5; border-color: #2c
 
 WIDGET_STYLE = "margin-top: 1rem; margin-bottom: 1rem; margin-left: auto; margin-right: auto;" + \
                "display: flex !important; border: 1px solid transparent; border-color: #cedcef; padding: 0.75em; " + \
+               "border-radius: 0.35rem; flex-wrap: wrap; "
+
+COMPACT_WIDGET_STYLE = "margin-top: 1rem; margin-bottom: 1rem; margin-left: auto; margin-right: auto;" + \
+               "display: flex !important; border: 1px solid transparent; border-color: #cedcef; padding: 0.25em; " + \
+               "padding-top: 0.5em; " + \
                "border-radius: 0.35rem; flex-wrap: wrap; "
 
 MESSAGE_STYLE = "padding-top: 0.25rem; "
@@ -65,7 +71,7 @@ def timestamp_to_local_tz(dt_tz):
     return dt_tz.astimezone(tz=None)
 
 
-class GoFigrWidget:
+class WidgetBase(ABC):
     """Generates HTML/Javascript for the GoFigr Jupyter widget shown under each figure"""
 
     def __init__(self, revision):
@@ -136,6 +142,13 @@ class GoFigrWidget:
         return f"""<span onclick="{onclick}" style="cursor: pointer; color: #0d53b1; ">{label}</span>"""
 
     def show(self):
+        """Displays the widget in Jupyter"""
+        raise NotImplementedError
+
+
+class DetailedWidget(WidgetBase):
+    """Generates HTML/Javascript for the GoFigr Jupyter widget shown under each figure"""
+    def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
         copy_url = self.get_text_copy_link(f"<span style='margin-left: 0.5rem;'>"
@@ -144,33 +157,70 @@ class GoFigrWidget:
                                            f"{FA_COPY_LIGHT}</span>",
                                            self.revision.revision_url)
 
+        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+                style='width: 3rem; height: 3rem'/>""", self.revision.revision_url)
+
         return display(HTML(f"""
-            <div style="{WIDGET_STYLE}">
-                <div style="{ROW_STYLE + "margin-bottom: 0.5rem"}">
-                <span>Successfully published {copy_url} 
-                on {timestamp_to_local_tz(self.revision.created_on).strftime("%x at %X")}.</span> 
-                <span style="margin-left: 0.25rem;"> 
-                Revision size: {humanize.naturalsize(self.revision.size_bytes)}</span>
-                </div>
-                            
-                <div style="{ROW_STYLE}">
-                <!-- Logo -->
-                <img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" style='width: 3em; height: 3em'/>
-                
-                <!-- View on GoFigr -->
-                <a href='{self.revision.revision_url}' target="_blank" style="{VIEW_BUTTON_STYLE}">{FA_VIEW}
-                <span> View on GoFigr</span></a>
-                
-                <!-- Download -->
-                {self.get_download_link(FA_DOWNLOAD + "<span> Download</span>", True, "png")}
-                {self.get_download_link(FA_DOWNLOAD + "<span> Download (no watermark)</span>", False, "png")}
-                
-                <!-- Copy -->
-                {self.get_copy_link(FA_COPY + "<span> Copy</span>", True, "png")}
-                {self.get_copy_link(FA_COPY + "<span> Copy (no watermark)</span>", False, "png")}
-                
-                </div>
-                
-                <div id={self.alert_id} style="{ROW_STYLE + MESSAGE_STYLE}">
-                </div>
-            </div>"""))
+                <div style="{WIDGET_STYLE}">
+                    <div style="{ROW_STYLE + "margin-bottom: 0.5rem"}">
+                    <span>Successfully published {copy_url} 
+                    on {timestamp_to_local_tz(self.revision.created_on).strftime("%x at %X")}.</span> 
+                    <span style="margin-left: 0.25rem;"> 
+                    Revision size: {humanize.naturalsize(self.revision.size_bytes)}</span>
+                    </div>
+
+                    <div style="{ROW_STYLE}">
+                    <!-- Logo -->
+                    {logo_html}
+
+                    <!-- View on GoFigr -->
+                    <a href='{self.revision.revision_url}' target="_blank" style="{VIEW_BUTTON_STYLE}">{FA_VIEW}
+                    <span> View on GoFigr</span></a>
+
+                    <!-- Download -->
+                    {self.get_download_link(FA_DOWNLOAD + "<span> Download</span>", True, "png")}
+                    {self.get_download_link(FA_DOWNLOAD + "<span> Download (no watermark)</span>", False, "png")}
+
+                    <!-- Copy -->
+                    {self.get_copy_link(FA_COPY + "<span> Copy</span>", True, "png")}
+                    {self.get_copy_link(FA_COPY + "<span> Copy (no watermark)</span>", False, "png")}
+
+                    </div>
+
+                    <div id={self.alert_id} style="{ROW_STYLE + MESSAGE_STYLE}">
+                    </div>
+                </div>"""))
+
+
+class CompactWidget(WidgetBase):
+    """Generates a compact GoFigr widget"""
+
+    def show(self):
+        """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
+        logo_b64 = self.get_logo_b64()
+        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+        style='width: 2rem; height: 2rem'/>""", self.revision.revision_url)
+
+        return display(HTML(f"""
+                <div style="{COMPACT_WIDGET_STYLE}">
+                    <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
+                    <!-- Logo -->
+                    {logo_html}               
+
+                    <!-- View on GoFigr -->
+                    <a href='{self.revision.revision_url}' target="_blank" style="{VIEW_BUTTON_STYLE}">{FA_VIEW}
+                    <span> View on GoFigr</span></a>
+
+                    <!-- Download -->
+                    {self.get_download_link(FA_DOWNLOAD + "<span> Download</span>", True, "png")}
+                    {self.get_download_link(FA_DOWNLOAD + "<span> Download (no watermark)</span>", False, "png")}
+
+                    <!-- Copy -->
+                    {self.get_copy_link(FA_COPY + "<span> Copy</span>", True, "png")}
+                    {self.get_copy_link(FA_COPY + "<span> Copy (no watermark)</span>", False, "png")}
+
+                    </div>
+
+                    <div id={self.alert_id} style="{ROW_STYLE + MESSAGE_STYLE}">
+                    </div>
+                </div>"""))

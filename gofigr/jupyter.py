@@ -28,7 +28,7 @@ from gofigr.context import RevisionContext
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
 from gofigr.watermarks import DefaultWatermark
-from gofigr.widget import GoFigrWidget
+from gofigr.widget import DetailedWidget
 
 try:
     from IPython.core.display_functions import display
@@ -388,7 +388,8 @@ class Publisher:
                  image_formats=("png", "eps", "svg"),
                  interactive=True,
                  default_metadata=None,
-                 clear=True):
+                 clear=True,
+                 widget_class=DetailedWidget):
         """
 
         :param gf: GoFigr instance
@@ -399,6 +400,8 @@ class Publisher:
         :param interactive: whether to publish figure HTML if available
         :param clear: whether to close the original figures after publication. If False, Jupyter will display
         both the input figure and the watermarked output. Default behavior is to close figures.
+        :param widget_class: Widget type to show, e.g. DetailedWidget or CompactWidget. It will appear below the
+        published figure
 
         """
         self.gf = gf
@@ -409,6 +412,7 @@ class Publisher:
         self.interactive = interactive
         self.clear = clear
         self.default_metadata = default_metadata
+        self.widget_class = widget_class
 
     def auto_publish_hook(self, extension, data, suppress_display=None):
         """\
@@ -634,7 +638,7 @@ class Publisher:
             backend.close(fig)
 
         with SuppressDisplayTrap():
-            GoFigrWidget(rev).show()
+            self.widget_class(rev).show()
 
         return rev
 
@@ -732,7 +736,8 @@ def configure(username=None, password=None,
               default_metadata=None, auto_publish=True,
               watermark=None, annotators=DEFAULT_ANNOTATORS,
               notebook_name=None, notebook_path=None,
-              backends=DEFAULT_BACKENDS):
+              backends=DEFAULT_BACKENDS,
+              widget_class=DetailedWidget):
     """\
     Configures the Jupyter plugin for use.
 
@@ -749,6 +754,9 @@ def configure(username=None, password=None,
     :param notebook_name: name of the notebook (if you don't want it to be inferred automatically)
     :param notebook_path: path to the notebook (if you don't want it to be inferred automatically)
     :param backends: backends to use (e.g. MatplotlibBackend, PlotlyBackend)
+    :param widget_class: Widget type to show, e.g. DetailedWidget or CompactWidget. It will appear below the
+        published figure
+
     :return: None
 
     """
@@ -803,7 +811,8 @@ def configure(username=None, password=None,
                           default_metadata=default_metadata,
                           watermark=watermark,
                           annotators=[make_annotator(extension) for make_annotator in annotators],
-                          backends=[_make_backend(bck) for bck in backends])
+                          backends=[_make_backend(bck) for bck in backends],
+                          widget_class=widget_class)
     extension.gf = gf
     extension.analysis = analysis
     extension.workspace = workspace
