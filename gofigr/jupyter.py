@@ -10,6 +10,7 @@ import inspect
 import io
 import json
 import os
+import pickle
 import sys
 from collections import namedtuple
 from functools import wraps
@@ -389,6 +390,7 @@ class Publisher:
                  interactive=True,
                  default_metadata=None,
                  clear=True,
+                 save_pickle=True,
                  widget_class=DetailedWidget):
         """
 
@@ -400,6 +402,7 @@ class Publisher:
         :param interactive: whether to publish figure HTML if available
         :param clear: whether to close the original figures after publication. If False, Jupyter will display
         both the input figure and the watermarked output. Default behavior is to close figures.
+        :param save_pickle: if True, will save the figure in pickle format in addition to any of the image formats
         :param widget_class: Widget type to show, e.g. DetailedWidget or CompactWidget. It will appear below the
         published figure
 
@@ -412,6 +415,7 @@ class Publisher:
         self.interactive = interactive
         self.clear = clear
         self.default_metadata = default_metadata
+        self.save_pickle = save_pickle
         self.widget_class = widget_class
 
     def auto_publish_hook(self, extension, data, suppress_display=None):
@@ -452,6 +456,22 @@ class Publisher:
                                         lambda search: ext.analysis.get_figure(name=search.name,
                                                                                description=search.description,
                                                                                create=search.create))
+
+    def _get_pickle_data(self, gf, fig):
+        if not self.save_pickle:
+            return []
+
+        try:
+            bio = io.BytesIO()
+            pickle.dump(fig, bio)
+            bio.seek(0)
+
+            return [gf.ImageData(name="figure", format="pickle",
+                                 data=bio.getvalue(),
+                                 is_watermarked=False)]
+        except Exception as e: # pylint: disable=broad-exception-caught
+            print(f"WARNING: We could not obtain the figure in pickle format: {e}", file=sys.stderr)
+            return []
 
     def _get_image_data(self, gf, backend, fig, rev, image_options):
         """\
@@ -513,6 +533,8 @@ class Publisher:
                                                is_watermarked=True)
             image_data.append(html_with_watermark)
             image_to_display = wfig  # display the native Figure
+
+        image_data.extend(self._get_pickle_data(gf, fig))
 
         return image_data, image_to_display
 

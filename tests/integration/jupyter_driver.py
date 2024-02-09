@@ -128,8 +128,11 @@ def run_attempt(args, working_dir, reader, writer, attempt):
             os.remove(output_path)
             print(f"Deleted {output_path}")
 
+        if jupyter_url is None:
+            raise RuntimeError("Jupyter URL unavailable. Did it start correctly?")
+
         print(f"URL: {jupyter_url}")
-        time.sleep(5)
+        time.sleep(2)
 
         print("Starting Chrome...")
         opts = Options()
@@ -157,10 +160,10 @@ def run_attempt(args, working_dir, reader, writer, attempt):
             time.sleep(1)
 
         if timed_out:
-            print("Execution timed out.")
+            print("Execution timed out.", file=sys.stderr)
     except:
         traceback.print_exc()
-        print("Execution failed")
+        print("Execution failed", file=sys.stderr)
     finally:
         if driver is not None:
             driver.save_screenshot(os.path.join(working_dir, f"screenshot_attempt{attempt}.png"))
