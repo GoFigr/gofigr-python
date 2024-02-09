@@ -98,8 +98,8 @@ TEST_COLUMNS = ['number_of_revisions',
                 'backend',
                 'history']
 
-COLUMN_ORDER = ['platform',
-                'name',
+COLUMN_ORDER = ['name',
+                'platform',
                 'service',
                 'error',
                 'python',
@@ -150,14 +150,17 @@ def summarize_results(df):
                     pass
                 elif is_plotly and col in ["image_eps"]:  # plotly doesn't support EPS, so this failure is expected
                     pass
-                elif is_py3dmol and col in ["image_svg", "image_eps"]:  # similarly for py3dmol
+                elif is_py3dmol and (col in ["image_svg", "image_eps"] or "3.7" in row["python"]): # similar for py3dmol
                     pass
                 else:
                     failed_tests.append(check_name)
                     all_tests.append(check_name)
 
     return pd.DataFrame({'name': [one(df['name'])],
-                         'elapsed_seconds': [np.round(df['elapsed_seconds'].max(), 1)],
+                         'service': [one(df['service'])],
+                         'python': [one(df['python'])],
+                         'elapsed_seconds': [np.round(df['elapsed_seconds'].max(), 1)
+                                             if 'elapsed_seconds' in df.columns else "N/A"],
                          'result': ["success" if len(failed_tests) == 0 else "failed"],
                          'all_tests': [len(all_tests)],
                          'passed_tests': [len(passed_tests)],
@@ -165,23 +168,31 @@ def summarize_results(df):
                          'failed_tests_detail': [abbreviate(", ".join(failed_tests))]})
 
 
-def summarize_all(path):
+def summarize_all(path, single):
     """Finds all integration tests in a directory, summarizes them, and returns the combined dataframe"""
     frames = []
     summary_frames = []
-    for name in os.listdir(path):
-        full = os.path.join(path, name)
-        if os.path.isdir(full):
-            print(f"{name}...")
-            df = parse_results(full)
-            frames.append(df)
-            summary_frames.append(summarize_results(df))
+    if single:
+        print(f"{os.path.basename(path)}...")
+        df = parse_results(path)
+        frames.append(df)
+        summary_frames.append(summarize_results(df))
+    else:
+        for name in os.listdir(path):
+            full = os.path.join(path, name)
+            if os.path.isdir(full):
+                print(f"{name}...")
+                df = parse_results(full)
+                frames.append(df)
+                summary_frames.append(summarize_results(df))
 
-    df = pd.concat(frames).sort_values(by=['python_minor_version', 'service'])[COLUMN_ORDER]
-    df.loc[:, TEST_COLUMNS] = df[TEST_COLUMNS].fillna(value='N/A')
+    df = pd.concat(frames, ignore_index=True).sort_values(by=['python_minor_version', 'service'])
+    column_subset = [x for x in COLUMN_ORDER if x in df.columns]
+    test_column_subset = [x for x in TEST_COLUMNS if x in df.columns]
+    df.loc[:, test_column_subset] = df[test_column_subset].fillna(value='N/A')
 
-    df_summary = pd.concat(summary_frames)
-    return df, df_summary
+    df_summary = pd.concat(summary_frames, ignore_index=True)
+    return df[column_subset], df_summary
 
 
 def main():
@@ -190,9 +201,10 @@ def main():
     parser.add_argument("directory", help="Directory containing integration test results")
     parser.add_argument("output", help="Where to save the output Excel file")
     parser.add_argument("detailed_output", help="Where to save the detailed Excel file")
+    parser.add_argument("--single", help="Processes a single run only", action="store_true")
     args = parser.parse_args()
 
-    df_detail, df_summary = summarize_all(args.directory)
+    df_detail, df_summary = summarize_all(args.directory, single=args.single)
     print("\n=== Result summary ===")
     print(df_summary)
     print("\n")
@@ -203,12 +215,15 @@ def main():
     df_detail.to_excel(args.detailed_output, index=False)
     print(f"Saved detailed output to {args.detailed_output}")
 
+    df_failed = df_summary[df_summary['result'] != "success"]
+    df_success = df_summary[df_summary['result'] == "success"]
+    print(f"\n\n  => Ran {len(df_summary)} tests. {len(df_success)} successes. {len(df_failed)} failures.")
+
     if (df_summary['result'] != "success").any():
-        df_failed = df_summary[df_summary['result'] != "success"]
-        print(f"\n\n  => There were {len(df_failed)} test failures.", file=sys.stderr)
+        print(f"\n  => Tests failed.", file=sys.stderr)
         sys.exit(1)
     else:
-        print("\n\n  => All tests were successful.")
+        print("  => All tests successful.")
 
 
 if __name__ == "__main__":

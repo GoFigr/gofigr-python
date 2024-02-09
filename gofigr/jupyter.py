@@ -38,12 +38,13 @@ except ModuleNotFoundError:
 
 
 PY3DMOL_PRESENT = False
-try:
-    import py3Dmol  # pylint: disable=unused-import
-    from gofigr.backends.py3dmol import Py3DmolBackend
-    PY3DMOL_PRESENT = True
-except ModuleNotFoundError:
-    pass
+if sys.version_info >= (3, 8):
+    try:
+        import py3Dmol  # pylint: disable=unused-import
+        from gofigr.backends.py3dmol import Py3DmolBackend
+        PY3DMOL_PRESENT = True
+    except ModuleNotFoundError:
+        pass
 
 
 DISPLAY_TRAP = None
@@ -381,6 +382,7 @@ class Publisher:
     """\
     Publishes revisions to the GoFigr server.
     """
+    # pylint: disable=too-many-arguments
     def __init__(self,
                  gf,
                  annotators,

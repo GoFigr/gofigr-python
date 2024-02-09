@@ -11,7 +11,11 @@ from uuid import uuid4
 
 import humanize
 from IPython.core.display import HTML
-from IPython.core.display_functions import display
+
+try:
+    from IPython.core.display_functions import display
+except ModuleNotFoundError:
+    from IPython.core.display import display
 
 from gofigr.utils import read_resource_b64, read_resource_text
 
