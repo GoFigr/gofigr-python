@@ -94,13 +94,6 @@
   },
 
   {
-    "name": "python3.10-notebook7",
-    "python": "python3.10",
-    "service": "notebook",
-    "dependencies": "notebook==7.0.2 seaborn"
-  },
-
-  {
     "name": "python3.7-matplotlib-3.0.1",
     "python": "python3.7",
     "service": "notebook",
