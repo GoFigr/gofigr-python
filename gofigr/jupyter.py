@@ -50,6 +50,17 @@ if sys.version_info >= (3, 8):
 DISPLAY_TRAP = None
 
 
+def _mark_as_published(fig):
+    """Marks the figure as published so that it won't be re-published again."""
+    fig._gf_is_published = True
+    return fig
+
+
+def _is_published(fig):
+    """Returns True iff the figure has already been published"""
+    return getattr(fig, "_gf_is_published", False)
+
+
 class GfDisplayPublisher:
     """\
     Custom IPython DisplayPublisher which traps all calls to publish() (e.g. when display(...) is called).
@@ -433,7 +444,7 @@ class Publisher:
         for backend in self.backends:
             compatible_figures = list(backend.find_figures(extension.shell, data))
             for fig in compatible_figures:
-                if not getattr(fig, '_gf_is_published', False):
+                if not _is_published(fig):
                     self.publish(fig=fig, backend=backend, suppress_display=suppress_display)
 
     @staticmethod
@@ -656,7 +667,7 @@ class Publisher:
             # we restore it from our cached copy, to avoid a separate API call.
             rev.figure = target
 
-        fig._gf_is_published = True
+        _mark_as_published(fig)
 
         if self.clear:
             backend.close(fig)
@@ -876,3 +887,26 @@ def publish(fig=None, backend=None, **kwargs):
 def get_gofigr():
     """Gets the active GoFigr object."""
     return get_extension().gf
+
+
+@require_configured
+def load_pickled_figure(api_id):
+    """\
+    Locates pickle data for a figure revision, loads it and returns a Python object, e.g. a plt.Figure if
+    the figure was generated with matplotlib. Throws a RuntimeException if the figure is not found or does
+    not have pickle data.
+
+    :param api_id: API ID of the revision
+    :return: backend-dependent figure object, e.g. plt.Figure().
+
+    """
+    gf = get_gofigr()
+    rev = gf.Revision(api_id=api_id).fetch(fetch_data=False)
+    for data in rev.image_data:
+        if data.format == "pickle":
+            data.fetch()
+
+            fig = pickle.load(io.BytesIO(data.data))
+            return _mark_as_published(fig)
+
+    raise RuntimeError("This revision doesn't have pickle data.")
