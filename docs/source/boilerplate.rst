@@ -1,8 +1,22 @@
-Jupyter Configuration Boilerplate
+Jupyter Configuration
 ====================================
 
-Place the following code at the top of your notebook. Note that only the
-``analysis`` is required, but you can customize as needed:
+Simple
+************
+
+.. code:: python
+
+    %load_ext gofigr
+
+    from gofigr.jupyter import *
+
+    configure(analysis=FindByName("My Analysis", create=True))
+
+Complex
+***************
+
+The code below shows all the configurable options. You can pick and choose based
+on your specific needs.
 
 .. code:: python
 
@@ -16,5 +30,8 @@ Place the following code at the top of your notebook. Note that only the
               analysis=FindByName("Clinical Trial #1", create=True),
               default_metadata={'requested_by': "Alyssa",
                                 'study': 'Pivotal Trial 1'},
-              watermark=DefaultWatermark(show_qr_code=False)
-              annotators=DEFAULT_ANNOTATORS)
+              watermark=DefaultWatermark(show_qr_code=False),
+              backends=(MatplotlibBackend, PlotlyBackend, Py3DmolBackend),
+              annotators=DEFAULT_ANNOTATORS,
+              widget_class=DetailedWidget,
+              save_pickle=True)

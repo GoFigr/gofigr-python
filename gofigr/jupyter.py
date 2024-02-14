@@ -772,7 +772,8 @@ def configure(username=None, password=None,
               watermark=None, annotators=DEFAULT_ANNOTATORS,
               notebook_name=None, notebook_path=None,
               backends=DEFAULT_BACKENDS,
-              widget_class=DetailedWidget):
+              widget_class=DetailedWidget,
+              save_pickle=True):
     """\
     Configures the Jupyter plugin for use.
 
@@ -791,6 +792,7 @@ def configure(username=None, password=None,
     :param backends: backends to use (e.g. MatplotlibBackend, PlotlyBackend)
     :param widget_class: Widget type to show, e.g. DetailedWidget or CompactWidget. It will appear below the
         published figure
+    :param save_pickle: if True, will save the figure in pickle format in addition to any of the image formats
 
     :return: None
 
@@ -847,7 +849,8 @@ def configure(username=None, password=None,
                           watermark=watermark,
                           annotators=[make_annotator(extension) for make_annotator in annotators],
                           backends=[_make_backend(bck) for bck in backends],
-                          widget_class=widget_class)
+                          widget_class=widget_class,
+                          save_pickle=save_pickle)
     extension.gf = gf
     extension.analysis = analysis
     extension.workspace = workspace

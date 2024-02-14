@@ -26,17 +26,20 @@ username and password, and a default workspace.
     ------------------------------
     GoFigr configuration
     ------------------------------
-    Username: mpacula
+    Username: alyssa
     Password:
     Verifying connection...
+      => Authenticated successfully
+    API key (leave blank to generate a new key):
+    Key name: Alyssa's Macbook
+      => Your new API key will be saved to /Users/alyssa/.gofigr
       => Connected successfully
 
     Please select a default workspace:
-      [ 1] - Primary Workspace              - mpacula's primary workspace    - API ID: c6ecd353-321d-4089-b5aa-d94bf0ecb09a
+      [ 1] - Scratchpad - alyssa's personal workspace  - API ID: c6ecd353-321d-4089-b5aa-d94bf0ecb09a
     Selection [1]: 1
 
-    Configuration saved to /Users/maciej/.gofigr. Happy analysis!
-
+    Configuration saved to /Users/alyssa/.gofigr. Happy analysis!
 
 ``gfconfig`` only configures the defaults. You will be able to customize
 any of the options on a per-notebook basis.
