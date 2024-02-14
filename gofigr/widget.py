@@ -39,6 +39,10 @@ COMPACT_WIDGET_STYLE = "margin-top: 1rem; margin-bottom: 1rem; margin-left: auto
                "padding-top: 0.5em; " + \
                "border-radius: 0.35rem; flex-wrap: wrap; "
 
+MINIMAL_WIDGET_STYLE = "margin-top: 1rem; margin-bottom: 1rem; margin-left: auto; margin-right: auto;" + \
+               "display: flex !important; padding: 0.25em; " + \
+               "padding-top: 0.5em; flex-wrap: wrap; "
+
 MESSAGE_STYLE = "padding-top: 0.25rem; "
 
 ROW_STYLE = "width: 100%; display: flex; flex-wrap: wrap;"
@@ -225,6 +229,30 @@ class CompactWidget(WidgetBase):
 
                     </div>
 
+                    <div id={self.alert_id} style="{ROW_STYLE + MESSAGE_STYLE}">
+                    </div>
+                </div>"""))
+
+
+class MinimalWidget(WidgetBase):
+    """Generates a compact GoFigr widget"""
+
+    def show(self):
+        """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
+        logo_b64 = self.get_logo_b64()
+        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+        style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>""", self.revision.revision_url)
+
+        return display(HTML(f"""
+                <div style="{MINIMAL_WIDGET_STYLE}">
+                    <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
+                    <!-- Logo -->
+                    {logo_html}               
+
+                    <!-- View on GoFigr -->
+                    <a href='{self.revision.revision_url}' target="_blank" style="margin-top: auto; margin-bottom: auto;">View on GoFigr</a>
+                    </div>
+                    
                     <div id={self.alert_id} style="{ROW_STYLE + MESSAGE_STYLE}">
                     </div>
                 </div>"""))
