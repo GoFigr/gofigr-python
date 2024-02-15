@@ -6,3 +6,4 @@ include gofigr/resources/*.js
 include gofigr/resources/*.png
 include gofigr/resources/*.css
 include README.rst
+include CHANGELOG.rst

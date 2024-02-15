@@ -86,6 +86,7 @@ can also use environment variables:
 
 * `GF_USERNAME`
 * `GF_PASSWORD`
+* `GF_API_KEY`
 * `GF_WORKSPACE`: must be an API ID (look it up in the Web App)
 * `GF_ANALYSIS`: must be an API ID (look it up in the Web App)
 * `GF_URL`: API URL
