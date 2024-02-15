@@ -15,9 +15,13 @@ The GoFigr Jupyter extension has been tested with:
 Library support
 ********************
 
-GoFigr supports matplotlib (including derivatives like seaborn) and plotly. The plotly support is currently in beta.
+GoFigr supports:
 
-The plotly backend can export both static images as well as interactive plots.
+* matplotlib (including derivatives like seaborn)
+* plotly
+* py3dmol (experimental)
+
+The plotly & py3dmol backends can export both static images as well as interactive plots.
 
 We welcome patches which add support for new libraries at https://github.com/GoFigr/gofigr-python.
 

@@ -12,6 +12,9 @@ from gofigr.backends import GoFigrBackend, get_all_function_arguments
 
 class PlotlyBackend(GoFigrBackend):
     """Plotly backend for GoFigr"""
+    def get_backend_name(self):
+        return "plotly"
+
     def is_compatible(self, fig):
         return isinstance(fig, go.Figure)
 
@@ -87,3 +90,6 @@ class PlotlyBackend(GoFigrBackend):
 
     def close(self, fig):
         pass
+
+    def get_supported_image_formats(self):
+        return ["png", "jpeg", "jpg", "svg", "pdf", "eps", "tiff"]

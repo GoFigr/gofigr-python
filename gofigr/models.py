@@ -3,14 +3,16 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+# Many of the properties here are defined dynamically based on Field specifications, so no-member isn't meaningful
+# pylint: disable=no-member
 
 import abc
-import inspect
 import io
 from base64 import b64encode, b64decode
 from collections import namedtuple
 from http import HTTPStatus
 from urllib.parse import urljoin
+from uuid import uuid4
 
 import PIL
 import dateutil.parser
@@ -91,6 +93,20 @@ class Timestamp(Field):
         return Timestamp(self.name, parent=self.parent, derived=self.derived)
 
 
+class Base64Field(Field):
+    """\
+    Timestamp field
+    """
+    def to_representation(self, value):
+        return None if value is None else b64encode(value).decode('ascii')
+
+    def to_internal_value(self, gf, data):
+        return None if data is None else b64decode(data)
+
+    def clone(self):
+        return Base64Field(self.name, parent=self.parent, derived=self.derived)
+
+
 class LinkedEntityCollection:
     """Represents a collection of linked entities, i.e. figures inside an analysis"""
     def __init__(self, entities, read_only=False, backlink_property=None, backlink=None):
@@ -153,7 +169,7 @@ class LinkedEntityCollection:
         else:
             raise RuntimeError(f"Could not find object: {kwargs}")
 
-    def create(self, new_obj):
+    def create(self, new_obj, **kwargs):
         """\
         Creates a new object and appends it to the collection.
 
@@ -167,7 +183,7 @@ class LinkedEntityCollection:
         if self.backlink_property is not None:
             setattr(new_obj, self.backlink_property, self.backlink)
 
-        new_obj.create()
+        new_obj.create(**kwargs)
         self._entities.append(new_obj)
         return new_obj
 
@@ -177,38 +193,34 @@ class LinkedEntityField(Field):
     Represents a linked entity (or a collection of them), e.g. an Analysis inside a Workspace.
     """
     # pylint: disable=too-many-arguments
-    def __init__(self, name, entity_type, lazy, many=False,
+    def __init__(self, name, entity_type, many=False,
                  read_only=False, backlink_property=None, parent=None,
-                 derived=False, sort_key=None, prefetched=False):
+                 derived=False, sort_key=None):
         """\
 
         :param name: field name
         :param entity_type: type of the linked entity, e.g. Analysis, Figure, etc.
-        :param lazy: if True, the entity will only load once its properties are accessed or assigned to
         :param many: if False, will create a single linked entity. If True, will resolve to a LinkedEntityCollection
         :param read_only: Makes the collection of linked entities read-only. Only relevant if many=True.
         :param backlink_property: name of property in the linked entity which will point back to the parent
         :param parent: parent object
         :param derived: True if derived (won't be transmitted through the API)
         :param sort_key: sort key (callable) for entities. None if no sort (default).
-        :param prefetched: True if supplying prefetched JSON objects as opposed to just API IDs
 
         """
         super().__init__(name, parent=parent, derived=derived)
         self.entity_type = entity_type
-        self.lazy = lazy
         self.many = many
         self.read_only = read_only
         self.backlink_property = backlink_property
         self.sort_key = sort_key
-        self.prefetched = prefetched
 
     def clone(self):
-        return LinkedEntityField(self.name, self.entity_type, self.lazy,
+        return LinkedEntityField(self.name, self.entity_type,
                                  many=self.many, read_only=self.read_only,
                                  backlink_property=self.backlink_property,
                                  parent=self.parent, derived=self.derived,
-                                 sort_key=self.sort_key, prefetched=self.prefetched)
+                                 sort_key=self.sort_key)
 
     def to_representation(self, value):
         if value is None:
@@ -220,18 +232,13 @@ class LinkedEntityField(Field):
             return value.api_id
 
     def to_internal_value(self, gf, data):
-        make_prefetched = lambda obj: self.entity_type(gf)(parse=True, prefetched=True, **obj)
-        make_not_prefetched = lambda api_id: self.entity_type(gf)(api_id=api_id, lazy=self.lazy)
-        if self.prefetched is True:
-            make_one = make_prefetched
-        elif self.prefetched is False:
-            make_one = make_not_prefetched
-        elif self.prefetched == "infer":
-            make_one = lambda obj: make_not_prefetched(obj) if isinstance(obj, str) else make_prefetched(obj)
-        else:
-            raise ValueError(f"Invalid prefetch value: {self.prefetched}. Must be True, False or 'infer'.")
+        make_prefetched = lambda obj: self.entity_type(gf)(parse=True, **obj)
+        make_not_prefetched = lambda api_id: self.entity_type(gf)(api_id=api_id)
+        make_one = lambda obj: make_not_prefetched(obj) if isinstance(obj, str) else make_prefetched(obj)
 
-        if self.many:
+        if data is None:
+            return None
+        elif self.many:
             sorted_vals = [make_one(api_id) for api_id in data]
             if self.sort_key is not None:
                 sorted_vals = sorted(sorted_vals, key=self.sort_key)
@@ -241,6 +248,32 @@ class LinkedEntityField(Field):
                                           backlink=self.parent)
         else:
             return make_one(data)
+
+class DataField(LinkedEntityField):
+    """Customizes a LinkedEntityField so that the entity data is fully embedded in the representation"""
+    def clone(self):
+        return DataField(self.name, self.entity_type,
+                         many=self.many, read_only=self.read_only,
+                         backlink_property=self.backlink_property,
+                         parent=self.parent, derived=self.derived,
+                         sort_key=self.sort_key)
+
+    def _assert_not_shallow(self, obj):
+        if obj.api_id is not None and obj.data is None:  # pylint: disable=protected-access
+            raise ValueError("This is a shallow Data object without any data. It cannot be saved. "
+                             "Please call fetch() first.")
+
+        return True
+
+    def to_representation(self, value):
+        if value is None:
+            return None
+        elif self.many:
+            sorted_value = value if self.sort_key is None else sorted(value, key=self.sort_key)
+            return [x.to_json() for x in sorted_value if self._assert_not_shallow(x)]
+        else:
+            self._assert_not_shallow(value)
+            return value.to_json()
 
 
 class NestedEntityField(Field):
@@ -296,31 +329,21 @@ class NestedMixin(abc.ABC):
 class ModelMixin(abc.ABC):
     """Base class for GoFigr API entities: workspaces, analyses, figures, etc."""
     # pylint: disable=protected-access
-    fields = ['api_id', ]
+    fields = ['api_id', "_shallow"]
     endpoint = None
     _gf = None  # GoFigr instance. Will be set dynamically.
 
-    def __init__(self, api_id=None, lazy=False, parse=False, prefetched=False, **kwargs):
+    def __init__(self, api_id=None, parse=False, **kwargs):
         """
 
         :param api_id: API ID
-        :param lazy: if True, parameters won't be fetched from server until needed. Otherwise they will \
-        be fetched right away.
         :param parse: if True, the fields' to_internal_value will be called on all properties. Otherwise, properties \
         will be stored verbatim. This is to support direct object creation from Python (i.e. parse = False), and \
         creation from JSON primitives (i.e. parse = True).
-        :param prefetched: True if this is a shallow, prefetched instance. False otherwise.
         :param kwargs:
 
         """
-        if lazy and len(kwargs) > 0:
-            raise ValueError("Parameter values for lazy instances will be fetched on first use and "
-                             "cannot be supplied in the constructor")
-
         self.api_id = api_id
-        self.lazy = lazy
-        self.prefetched = prefetched
-        self._has_data = not lazy
         fields = [Field(x) if isinstance(x, str) else x.clone()
                   for x in self.fields]
         for fld in fields:
@@ -329,44 +352,10 @@ class ModelMixin(abc.ABC):
 
         # Set all fields to None by default
         for name in self.fields:
-            if not lazy and not hasattr(self, name):
+            if not hasattr(self, name):
                 setattr(self, name, None)
 
         self._update_properties(kwargs, parse=parse)
-
-    def __getattr__(self, item):
-        # Note that this function is only called if the attribute isn't found through
-        # the usual means
-        err = AttributeError(f"No such attribute: {item}")
-        if item not in self.fields:
-            raise err
-        elif not self.lazy:
-            raise err
-        else:  # lazy AND item in self.fields
-            if self._has_data:  # already fetched and no dice
-                raise err
-
-            self.fetch()
-            return getattr(self, item)
-
-    def __setattr__(self, key, value):
-        try:
-            # We may be setting attributes in the constructor where these properties
-            # only partially exist. In that case, we want to avoid infinite recursion
-            # (hence call to getter from super). We also want to avoid fetching any data if
-            # these key attributes are still missing (hence try-except).
-            lazy_fields = super().__getattribute__('fields')
-            is_lazy = super().__getattribute__('lazy')
-            has_data = super().__getattribute__('_has_data')
-
-            do_fetch = key != 'api_id' and key in lazy_fields and is_lazy and not has_data
-        except AttributeError:
-            do_fetch = False
-
-        if do_fetch:
-            self.fetch()
-
-        return super().__setattr__(key, value)
 
     def __eq__(self, other):
         repr1 = self.to_json()
@@ -380,6 +369,11 @@ class ModelMixin(abc.ABC):
 
     def __hash__(self):
         raise RuntimeError("Model instances are not hashable")
+
+    @classmethod
+    def from_json(cls, data):
+        """Parses an instance of this class from JSON data"""
+        return cls(**data, parse=True)
 
     def to_json(self, include_derived=True, include_none=False):
         """\
@@ -400,7 +394,6 @@ class ModelMixin(abc.ABC):
     def _update_properties(self, props, parse=True):
         for name, val in props.items():
             if name not in self.fields:
-                #raise ValueError(f"Unknown field: {name}")
                 continue
 
             field = self.fields[name]
@@ -426,7 +419,7 @@ class ModelMixin(abc.ABC):
         """\
         Saves this object to server
 
-        :param create: will create the object if it doesn't aleady exist. Otherwise, saving a non-existing object \
+        :param create: will create the object if it doesn't already exist. Otherwise, saving a non-existing object \
         will throw an exception.
         :param patch: if True, will submit a partial update where some required properties may be missing. \
         You will almost never use this: it's only useful if for some reason you can't/don't want to fetch the full \
@@ -439,10 +432,6 @@ class ModelMixin(abc.ABC):
                 return self.create(update=False)
             else:
                 raise RuntimeError("API ID is None. Did you forget to create() the object first?")
-
-        if self.prefetched:
-            raise RuntimeError("This is a shallow instance. Please call fetch() before making and "
-                               "saving modifications.")
 
         if silent:
             params = "?silent=true"
@@ -471,8 +460,6 @@ class ModelMixin(abc.ABC):
         """
         self._check_api_id()
         obj = self._gf._get(urljoin(self.endpoint, self.api_id + "/")).json()
-        self._has_data = True
-        self.prefetched = False
         return self._update_properties(obj)
 
     def create(self, update=False):
@@ -790,18 +777,47 @@ class LogsMixin:
         return [LogItem.from_json(datum, gf=self._gf, parent=self) for datum in response.json()]
 
 
+class ThumbnailMixin:
+    """\
+    Mixin for entities which support the /log/ endpoint.
+
+    """
+    def get_thumbnail(self, size):
+        """\
+        Retrieves the thumbnail image.
+        :param size: size in pixels
+
+        :return: PIL.Image if available or None
+        """
+        # pylint: disable=protected-access
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/thumbnail/{size}'),
+                                 expected_status=HTTPStatus.OK)
+
+        data = response.json()
+        thumb_b64 = data.get('thumbnail')
+
+        if not thumb_b64:
+            return None
+
+        img_data = b64decode(thumb_b64)
+        bio = io.BytesIO(img_data)
+        img = PIL.Image.open(bio)
+        img.load()
+        return img
+
+
 class gf_Workspace(ModelMixin, LogsMixin):
     """Represents a workspace"""
     # pylint: disable=protected-access
 
     fields = ["api_id",
+              "_shallow",
               "name",
               "description",
               "workspace_type",
               "size_bytes",
-              LinkedEntityField("analyses", lambda gf: gf.Analysis, lazy=True, many=True, derived=True,
-                                backlink_property='workspace',
-                                prefetched='infer')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+              LinkedEntityField("analyses", lambda gf: gf.Analysis, many=True, derived=True,
+                                backlink_property='workspace')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "workspace/"
 
     def get_analysis(self, name, create=True, **kwargs):
@@ -833,7 +849,7 @@ class gf_Workspace(ModelMixin, LogsMixin):
         :return: list of WorkspaceMember objects
         """
         response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/members/'),
-                                  expected_status=HTTPStatus.OK)
+                                 expected_status=HTTPStatus.OK)
         return [WorkspaceMember.from_json(datum) for datum in response.json()]
 
     def add_member(self, username, membership_type):
@@ -894,18 +910,18 @@ class gf_Workspace(ModelMixin, LogsMixin):
         return Recents(analyses, figures)
 
 
-class gf_Analysis(ShareableModelMixin, LogsMixin):
+class gf_Analysis(ShareableModelMixin, LogsMixin, ThumbnailMixin):
     """Represents an analysis"""
     # pylint: disable=protected-access
 
     fields = ["api_id",
+              "_shallow",
               "name",
               "description",
               "size_bytes",
-              LinkedEntityField("workspace", lambda gf: gf.Workspace, lazy=True, many=False),
-              LinkedEntityField("figures", lambda gf: gf.Figure, lazy=True, many=True, derived=True,
-                                backlink_property='analysis',
-                                prefetched='infer')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+              LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),
+              LinkedEntityField("figures", lambda gf: gf.Figure, many=True, derived=True,
+                                backlink_property='analysis')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "analysis/"
 
     def get_figure(self, name, create=True, **kwargs):
@@ -922,14 +938,15 @@ class gf_Analysis(ShareableModelMixin, LogsMixin):
                                            default_obj=self._gf.Figure(name=name, **kwargs) if create else None)
 
 
-class gf_Figure(ShareableModelMixin):
+class gf_Figure(ShareableModelMixin, ThumbnailMixin):
     """Represents a figure"""
     fields = ["api_id",
+              "_shallow",
               "name",
               "description",
               "size_bytes",
-              LinkedEntityField("analysis", lambda gf: gf.Analysis, lazy=True, many=False),
-              LinkedEntityField("revisions", lambda gf: gf.Revision, lazy=False, prefetched=True, many=True,
+              LinkedEntityField("analysis", lambda gf: gf.Analysis, many=False),
+              LinkedEntityField("revisions", lambda gf: gf.Revision, many=True,
                                 derived=True, backlink_property='figure')
               ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "figure/"
@@ -945,7 +962,7 @@ class DataType(abc.ABC):
     TEXT = "text"
 
 
-class MetadataProxy:
+class MetadataProxyField:
     """Field which is embedded inside the JSON metadata"""
     def __init__(self, name, default=None):
         """
@@ -974,7 +991,7 @@ class MetadataProxy:
         :param value:
         :return:
         """
-        if instance.metadata is None:
+        if not hasattr(instance, 'metadata') or instance.metadata is None:
             instance.metadata = {}
 
         instance.metadata[self.name] = value
@@ -992,97 +1009,105 @@ class MetadataProxy:
             del instance.metadata[self.name]
 
 
-class Data(NestedMixin):
+class gf_Data(ModelMixin):
     """Represents binary data (e.g. image data, serialized dataframes, etc.)"""
     # pylint: disable=no-member
 
     SPECIALIZED_TYPES = None
     DATA_TYPE = None
 
-    FIELDS = ["api_id", "name", "type", "metadata", "data"]
+    fields = ["api_id",
+              "name",
+              "type",
+              JSONField("metadata"),
+              Base64Field("data")]
 
-    def __init__(self, **kwargs):
-        """\
+    metadata_fields = []
 
-        :param api_id: API ID of this data object
-        :param name: name of this data object
-        :param type: one of DataType values, e.g. DataType.IMAGE
-        :param metadata: metadata dictionary
-        :param data: binary data (bytes)
-        """
-        # Check data
-        data = kwargs.get('data')
-        if data is not None and not isinstance(data, bytes):
-            raise ValueError(f"Data must be bytes, but got: {data.__class__}")
+    endpoint = "data/"
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.type = kwargs.pop('type', self.DATA_TYPE)
-
         self.metadata = kwargs.pop('metadata', {})
 
-        # Assign values to fields if supplied
-        for name, value in kwargs.items():
-            if name not in self.FIELDS and not hasattr(self, name):
-                raise ValueError(f"{self.__class__.__name__} does not take a parameter named {name}")
+        # Assign metadata fields
+        for meta in self.metadata_fields:
+            if meta.name in kwargs:
+                self.metadata[meta.name] = kwargs[meta.name]
+            elif meta.name not in self.metadata:
+                self.metadata[meta.name] = meta.default
 
-            setattr(self, name, value)
+        # Assign a new local ID (unless one already exists)
+        if 'local_id' in kwargs:
+            self.local_id = kwargs['local_id']
 
-        # If there are any unassigned fields, set to None
-        for name in self.FIELDS:
-            if not hasattr(self, name):
-                setattr(self, name, None)
+        if self.local_id is None:
+            self.local_id = str(uuid4())
 
-        # If there are any unassigned metadata fields, set to default
-        for name, value in self.__class__.__dict__.items():
-            if isinstance(value, MetadataProxy) and name not in self.metadata:
-                setattr(self, name, value.default)
+    @property
+    def local_id(self):
+        """Reserved for internal API use"""
+        if self.metadata is None or 'local_id' not in self.metadata:
+            return None
 
-    def to_json(self):
-        """\
-        Converts this data object to JSON. Data will be base-64 encoded.
+        return self.metadata['local_id']
 
-        :return:
-        """
-        res = {name: getattr(self, name) for name in self.FIELDS if name != 'data'}
-        res['data'] = b64encode(self.data).decode('ascii') if self.data is not None else None
-        return res
+    @local_id.setter
+    def local_id(self, value):
+        """Reserved for internal API use"""
+        if self.metadata is None:
+            self.metadata = {}
 
-    @classmethod
-    def from_json(cls, data):
-        """\
-        Parses a data object from JSON.
+        self.metadata['local_id'] = value
 
-        :param data: JSON object
-        :return: a specialized Data instance, e.g. ImageData
-        """
-        if cls.SPECIALIZED_TYPES is None:
-            cls.SPECIALIZED_TYPES = Data.specialized_types()
+    @property
+    def is_shallow(self):
+        """True if this is a shallow data object without the byte payload"""
+        return self.api_id is not None and self.data is None
 
-        props = {name: data.get(name) for name in cls.FIELDS if name != 'data'}
-        props['data'] = b64decode(data['data']) if 'data' in data else None
-        return cls.SPECIALIZED_TYPES.get(data['type'], cls)(**props)
+    def specialize(self):
+        """Creates a specialized data instance, e.g. ImageData, based on the data type"""
+        supported_types = {
+            DataType.IMAGE: self.client.ImageData,
+            DataType.CODE: self.client.CodeData,
+            DataType.TEXT: self.client.TextData,
+            DataType.DATA_FRAME: self.client.TableData
+        }
+        if self.type not in supported_types:
+            raise ValueError(f"Unsupported data type: {self.type}. No specialized class exists.")
 
-    @classmethod
-    def specialized_types(cls):
-        """\
-        Lists all available Data subclasses, e.g. ImageData and CodeData
+        return supported_types[self.type](api_id=self.api_id,
+                                          name=self.name,
+                                          type=self.type,
+                                          metadata=self.metadata,
+                                          data=self.data)
 
-        :return: map of data type to specialized class
-        """
-        type_map = {}
-        for _, obj in globals().items():
-            if inspect.isclass(obj) and issubclass(obj, Data) and hasattr(obj, 'DATA_TYPE'):
-                type_map[getattr(obj, 'DATA_TYPE')] = obj
-        return type_map
+    def __eq__(self, other):
+        repr1 = self.to_json()
+        repr2 = other.to_json()
+
+        if not set(repr1.keys()) == set(repr2.keys()):
+            return False
+        else:
+            return all(repr1[k] == repr2[k] for k in repr1.keys()
+                       if not isinstance(self.fields[k], Timestamp) and k != "api_id")
+
+    def __repr__(self):
+        dat = self.to_json()
+        dat['data'] = f"<{len(self.data)} bytes>" if self.data else None
+        return str(dat)
 
 
-class ImageData(Data):
+class gf_ImageData(gf_Data):
     """Binary image data"""
     # pylint: disable=no-member
 
     DATA_TYPE = DataType.IMAGE
 
-    is_watermarked = MetadataProxy("is_watermarked", default=False)
-    format = MetadataProxy("format")
+    is_watermarked = MetadataProxyField("is_watermarked", default=False)
+    format = MetadataProxyField("format")
+    metadata_fields = [is_watermarked, format]
 
     @property
     def is_interactive(self):
@@ -1116,15 +1141,16 @@ class CodeLanguage(abc.ABC):
     R = "R"
 
 
-class CodeData(Data):
+class gf_CodeData(gf_Data):
     """Serialized code data (it's text, but stored and transmitted as bytes)"""
     # pylint: disable=no-member
 
     DATA_TYPE = DataType.CODE
 
-    language = MetadataProxy("language")
-    format = MetadataProxy("format")
-    encoding = MetadataProxy("encoding", default="utf-8")
+    language = MetadataProxyField("language")
+    format = MetadataProxyField("format")
+    encoding = MetadataProxyField("encoding", default="utf-8")
+    metadata_fields = [language, format, encoding]
 
     def __init__(self, contents=None, **kwargs):
         """\
@@ -1136,7 +1162,7 @@ class CodeData(Data):
         if contents is not None:
             self.contents = contents
 
-        self.format = "text"
+        self.format = kwargs.get("format", "text")
 
     @property
     def contents(self):
@@ -1158,12 +1184,13 @@ class CodeData(Data):
         self.data = value.encode(self.encoding) if value is not None else None
 
 
-class TextData(Data):
+class gf_TextData(gf_Data):
     """Serialized text data (even though it's text, we store and transmit bytes)"""
     # pylint: disable=no-member
 
     DATA_TYPE = DataType.TEXT
-    encoding = MetadataProxy("encoding", default="utf-8")
+    encoding = MetadataProxyField("encoding", default="utf-8")
+    metadata_fields = [encoding]
 
     def __init__(self, contents=None, **kwargs):
         super().__init__(**kwargs)
@@ -1188,14 +1215,14 @@ class TextData(Data):
         self.data = value.encode(self.encoding) if value is not None else None
 
 
-class TableData(Data):
+class gf_TableData(gf_Data):
     """Serialized data frame"""
     # pylint: disable=no-member
 
     DATA_TYPE = DataType.DATA_FRAME
-
-    format = MetadataProxy("format")
-    encoding = MetadataProxy("encoding", default="utf-8")
+    format = MetadataProxyField("format")
+    encoding = MetadataProxyField("encoding", default="utf-8")
+    metadata_fields = [format, encoding]
 
     def __init__(self, dataframe=None, **kwargs):
         """
@@ -1229,12 +1256,12 @@ class TableData(Data):
         self.data = value.to_csv().encode(self.encoding) if value is not None else None
 
 
-class gf_Revision(ShareableModelMixin):
+class gf_Revision(ShareableModelMixin, ThumbnailMixin):
     """Represents a figure revision"""
     fields = ["api_id", "revision_index", "size_bytes",
               JSONField("metadata"),
-              LinkedEntityField("figure", lambda gf: gf.Figure, lazy=True, many=False),
-              NestedEntityField("data", lambda gf: gf.Data, many=True),
+              LinkedEntityField("figure", lambda gf: gf.Figure, many=False),
+              DataField("data", lambda gf: gf.Data, many=True),
               ] + TIMESTAMP_FIELDS
 
     endpoint = "revision/"
@@ -1253,6 +1280,87 @@ class gf_Revision(ShareableModelMixin):
         other = [dat for dat in self.data if dat.type != data_type]
         self.data = other + list(value)
 
+    def _restore_data(self, data_copy):
+        """\
+        Restores data from a copy. This function is necessary because the API only returns shallow data objects
+        (no bytes) which, based on the base ModelMixin, will overwrite actual data in this object.
+
+        :param data_copy:
+        :return:
+        """
+        # Fill in API IDs for data objects
+        local_id_to_api_id = {obj.local_id: obj.api_id for obj in self.data}
+        for datum in data_copy:
+            datum.api_id = local_id_to_api_id[datum.local_id]
+
+        self.data = data_copy  # pylint: disable=attribute-defined-outside-init
+        return self
+
+    def create(self, update=False):
+        """\
+        Creates a Revision on the server.
+
+        :param update: True to update the object if it already exists
+        :return: self
+
+        """
+        self._assert_data_not_shallow()
+
+        # The server will return a shallow copy of the data objects, without the byte payload.
+        # Instead of requesting that data separately (slow), we simply preserve the submitted data.
+        data_copy = self.data
+        super().create(update=update)
+
+        self._restore_data(data_copy)
+        return self
+
+    def fetch(self, fetch_data=True):
+        """\
+        Overrides the default fetch to retrieve the data objects (with byte payload) as well. This override
+        is necessary because the API only returns shallow data objects by default.
+
+        :param fetch_data: whether to retrieve full data objects
+        :return: self
+        """
+        super().fetch()
+        if fetch_data:
+            self.fetch_data()
+        return self
+
+    def save(self, create=False, patch=False, silent=False):
+        self._assert_data_not_shallow()
+
+        # The server will return a shallow copy of the data objects, without the byte payload.
+        # Instead of requesting that data separately (slow), we simply preserve the submitted data.
+        data_copy = self.data
+        super().save(create=create, patch=patch, silent=silent)
+
+        self._restore_data(data_copy)
+        return self
+
+    def _assert_data_not_shallow(self, message="This revision contains shallow data. Did you call fetch_data?"):
+        for datum in self.data:
+            if datum.is_shallow:
+                raise RuntimeError(message)
+
+    def fetch_data(self):
+        """Fetches all data objects"""
+        if self.data is None:
+            return self
+
+        for data in self.data:
+            data.fetch()
+
+        return self
+
+    def _update_properties(self, props, parse=True):
+        super()._update_properties(props, parse=parse)
+        if self.data is None:
+            self.data = []
+
+        self.data = [dat.specialize() for dat in self.data]
+        return self
+
     @property
     def revision_url(self):
         """Returns the GoFigr URL for this revision"""
@@ -1265,7 +1373,7 @@ class gf_Revision(ShareableModelMixin):
 
     @image_data.setter
     def image_data(self, value):
-        return self._replace_data_type(DataType.IMAGE, value)
+        self._replace_data_type(DataType.IMAGE, value)
 
     @property
     def table_data(self):
@@ -1274,7 +1382,7 @@ class gf_Revision(ShareableModelMixin):
 
     @table_data.setter
     def table_data(self, value):
-        return self._replace_data_type(DataType.DATA_FRAME, value)
+        self._replace_data_type(DataType.DATA_FRAME, value)
 
     @property
     def code_data(self):
@@ -1283,7 +1391,7 @@ class gf_Revision(ShareableModelMixin):
 
     @code_data.setter
     def code_data(self, value):
-        return self._replace_data_type(DataType.CODE, value)
+        self._replace_data_type(DataType.CODE, value)
 
     @property
     def text_data(self):
@@ -1292,7 +1400,7 @@ class gf_Revision(ShareableModelMixin):
 
     @text_data.setter
     def text_data(self, value):
-        return self._replace_data_type(DataType.TEXT, value)
+        self._replace_data_type(DataType.TEXT, value)
 
 
 class gf_ApiKey(ModelMixin):
@@ -1306,8 +1414,23 @@ class gf_ApiKey(ModelMixin):
               "name",
               "token",
               Timestamp("created"),
-              Timestamp("last_used")]
+              Timestamp("last_used"),
+              Timestamp("expiry"),
+              LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),]
     endpoint = "api_key/"
+
+    def fetch_and_preserve_token(self):
+        """\
+        Like fetch(), but preserves the token if present. This is useful because the token is only available
+        at creation, so calling fetch() will always set it to None.
+
+        :return:
+        """
+        # pylint: disable=access-member-before-definition,attribute-defined-outside-init
+        tok = self.token
+        self.fetch()
+        self.token = tok
+        return self
 
 
 class gf_WorkspaceInvitation(ModelMixin):
@@ -1329,11 +1452,9 @@ class gf_WorkspaceInvitation(ModelMixin):
         """
         if self.token is not None:
             obj = self._gf._get(urljoin(self.endpoint, self.token)).json()
-            self._has_data = True
         else:
             self._check_api_id()
             obj = self._gf._get(urljoin(self.endpoint, self.api_id)).json()
-            self._has_data = True
 
         return self._update_properties(obj)
 
@@ -1352,7 +1473,7 @@ class gf_WorkspaceInvitation(ModelMixin):
               "status",
               Timestamp("created"),
               Timestamp("expiry"),
-              LinkedEntityField("workspace", lambda gf: gf.Workspace, lazy=True, many=False),
+              LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),
               "membership_type"]
     endpoint = "invitations/workspace/"
 
@@ -1370,7 +1491,6 @@ class gf_MetadataProxy(ModelMixin):
         :return: self
         """
         obj = self._gf._get(urljoin(self.endpoint, self.token)).json()
-        self._has_data = True
         return self._update_properties(obj)
 
     def delete(self, **kwargs):

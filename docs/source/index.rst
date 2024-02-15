@@ -10,17 +10,23 @@
 Welcome to GoFigr Client Library's documentation!
 =================================================
 
-Version: 0.15.2
+Version: 0.17.0
 
 .. toctree::
    :maxdepth: 4
    :caption: Quick Start Guide:
 
    start
-   boilerplate
    library_support
-   organization
+   boilerplate
    customization
+   organization
+
+.. toctree::
+   :maxdepth: 4
+   :caption: Tips and tricks:
+
+   tips
 
 .. toctree::
    :maxdepth: 4

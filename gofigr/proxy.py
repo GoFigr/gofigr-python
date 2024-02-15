@@ -7,7 +7,6 @@ running inside the Python kernel. This mechanism enables the frontend to securel
 of how Jupyter is running, i.e. it works even with password/token auth and SSH tunneling.
 
 """
-
 # pylint: disable=global-statement
 
 import multiprocessing
@@ -19,8 +18,9 @@ from queue import Empty as QueueEmpty
 from threading import Thread
 from urllib.parse import urljoin
 
-import pkg_resources
 from IPython.core.display import Javascript
+
+from gofigr.utils import read_resource_text, read_resource_b64
 
 _CALLBACK_THREAD = None
 _STOP_CALLBACK_THREAD = False
@@ -101,6 +101,9 @@ def run_proxy_async(gf, callback):
 def get_javascript_loader(gf, proxy):
     """Creates a Javascript loader for GoFigr. Intended to be display()'d in the call to configure()"""
     endpoint = urljoin(gf.api_url, "metadata/" + proxy.token)
-    loader_body = pkg_resources.resource_string("gofigr.resources", "loader.js").decode('utf-8')
-    loader = f"const endpoint=\"{endpoint}\";\n" + loader_body
+    loader_body = read_resource_text("gofigr.resources", "loader.js")
+
+    css_b64 = read_resource_b64("gofigr.resources", "gofigr.css")
+
+    loader = f"const endpoint=\"{endpoint}\"; const gofigr_css=\"{css_b64}\"\n" + loader_body
     return Javascript(loader)

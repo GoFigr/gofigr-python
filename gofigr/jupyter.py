@@ -10,6 +10,7 @@ import inspect
 import io
 import json
 import os
+import pickle
 import sys
 from collections import namedtuple
 from functools import wraps
@@ -18,25 +19,46 @@ from uuid import UUID
 import PIL
 import six
 
-from gofigr import GoFigr, API_URL
+from gofigr import GoFigr, API_URL, UnauthorizedError
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
-    PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator
-from gofigr.backends import get_backend
+    PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator
+from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
+from gofigr.context import RevisionContext
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
 from gofigr.watermarks import DefaultWatermark
+from gofigr.widget import DetailedWidget
 
 try:
     from IPython.core.display_functions import display
 except ModuleNotFoundError:
     from IPython.core.display import display
 
-from IPython.core.display import HTML
+
+PY3DMOL_PRESENT = False
+if sys.version_info >= (3, 8):
+    try:
+        import py3Dmol  # pylint: disable=unused-import
+        from gofigr.backends.py3dmol import Py3DmolBackend
+        PY3DMOL_PRESENT = True
+    except ModuleNotFoundError:
+        pass
 
 
 DISPLAY_TRAP = None
+
+
+def _mark_as_published(fig):
+    """Marks the figure as published so that it won't be re-published again."""
+    fig._gf_is_published = True
+    return fig
+
+
+def _is_published(fig):
+    """Returns True iff the figure has already been published"""
+    return getattr(fig, "_gf_is_published", False)
 
 
 class GfDisplayPublisher:
@@ -62,7 +84,7 @@ class GfDisplayPublisher:
 
         :param data: dictionary of mimetypes -> data
         :param args: implementation-dependent
-        :param kwargs: implementation-dependend
+        :param kwargs: implementation-dependent
         :return: None
 
         """
@@ -88,7 +110,7 @@ class GfDisplayPublisher:
         :return:
         """
         if item == "pub":
-            return super().__getattribute__(self.pub)
+            return super().__getattribute__(item)
 
         return getattr(self.pub, item)
 
@@ -361,14 +383,17 @@ def parse_model_instance(model_class, value, find_by_name):
 
 
 DEFAULT_ANNOTATORS = (NotebookMetadataAnnotator, EnvironmentAnnotator, CellIdAnnotator, CellCodeAnnotator,
-                      SystemAnnotator, PipFreezeAnnotator)
+                      SystemAnnotator, PipFreezeAnnotator, BackendAnnotator, HistoryAnnotator)
 DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
+if PY3DMOL_PRESENT:
+    DEFAULT_BACKENDS = DEFAULT_BACKENDS + (Py3DmolBackend,)
 
 
 class Publisher:
     """\
     Publishes revisions to the GoFigr server.
     """
+    # pylint: disable=too-many-arguments
     def __init__(self,
                  gf,
                  annotators,
@@ -377,7 +402,9 @@ class Publisher:
                  image_formats=("png", "eps", "svg"),
                  interactive=True,
                  default_metadata=None,
-                 clear=True):
+                 clear=True,
+                 save_pickle=True,
+                 widget_class=DetailedWidget):
         """
 
         :param gf: GoFigr instance
@@ -388,6 +415,9 @@ class Publisher:
         :param interactive: whether to publish figure HTML if available
         :param clear: whether to close the original figures after publication. If False, Jupyter will display
         both the input figure and the watermarked output. Default behavior is to close figures.
+        :param save_pickle: if True, will save the figure in pickle format in addition to any of the image formats
+        :param widget_class: Widget type to show, e.g. DetailedWidget or CompactWidget. It will appear below the
+        published figure
 
         """
         self.gf = gf
@@ -398,6 +428,8 @@ class Publisher:
         self.interactive = interactive
         self.clear = clear
         self.default_metadata = default_metadata
+        self.save_pickle = save_pickle
+        self.widget_class = widget_class
 
     def auto_publish_hook(self, extension, data, suppress_display=None):
         """\
@@ -412,7 +444,7 @@ class Publisher:
         for backend in self.backends:
             compatible_figures = list(backend.find_figures(extension.shell, data))
             for fig in compatible_figures:
-                if not getattr(fig, '_gf_is_published', False):
+                if not _is_published(fig):
                     self.publish(fig=fig, backend=backend, suppress_display=suppress_display)
 
     @staticmethod
@@ -438,6 +470,22 @@ class Publisher:
                                                                                description=search.description,
                                                                                create=search.create))
 
+    def _get_pickle_data(self, gf, fig):
+        if not self.save_pickle:
+            return []
+
+        try:
+            bio = io.BytesIO()
+            pickle.dump(fig, bio)
+            bio.seek(0)
+
+            return [gf.ImageData(name="figure", format="pickle",
+                                 data=bio.getvalue(),
+                                 is_watermarked=False)]
+        except Exception as e: # pylint: disable=broad-exception-caught
+            print(f"WARNING: We could not obtain the figure in pickle format: {e}", file=sys.stderr)
+            return []
+
     def _get_image_data(self, gf, backend, fig, rev, image_options):
         """\
         Extracts ImageData in various formats.
@@ -456,6 +504,9 @@ class Publisher:
         image_to_display = None
         image_data = []
         for fmt in self.image_formats:
+            if fmt.lower() not in backend.get_supported_image_formats():
+                continue
+
             if fmt.lower() == "png":
                 img = PIL.Image.open(io.BytesIO(backend.figure_to_bytes(fig, fmt, image_options)))
                 img.load()
@@ -495,6 +546,8 @@ class Publisher:
                                                is_watermarked=True)
             image_data.append(html_with_watermark)
             image_to_display = wfig  # display the native Figure
+
+        image_data.extend(self._get_pickle_data(gf, fig))
 
         return image_data, image_to_display
 
@@ -551,6 +604,7 @@ class Publisher:
         :param image_options: backend-specific params passed to backend.figure_to_bytes
         :param suppress_display: if used in an auto-publish hook, this will contain a callable which will
         suppress the display of this figure using the native IPython backend.
+
         :return: FigureRevision instance
 
         """
@@ -568,10 +622,13 @@ class Publisher:
         if metadata is not None:
             combined_meta.update(metadata)
 
+        context = RevisionContext(backend=backend, extension=ext)
         with MeasureExecution("Bare revision"):
             # Create a bare revision first to get the API ID
             rev = gf.Revision(figure=target, metadata=combined_meta)
             target.revisions.create(rev)
+
+            context.attach(rev)
 
         deferred = False
         if _GF_EXTENSION.cell is None:
@@ -606,16 +663,18 @@ class Publisher:
         with MeasureExecution("Final save"):
             rev.save(silent=True)
 
-        fig._gf_is_published = True
+            # Calling .save() above will update internal properties based on the response from the server.
+            # In our case, this will result in rev.figure becoming a shallow object with just the API ID. Here
+            # we restore it from our cached copy, to avoid a separate API call.
+            rev.figure = target
+
+        _mark_as_published(fig)
 
         if self.clear:
             backend.close(fig)
 
         with SuppressDisplayTrap():
-            display(HTML(f"""
-            <div style='margin-top: 1em; margin-bottom: 1em; margin-left: auto; margin-right: auto;'>
-                <a href='{rev.revision_url}' target="_blank">View on GoFigr</a>
-            </div>"""))
+            self.widget_class(rev).show()
 
         return rev
 
@@ -698,6 +757,13 @@ def proxy_callback(result):
         _GF_EXTENSION.notebook_metadata = result.metadata
 
 
+def _make_backend(backend):
+    if isinstance(backend, GoFigrBackend):
+        return backend
+    else:
+        return backend()
+
+
 # pylint: disable=too-many-arguments, too-many-locals
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username=None, password=None,
@@ -706,7 +772,9 @@ def configure(username=None, password=None,
               default_metadata=None, auto_publish=True,
               watermark=None, annotators=DEFAULT_ANNOTATORS,
               notebook_name=None, notebook_path=None,
-              backends=DEFAULT_BACKENDS):
+              backends=DEFAULT_BACKENDS,
+              widget_class=DetailedWidget,
+              save_pickle=True):
     """\
     Configures the Jupyter plugin for use.
 
@@ -723,6 +791,10 @@ def configure(username=None, password=None,
     :param notebook_name: name of the notebook (if you don't want it to be inferred automatically)
     :param notebook_path: path to the notebook (if you don't want it to be inferred automatically)
     :param backends: backends to use (e.g. MatplotlibBackend, PlotlyBackend)
+    :param widget_class: Widget type to show, e.g. DetailedWidget or CompactWidget. It will appear below the
+        published figure
+    :param save_pickle: if True, will save the figure in pickle format in addition to any of the image formats
+
     :return: None
 
     """
@@ -735,12 +807,22 @@ def configure(username=None, password=None,
         gf = GoFigr(username=username, password=password, url=url, api_key=api_key)
 
     if workspace is None:
-        workspace = gf.primary_workspace
+        if gf.primary_workspace is not None:
+            workspace = gf.primary_workspace
+        elif len(gf.workspaces) == 1:  # this will happen if we're using a scoped API token
+            workspace = gf.workspaces[0]
+            print(f"Defaulting to workspace \"{workspace.name}\" ({workspace.api_id})")
+        else:
+            raise ValueError("Please specify a workspace")
     else:
         workspace = parse_model_instance(gf.Workspace, workspace, lambda search: find_workspace_by_name(gf, search))
 
     with MeasureExecution("Fetch workspace"):
-        workspace.fetch()
+        try:
+            workspace.fetch()
+        except UnauthorizedError as e:
+            raise UnauthorizedError(f"Permission denied for workspace {workspace.api_id}. "
+                                    f"Are you using a restricted API key?") from e
 
     if analysis is None:
         raise ValueError("Please specify an analysis")
@@ -767,7 +849,9 @@ def configure(username=None, password=None,
                           default_metadata=default_metadata,
                           watermark=watermark,
                           annotators=[make_annotator(extension) for make_annotator in annotators],
-                          backends=[make_backend() for make_backend in backends])
+                          backends=[_make_backend(bck) for bck in backends],
+                          widget_class=widget_class,
+                          save_pickle=save_pickle)
     extension.gf = gf
     extension.analysis = analysis
     extension.workspace = workspace
@@ -790,6 +874,7 @@ def publish(fig=None, backend=None, **kwargs):
     :param backend: backend to use
     :param kwargs:
     :return:
+
     """
     ext = get_extension()
 
@@ -807,3 +892,26 @@ def publish(fig=None, backend=None, **kwargs):
 def get_gofigr():
     """Gets the active GoFigr object."""
     return get_extension().gf
+
+
+@require_configured
+def load_pickled_figure(api_id):
+    """\
+    Unpickles a GoFigr revision and returns it as a backend-specific Python object, e.g. a plt.Figure if
+    the figure was generated with matplotlib. Throws a RuntimeException if the figure is not found or does
+    not have pickle data.
+
+    :param api_id: API ID of the revision
+    :return: backend-dependent figure object, e.g. plt.Figure().
+
+    """
+    gf = get_gofigr()
+    rev = gf.Revision(api_id=api_id).fetch(fetch_data=False)
+    for data in rev.image_data:
+        if data.format == "pickle":
+            data.fetch()
+
+            fig = pickle.load(io.BytesIO(data.data))
+            return _mark_as_published(fig)
+
+    raise RuntimeError("This revision doesn't have pickle data.")

@@ -3,6 +3,7 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+import inspect
 from json import dumps as json_dumps
 import logging
 
@@ -15,7 +16,7 @@ from gofigr.models import *
 LOGGER = logging.getLogger(__name__)
 
 API_URL = "https://api.gofigr.io"
-API_VERSION = "v1.1"
+API_VERSION = "v1.2"
 
 APP_URL = "https://app.gofigr.io"
 
@@ -41,6 +42,13 @@ def assert_one(elements, error_none=None, error_many=None):
 class UnauthorizedError(RuntimeError):
     """\
     Thrown if user doesn't have permissions to perform an action.
+    """
+    pass
+
+
+class MethodNotAllowedError(RuntimeError):
+    """\
+    Thrown if a given REST action is not supported/allowed.
     """
     pass
 
@@ -216,10 +224,22 @@ class GoFigr:
         except ValueError:
             return False
 
-    def create_api_key(self, name):
-        """Creates an API key with the given name"""
+    def create_api_key(self, name, expiry=None, workspace=None):
+        """\
+        Creates an API key
+
+        :param name: name of the key to create
+        :param expiry: expiration date. If None, the key will not expire.
+        :param workspace: workspace for which the key is to be valid. If None, key will have access to the same
+        workspaces as the user.
+        :return: ApiKey instance
+
+        """
+        if expiry is not None and expiry.tzinfo is None:
+            expiry = expiry.astimezone()
+
         # pylint: disable=no-member
-        return self.ApiKey(name=name).create()
+        return self.ApiKey(name=name, expiry=expiry, workspace=workspace).create()
 
     def list_api_keys(self):
         """Lists all API keys"""
@@ -284,6 +304,8 @@ class GoFigr:
             if throw_exception and response.status_code not in expected_status:
                 if response.status_code == HTTPStatus.FORBIDDEN:
                     raise UnauthorizedError(f"Unauthorized: {response.content}")
+                elif response.status_code == HTTPStatus.METHOD_NOT_ALLOWED:
+                    raise MethodNotAllowedError(f"Method not allowed: {response.content}")
                 else:
                     raise RuntimeError(f"Request to {url} returned {response.status_code}: {response.content}")
 
@@ -417,6 +439,14 @@ class GoFigr:
             return self._primary_workspace
 
         primaries = [w for w in self.workspaces if w.workspace_type == "primary"]
+        primaries = [w for w in primaries if any(wm.username == self.username \
+                                                 and wm.membership_type == WorkspaceMembership.OWNER
+                                                 for wm in w.get_members())]
+
+        if self.api_key is not None and len(primaries) == 0:
+            self._primary_workspace = None
+            return self._primary_workspace
+
         pw = assert_one(primaries,
                         "No primary workspace found. Please contact support.",
                         "Multiple primary workspaces found. Please contact support.")

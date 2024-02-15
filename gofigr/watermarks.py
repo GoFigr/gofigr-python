@@ -3,9 +3,9 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+import importlib.resources
 import io
 
-import pkg_resources
 import pyqrcode
 from PIL import Image, ImageDraw, ImageFont
 
@@ -41,7 +41,8 @@ def _qr_to_image(text, **kwargs):
 
 def _default_font():
     """Loads the default font and returns it as an ImageFont"""
-    return ImageFont.truetype(pkg_resources.resource_filename("gofigr.resources", "FreeMono.ttf"), 14)
+    with importlib.resources.open_binary("gofigr.resources", "FreeMono.ttf") as f:
+        return ImageFont.truetype(f, 14)
 
 
 def stack_horizontally(*images, alignment="center"):

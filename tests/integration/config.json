@@ -3,13 +3,13 @@
     "name": "python3.7-lab",
     "python":  "python3.7",
     "service": "lab",
-    "dependencies": "jupyterlab seaborn"
+    "dependencies": "jupyterlab seaborn traitlets==5.9.0"
   },
   {
     "name": "python3.7-notebook",
     "python": "python3.7",
     "service": "notebook",
-    "dependencies": "notebook seaborn"
+    "dependencies": "notebook seaborn traitlets==5.9.0"
   },
 
   {
@@ -62,7 +62,7 @@
     "name": "python3.10-notebook-6.5.4",
     "python": "python3.10",
     "service": "notebook",
-    "dependencies": "notebook==6.5.4 seaborn"
+    "dependencies": "notebook==6.5.4 seaborn traitlets==5.9.0"
   },
 
   {
@@ -76,14 +76,14 @@
     "name": "python3.10-ipython-8.13.2",
     "python": "python3.10",
     "service": "notebook",
-    "dependencies": "notebook==6.5.4 ipython==8.13.2 seaborn"
+    "dependencies": "notebook==6.5.4 ipython==8.13.2 seaborn traitlets==5.9.0"
   },
 
   {
     "name": "python3.10-ipython-7.34.0",
     "python": "python3.10",
     "service": "notebook",
-    "dependencies": "notebook==6.5.4 ipython==7.34.0 seaborn"
+    "dependencies": "notebook==6.5.4 ipython==7.34.0 seaborn traitlets==5.9.0"
   },
 
   {
@@ -94,17 +94,10 @@
   },
 
   {
-    "name": "python3.10-notebook7",
-    "python": "python3.10",
-    "service": "notebook",
-    "dependencies": "notebook==7.0.2 seaborn"
-  },
-
-  {
     "name": "python3.7-matplotlib-3.0.1",
     "python": "python3.7",
     "service": "notebook",
-    "dependencies": "notebook seaborn matplotlib==3.0.1"
+    "dependencies": "notebook seaborn matplotlib==3.0.1 traitlets==5.9.0"
   },
 
   {

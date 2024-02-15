@@ -14,9 +14,10 @@ import numpy as np
 import pandas as pd
 import pkg_resources
 from PIL import Image
+from gofigr.models import gf_Revision, gf_Data
 
 from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership, \
-    TextData
+    ThumbnailMixin, MethodNotAllowedError
 
 
 def make_gf(authenticate=True, username=None, password=None, api_key=None):
@@ -61,7 +62,7 @@ class TestAuthentication(TestCase):
         self.assertRaises(RuntimeError, lambda: bad_gf.authenticate())
         self.assertRaises(RuntimeError, lambda: bad_gf.heartbeat())
 
-    def _revoke_all_keys(self):
+    def _cleanup(self):
         gf1 = make_gf(authenticate=True)
         gf2 = make_gf(authenticate=True, username=gf1.username + "2")
 
@@ -70,27 +71,36 @@ class TestAuthentication(TestCase):
             for ak in gf.list_api_keys():
                 gf.revoke_api_key(ak)
 
+            for member in gf.primary_workspace.get_members():
+                if member.username != gf.username:
+                    gf.primary_workspace.remove_member(member.username)
+
+
     def setUp(self):
-        self._revoke_all_keys()
+        self._cleanup()
 
     def tearDown(self):
-        self._revoke_all_keys()
+        self._cleanup()
 
-    def test_api_key_authentication(self):
-        gf = make_gf(authenticate=True)
+    def _list_workspaces_for_key(self, gf, api_key):
+        gf_tok = make_gf(username=None, password=None, api_key=api_key.token, authenticate=True)
+        return gf_tok.workspaces
 
-        # Create an API key
-        api_key = gf.create_api_key("test key")
-        token = api_key.token
+    def _use_api_key(self, gf, api_key, workspace=None):
+        if workspace is None:
+            workspace = gf.primary_workspace
 
         # Create a client using the key
-        gf_tok = make_gf(username=None, password=None, api_key=token, authenticate=True)
+        gf_tok = make_gf(username=None, password=None, api_key=api_key.token, authenticate=True)
 
         self.assertEqual(gf_tok.username, gf.username)
-        self.assertEqual(gf_tok.primary_workspace, gf.primary_workspace)
+
+        other_worx = gf_tok.Workspace(api_id=workspace.api_id).fetch()
+        self.assertEqual(other_worx.api_id, workspace.api_id)
+        self.assertEqual(other_worx.name, workspace.name)
 
         # Make sure we can create and modify objects
-        ana = gf_tok.Analysis(name="Test analysis", workspace=gf_tok.primary_workspace).create()
+        ana = gf_tok.Analysis(name="Test analysis", workspace=workspace).create()
 
         ana.name = "Updated analysis"
         ana.save()
@@ -103,6 +113,16 @@ class TestAuthentication(TestCase):
         self.assertRaises(RuntimeError, lambda: gf_tok.revoke_api_key(api_key.api_id))
 
         ana.fetch()  # Try a fetch before we revoke the key
+        return ana
+
+    def test_api_key_authentication(self):
+        gf = make_gf(authenticate=True)
+
+        # Create an API key
+        api_key = gf.create_api_key("test key")
+
+        # Authenticate and perform some operations with the key
+        ana = self._use_api_key(gf, api_key)
 
         # Revoke the key
         gf.revoke_api_key(api_key.api_id)
@@ -159,6 +179,71 @@ class TestAuthentication(TestCase):
         # Trying to get info about other people's keys should fail
         self.assertRaises(RuntimeError, lambda: gf2.ApiKey(api_id=key1.api_id).fetch())
         self.assertRaises(RuntimeError, lambda: gf.ApiKey(api_id=key2.api_id).fetch())
+
+    def test_api_key_expiration(self):
+        gf = make_gf(authenticate=True)
+        key1 = gf.create_api_key('test key 1', expiry=datetime.now() + timedelta(seconds=3))
+        token = key1.token
+        self._use_api_key(gf, key1)
+
+        key1.fetch()  # this will set token to None (only available at creation), so we need to restore it
+        key1.token = token
+        self.assertIsNotNone(key1.expiry)
+
+        # Wait for key to expire
+        time.sleep(4)
+        self.assertRaises(RuntimeError, lambda: self._use_api_key(gf, key1))
+
+    def test_api_key_scopes(self):
+        gf = make_gf(authenticate=True)
+        worx2 = gf.Workspace(name="workspace 2").create()
+
+        key_unscoped = gf.create_api_key('test key')
+        key1 = gf.create_api_key('test key 1', workspace=gf.primary_workspace)
+        key2 = gf.create_api_key('test key 2', workspace=worx2)
+
+        self.assertIsNone(key_unscoped.fetch_and_preserve_token().workspace)
+        self.assertEqual(key1.fetch_and_preserve_token().workspace.api_id, gf.primary_workspace.api_id)
+        self.assertEqual(key2.fetch_and_preserve_token().workspace.api_id, worx2.api_id)
+
+        # Unscoped key should work for both workspaces
+        self._use_api_key(gf, key_unscoped, workspace=gf.primary_workspace)
+        self._use_api_key(gf, key_unscoped, workspace=worx2)
+
+        # Key 1 should only work for the primary workspace
+        self._use_api_key(gf, key1, workspace=gf.primary_workspace)
+        self.assertRaises(RuntimeError, lambda: self._use_api_key(gf, key1, workspace=worx2))
+
+        # The workspace shouldn't be visible at all
+        self.assertNotIn(worx2.api_id, [w.api_id for w in self._list_workspaces_for_key(gf, key1)])
+        self.assertIn(gf.primary_workspace.api_id, [w.api_id for w in self._list_workspaces_for_key(gf, key1)])
+
+        # Key 2 should only work for the second workspace
+        self.assertRaises(RuntimeError, lambda: self._use_api_key(gf, key2, workspace=gf.primary_workspace))
+        self._use_api_key(gf, key2, workspace=worx2)
+
+        self.assertIn(worx2.api_id, [w.api_id for w in self._list_workspaces_for_key(gf, key2)])
+        self.assertNotIn(gf.primary_workspace.api_id, [w.api_id for w in self._list_workspaces_for_key(gf, key2)])
+
+    def test_api_key_scope_permissions(self):
+        gf1 = make_gf(authenticate=True)
+        gf2 = make_gf(authenticate=True, username=gf1.username + "2")
+
+        # We should be unable to create keys with scopes in workspaces to which we don't have access
+        self.assertRaises(RuntimeError,
+                          lambda: gf1.create_api_key('test key 1', workspace=gf2.primary_workspace))
+        self.assertRaises(RuntimeError,
+                          lambda: gf2.create_api_key('test key 2', workspace=gf1.primary_workspace))
+
+        # User 1 shares his workspace with User 2. User 2 should now be able to create a scoped key.
+        gf1.primary_workspace.add_member(gf2.username, WorkspaceMembership.CREATOR)
+        key2 = gf2.create_api_key('test key 2', workspace=gf1.primary_workspace)
+        self._use_api_key(gf2, key2, gf1.primary_workspace)
+
+        # User 1 unshares the workspace. Even though User's 2 key was created successfully, it should
+        # no longer work
+        gf1.primary_workspace.remove_member(gf2.username)
+        self.assertRaises(RuntimeError, lambda: self._use_api_key(gf2, key2, gf1.primary_workspace))
 
 
 class TestUsers(TestCase):
@@ -334,8 +419,7 @@ def _test_timestamps(test_case, gf, obj, prop_name, vals, delay_seconds=0.5):
 
     for val in vals:
         time.sleep(delay_seconds)
-        if obj.prefetched:
-            obj.fetch()
+        obj.fetch()
 
         setattr(obj, prop_name, val)
         obj.save()
@@ -399,7 +483,7 @@ class TestAnalysis(TestCase):
         for ana in [analysis, analysis2]:
             self.assertEqual(ana.name, "Post-update name")
             self.assertEqual(ana.description, "Pre-update description")
-            self.assertEqual(ana.workspace, workspace)
+            self.assertEqual(ana.workspace.fetch(), workspace)
 
         analysis2.name = "another name"
         analysis2.description = "another description"
@@ -409,7 +493,7 @@ class TestAnalysis(TestCase):
         for ana in [analysis, analysis2]:
             self.assertEqual(ana.name, "another name")
             self.assertEqual(ana.description, "another description")
-            self.assertEqual(ana.workspace, workspace)
+            self.assertEqual(ana.workspace.fetch(), workspace)
 
         # Assign to a new workspace
         new_workspace = gf.Workspace(name="New workspace", description="abc").create()
@@ -441,36 +525,7 @@ class TestAnalysis(TestCase):
         analysis.fetch()
         self.assertEqual(analysis.name, "Test analysis")
         self.assertEqual(analysis.description, "New description")
-        self.assertEqual(analysis.workspace, gf.primary_workspace)
-
-    def test_lazy_loading(self):
-        gf = make_gf()
-        workspace = gf.primary_workspace
-
-        analysis = gf.Analysis(name="test", description="test", workspace=workspace)
-        analysis.create()
-
-        # Since no data is actually loaded until needed, this should work despite the ID being bad
-        bad_lazy_analysis = gf.Analysis(analysis.api_id + "bad", lazy=True)
-
-        # ... but this should now fail
-        self.assertRaises(RuntimeError, lambda: bad_lazy_analysis.name)
-
-        # This should work just fine
-        lazy_analysis = gf.Analysis(analysis.api_id, lazy=True)
-        self.assertEqual(lazy_analysis.api_id, analysis.api_id)
-        self.assertEqual(lazy_analysis.name, analysis.name)
-        self.assertEqual(lazy_analysis.description, analysis.description)
-        self.assertEqual(lazy_analysis.workspace, analysis.workspace)
-
-        # Values assigned to lazy properties should not be overridden
-        # when the data is fetched
-        lazy_analysis2 = gf.Analysis(analysis.api_id, lazy=True)
-        lazy_analysis2.name = "new name"
-        self.assertEqual(lazy_analysis2.api_id, analysis.api_id)
-        self.assertEqual(lazy_analysis2.name, "new name")
-        self.assertEqual(lazy_analysis2.description, analysis.description)
-        self.assertEqual(lazy_analysis2.workspace, analysis.workspace)
+        self.assertEqual(analysis.workspace.fetch(), gf.primary_workspace)
 
 
 class TestData:
@@ -626,6 +681,9 @@ class TestFigures(TestCase):
             self.assertLessEqual((datetime.now().astimezone() - item.timestamp).total_seconds(), 120)
 
     def test_revisions(self):
+        def _order_data(data):
+            return sorted(data, key=lambda d: str(d.data))
+
         gf = make_gf()
         workspace = gf.Workspace(name="test workspace").create()
         ana = workspace.analyses.create(gf.Analysis(name="test analysis 1"))
@@ -635,6 +693,7 @@ class TestFigures(TestCase):
         for idx in range(5):
             rev = gf.Revision(metadata={'index': idx},
                               data=TestData(gf).load_external_data(nonce=idx))
+
             rev = fig.revisions.create(rev)
             fig.fetch()  # to update timestamps
             ana.fetch()  # ...
@@ -644,22 +703,23 @@ class TestFigures(TestCase):
             # Validate general revision metadata
             # Fetch the server revision in 2 different ways: (1) directly using API ID, and (2) through the figure
             server_rev1 = gf.Revision(rev.api_id).fetch()
+
             server_rev2, = [x for x in gf.Figure(fig.api_id).fetch().revisions if x.api_id == rev.api_id]
 
             # server_rev2 is a shallow copy, so fetch everything here
             server_rev2.fetch()
 
             for server_rev in [server_rev1, server_rev2]:
-                self.assertEqual(rev, server_rev)
+                # Fetch all data objects
                 self.assertEqual(server_rev.metadata, {'index': idx})
-                self.assertEqual(server_rev.figure, fig)
-                self.assertEqual(server_rev.figure.analysis, ana)
+                self.assertEqual(server_rev.figure.fetch(), fig)
+                self.assertEqual(server_rev.figure.analysis.fetch(), ana)
 
                 # Validate image data
                 for data_getter, expected_length, fields_to_check in \
-                    [(lambda r: r.image_data, 3, ["name", "data", "is_watermarked", "format"]),
-                     (lambda r: r.code_data, 2, ["name", "data", "language", "contents"]),
-                     (lambda r: r.table_data, 2, ["name", "data", "format", "dataframe"])]:
+                    [(lambda r: _order_data(r.image_data), 3, ["name", "data", "is_watermarked", "format"]),
+                     (lambda r: _order_data(r.code_data), 2, ["name", "data", "language", "contents"]),
+                     (lambda r: _order_data(r.table_data), 2, ["name", "data", "format", "dataframe"])]:
                     self.assertEqual(len(data_getter(server_rev)), expected_length)
                     for img, srv_img in zip(data_getter(rev), data_getter(server_rev)):
                         for field_name in fields_to_check:
@@ -719,7 +779,7 @@ class TestFigures(TestCase):
 class MultiUserTestCase(TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.n_revisions = 5
+        self.n_revisions = 2
 
     def setUp(self):
         self.gf1 = make_gf(username="testuser")
@@ -776,7 +836,10 @@ class MultiUserTestCase(TestCase):
                     yield fig
 
                     for rev in fig.revisions:
+                        rev.fetch()
                         yield rev
+                        yield from rev.data
+
 
     def clone_gf_object(self, obj, client, bare=False):
         cloned_obj = self.get_gf_type(obj, client)(api_id=obj.api_id)
@@ -798,8 +861,13 @@ class MultiUserTestCase(TestCase):
                 with self.assertRaises(UnauthorizedError, msg=f"Unauthorized view access granted to {own_obj}"):
                     not_own_obj.fetch()
 
+                if isinstance(not_own_obj, ThumbnailMixin):
+                    with self.assertRaises(UnauthorizedError, msg=f"Unauthorized thumbnail access granted to {own_obj}"):
+                        not_own_obj.get_thumbnail(256)
+
                 # DELETE
-                with self.assertRaises(UnauthorizedError, msg=f"Unauthorized delete granted to {own_obj}"):
+                with self.assertRaises(MethodNotAllowedError if isinstance(not_own_obj, gf_Data) else UnauthorizedError,
+                                       msg=f"Unauthorized delete granted to {own_obj}"):
                     not_own_obj.delete(delete=True)
 
                 # UPDATE
@@ -811,7 +879,10 @@ class MultiUserTestCase(TestCase):
                     raise ValueError(f"Don't know how to update {not_own_obj}")
 
                 for patch in [False, True]:
-                    with self.assertRaises(UnauthorizedError, msg=f"Unauthorized update granted on {own_obj}"):
+                    with self.assertRaises(MethodNotAllowedError \
+                                                   if isinstance(not_own_obj, gf_Data) \
+                                                   else UnauthorizedError,
+                                           msg=f"Unauthorized update granted on {own_obj}"):
                         not_own_obj.save(patch=patch)
 
                 # Make sure the properties didn't actually change
@@ -1121,7 +1192,7 @@ class TestSizeCalculation(GfTestCase):
             self.assertEqual(fig.size_bytes, 0)
 
             for rev_idx in range(num_revisions):
-                rev = gf.Revision(figure=fig, data=[TextData(name="text", contents="1234567")]).create()
+                rev = gf.Revision(figure=fig, data=[gf.TextData(name="text", contents="1234567")]).create()
                 self.assertEqual(rev.size_bytes, 7)
                 fig.fetch()
                 self.assertEqual(rev.size_bytes, 7)

@@ -17,6 +17,9 @@ class MatplotlibBackend(GoFigrBackend):
     MatplotLib backend for GoFigr.
 
     """
+    def get_backend_name(self):
+        return "matplotlib"
+
     def is_compatible(self, fig):
         return isinstance(fig, matplotlib.figure.Figure)
 
@@ -69,3 +72,6 @@ class MatplotlibBackend(GoFigrBackend):
 
     def close(self, fig):
         plt.close(fig)
+
+    def get_supported_image_formats(self):
+        return ["png", "eps", "pdf", "jpeg", "jpg", "svg", "tiff"]
