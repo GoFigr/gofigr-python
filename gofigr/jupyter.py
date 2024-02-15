@@ -604,6 +604,7 @@ class Publisher:
         :param image_options: backend-specific params passed to backend.figure_to_bytes
         :param suppress_display: if used in an auto-publish hook, this will contain a callable which will
         suppress the display of this figure using the native IPython backend.
+
         :return: FigureRevision instance
 
         """
@@ -873,6 +874,7 @@ def publish(fig=None, backend=None, **kwargs):
     :param backend: backend to use
     :param kwargs:
     :return:
+
     """
     ext = get_extension()
 
@@ -895,7 +897,7 @@ def get_gofigr():
 @require_configured
 def load_pickled_figure(api_id):
     """\
-    Locates pickle data for a figure revision, loads it and returns a Python object, e.g. a plt.Figure if
+    Unpickles a GoFigr revision and returns it as a backend-specific Python object, e.g. a plt.Figure if
     the figure was generated with matplotlib. Throws a RuntimeException if the figure is not found or does
     not have pickle data.
 

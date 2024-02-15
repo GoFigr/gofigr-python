@@ -17,10 +17,16 @@ Version: 0.17.0
    :caption: Quick Start Guide:
 
    start
-   boilerplate
    library_support
-   organization
+   boilerplate
    customization
+   organization
+
+.. toctree::
+   :maxdepth: 4
+   :caption: Tips and tricks:
+
+   tips
 
 .. toctree::
    :maxdepth: 4

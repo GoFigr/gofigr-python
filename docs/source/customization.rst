@@ -28,14 +28,14 @@ attach the output of ``pip freeze``, for example.
 
 Out of the box, GoFigr includes the following annotators:
 
-* :class:`gofigr.jupyter.NotebookMetadataAnnotator`: name & path of the current notebook
-* :class:`gofigr.jupyter.CellCodeAnnotator`: code of the Jupyter cell
-* :class:`gofigr.jupyter.CellIdAnnotator`: Jupyter Cell ID (only available in Jupyter Lab)
-* :class:`gofigr.jupyter.PipFreezeAnnotator`: output of `pip freeze`
-* :class:`gofigr.jupyter.SystemAnnotator`: output of `uname -a`
-* :class:`gofigr.jupyter.EnvironmentAnnotator`: Python version and kernel path
-* :class:`gofigr.jupyter.BackendAnnotator`: Figure backend (e.g. matplotlib, plotly)
-* :class:`gofigr.jupyter.HistoryAnnotator`: Jupyter execution history
+* :class:`gofigr.annotators.NotebookMetadataAnnotator`: name & path of the current notebook
+* :class:`gofigr.annotators.CellCodeAnnotator`: code of the Jupyter cell
+* :class:`gofigr.annotators.CellIdAnnotator`: Jupyter Cell ID (only available in Jupyter Lab)
+* :class:`gofigr.annotators.PipFreezeAnnotator`: output of `pip freeze`
+* :class:`gofigr.annotators.SystemAnnotator`: output of `uname -a`
+* :class:`gofigr.annotators.EnvironmentAnnotator`: Python version and kernel path
+* :class:`gofigr.annotators.BackendAnnotator`: Figure backend (e.g. matplotlib, plotly)
+* :class:`gofigr.annotators.HistoryAnnotator`: Jupyter execution history
 
 Notebook name & path
 --------------------------------
@@ -79,10 +79,13 @@ is implemented:
 
 You can annotate revisions with:
 
-* :class:`gofigr.models.ImageData`
-* :class:`gofigr.models.CodeData`
-* :class:`gofigr.models.TextData`
-* :class:`gofigr.models.TableData`
+* :class:`gofigr.models.gf_ImageData`
+* :class:`gofigr.models.gf_CodeData`
+* :class:`gofigr.models.gf_TextData`
+* :class:`gofigr.models.gf_TableData`
+
+Please note that you need to instantiate those from the GoFigr object, e.g.
+``gf.CodeData``, ``gf.TableData``, etc.
 
 
 Specifying annotators
@@ -111,6 +114,14 @@ For a full list of supported widget classes, see :mod:`gofigr.widget`.
 Detailed (default)
 ----------------------
 
+.. code:: python
+
+    %load_ext gofigr
+    from gofigr.jupyter import *
+    from gofigr.widget import *
+
+    configure(..., widget_class=DetailedWidget)
+
 .. figure:: images/detailed_widget.png
   :alt: Detailed Jupyter Widget
 
@@ -118,12 +129,28 @@ Detailed (default)
 Compact
 ----------------------
 
+.. code:: python
+
+    %load_ext gofigr
+    from gofigr.jupyter import *
+    from gofigr.widget import *
+
+    configure(..., widget_class=CompactWidget)
+
 .. figure:: images/compact_widget.png
   :alt: Compact Jupyter Widget
 
 
 Minimal
 ----------------------
+
+.. code:: python
+
+    %load_ext gofigr
+    from gofigr.jupyter import *
+    from gofigr.widget import *
+
+    configure(..., widget_class=MinimalWidget)
 
 .. figure:: images/minimal_widget.png
   :alt: Minimal Jupyter Widget

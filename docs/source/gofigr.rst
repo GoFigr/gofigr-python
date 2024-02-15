@@ -1,6 +1,15 @@
 gofigr package
 ==============
 
+Module contents
+---------------
+
+.. automodule:: gofigr
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 Submodules
 ----------
 
@@ -28,10 +37,18 @@ gofigr.watermarks module
    :undoc-members:
    :show-inheritance:
 
-Module contents
----------------
+gofigr.annotators module
+------------------------
 
-.. automodule:: gofigr
+.. automodule:: gofigr.annotators
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+gofigr.widget module
+------------------------
+
+.. automodule:: gofigr.widget
    :members:
    :undoc-members:
    :show-inheritance:

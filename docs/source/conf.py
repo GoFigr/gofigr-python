@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, os.path.abspath('..'))
 
 project = 'GoFigr Client Library'
-copyright = '2023, Flagstaff Solutions, LLC'
+copyright = '2024, Flagstaff Solutions, LLC'
 author = 'Maciej Pacula'
 release = '0.17.0'
 

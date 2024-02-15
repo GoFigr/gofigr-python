@@ -233,6 +233,7 @@ class GoFigr:
         :param workspace: workspace for which the key is to be valid. If None, key will have access to the same
         workspaces as the user.
         :return: ApiKey instance
+
         """
         if expiry is not None and expiry.tzinfo is None:
             expiry = expiry.astimezone()
