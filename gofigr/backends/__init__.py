@@ -18,11 +18,13 @@ def get_all_function_arguments(frame):
 
     # Varargs
     if arg_values.varargs:
+        # pylint: disable=use-yield-from
         for arg_value in arg_values.locals[arg_values.varargs]:
             yield arg_value
 
     # Kwargs
     if arg_values.keywords:
+        # pylint: disable=use-yield-from
         for arg_value in arg_values.locals[arg_values.keywords].values():
             yield arg_value
 

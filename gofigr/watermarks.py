@@ -41,6 +41,7 @@ def _qr_to_image(text, **kwargs):
 
 def _default_font():
     """Loads the default font and returns it as an ImageFont"""
+    # pylint: disable=deprecated-method
     with importlib.resources.open_binary("gofigr.resources", "FreeMono.ttf") as f:
         return ImageFont.truetype(f, 14)
 
