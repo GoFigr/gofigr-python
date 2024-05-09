@@ -139,7 +139,7 @@ class NotebookMetadataAnnotator(Annotator):
         notebook_name = None
 
         # Try parsing the name from the title first
-        if _ACTIVE_TAB_TITLE in meta:
+        if _ACTIVE_TAB_TITLE in meta and meta[_ACTIVE_TAB_TITLE] is not None:
             notebook_name = _parse_path_from_tab_title(meta[_ACTIVE_TAB_TITLE])
 
         # If that doesn't work, try the URL
@@ -169,9 +169,9 @@ class NotebookMetadataAnnotator(Annotator):
         try:
             if NOTEBOOK_NAME not in revision.metadata or NOTEBOOK_PATH not in revision.metadata:
                 revision.metadata.update(self.parse_metadata())
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"GoFigr could not automatically obtain the name of the currently"
-                  f" running notebook. {PATH_WARNING}",
+                  f" running notebook. {PATH_WARNING} Details: {e}",
                   file=sys.stderr)
 
             revision.metadata[NOTEBOOK_NAME] = "N/A"
