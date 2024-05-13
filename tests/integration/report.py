@@ -143,7 +143,7 @@ def summarize_results(df):
 
             for col in TEST_COLUMNS:
                 check_name = f"{test_name}>{col}"
-                if row[col] is True:  # test passed
+                if row.get(col) is True:  # test passed
                     passed_tests.append(check_name)
                     all_tests.append(check_name)
                 elif is_matplotlib and col in ['image_html', 'image_html_watermark']:  # matplotlib isn't interactive
