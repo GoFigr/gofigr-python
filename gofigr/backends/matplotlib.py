@@ -64,8 +64,17 @@ class MatplotlibBackend(GoFigrBackend):
             return None
 
     def figure_to_bytes(self, fig, fmt, params):
+
+        plt_log = getattr(plt, "_log")
+        log_level = getattr(plt_log, "level") if plt_log is not None else None
+
         bio = io.BytesIO()
-        fig.savefig(bio, format=fmt, **params)
+        try:
+            plt.set_loglevel("error")
+            fig.savefig(bio, format=fmt, **params)
+        finally:
+            if plt_log is not None and log_level is not None:
+                plt_log.setLevel(log_level)
 
         bio.seek(0)
         return bio.read()

@@ -5,6 +5,7 @@ All rights reserved.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from abc import ABC
@@ -112,6 +113,18 @@ PYTHON_VERSION = "python_version"
 BACKEND_NAME = "backend"
 
 
+_ACTIVE_TAB_TITLE = "active_tab_title"
+
+
+def _parse_path_from_tab_title(title):
+    """Parses out the notebook path from the tab/widget title"""
+    for line in title.splitlines(keepends=False):
+        m = re.match(r'Path:\s*(.*)\s*', line)
+        if m:
+            return m.group(1)
+    return None
+
+
 class NotebookMetadataAnnotator(Annotator):
     """"Annotates revisions with notebook metadata, including filename & path, as well as the full URL"""
 
@@ -120,14 +133,29 @@ class NotebookMetadataAnnotator(Annotator):
         meta = self.extension.notebook_metadata
         if meta is None:
             raise RuntimeError("No Notebook metadata available")
-        if 'url' not in meta:
+        if 'url' not in meta and _ACTIVE_TAB_TITLE not in meta:
             raise RuntimeError("No URL found in Notebook metadata")
 
-        notebook_name = unquote(urlparse(meta['url']).path.rsplit('/', 1)[-1])
-        notebook_dir = self.extension.shell.starting_dir
-        full_path = os.path.join(notebook_dir, notebook_name)
+        notebook_name = None
 
-        if not os.path.exists(full_path):
+        # Try parsing the name from the title first
+        if _ACTIVE_TAB_TITLE in meta and meta[_ACTIVE_TAB_TITLE] is not None:
+            notebook_name = _parse_path_from_tab_title(meta[_ACTIVE_TAB_TITLE])
+
+        # If that doesn't work, try the URL
+        if notebook_name is None:
+            notebook_name = unquote(urlparse(meta['url']).path.rsplit('/', 1)[-1])
+
+        notebook_dir = self.extension.shell.starting_dir
+        full_path = None
+
+        for candidate_path in [os.path.join(notebook_dir, notebook_name),
+                               os.path.join(os.path.dirname(notebook_dir), notebook_name)]:
+            if os.path.exists(candidate_path):
+                full_path = candidate_path
+
+        if full_path is None:
+            full_path = os.path.join(notebook_dir, notebook_name)  # might still be helpful, even if slightly incorrect
             print(f"The inferred path for the notebook does not exist: {full_path}. {PATH_WARNING}", file=sys.stderr)
 
         return {NOTEBOOK_PATH: full_path,
@@ -141,9 +169,9 @@ class NotebookMetadataAnnotator(Annotator):
         try:
             if NOTEBOOK_NAME not in revision.metadata or NOTEBOOK_PATH not in revision.metadata:
                 revision.metadata.update(self.parse_metadata())
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"GoFigr could not automatically obtain the name of the currently"
-                  f" running notebook. {PATH_WARNING}",
+                  f" running notebook. {PATH_WARNING} Details: {e}",
                   file=sys.stderr)
 
             revision.metadata[NOTEBOOK_NAME] = "N/A"

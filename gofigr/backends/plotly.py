@@ -78,7 +78,8 @@ class PlotlyBackend(GoFigrBackend):
 
         wfig.add_annotation(dict(font=dict(color='black', size=15),
                                  x=0,
-                                 y=-margin / orig_height,
+                                 y=0,
+                                 yshift=-margin,
                                  showarrow=False,
                                  text=f"<a href='{rev.revision_url}'>{rev.revision_url}</a>",
                                  textangle=0,

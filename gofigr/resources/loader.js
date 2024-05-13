@@ -5,13 +5,19 @@ xhr.open("POST", endpoint);
 xhr.setRequestHeader("Accept", "application/json");
 xhr.setRequestHeader("Content-Type", "application/json");
 
+const activeTab = document.querySelector("li[data-type='document-title'][aria-selected='true']");
+let activeTabTitle = null;
+if(activeTab) {
+    activeTabTitle = activeTab.getAttribute("title");
+}
+
 xhr.onreadystatechange = function () {
   if (xhr.readyState === XMLHttpRequest.DONE) {
     console.log("Metadata submitted. Response: " + xhr.status + " - " + xhr.responseText);
   }};
 
 let data = {
-  metadata: {url: document.URL}
+  metadata: {url: document.URL, active_tab_title: activeTabTitle}
 };
 
 xhr.send(JSON.stringify(data));
