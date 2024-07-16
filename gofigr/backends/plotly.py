@@ -6,6 +6,7 @@ All rights reserved.
 import inspect
 import sys
 
+import plotly.io as pio
 import plotly.graph_objects as go
 from gofigr.backends import GoFigrBackend, get_all_function_arguments
 
@@ -24,7 +25,7 @@ class PlotlyBackend(GoFigrBackend):
     def find_figures(self, shell, data):
         frames = inspect.stack()
         # Make sure there's an actual figure being published, as opposed to Plotly initialization scripts
-        if 'application/vnd.plotly.v1+json' not in data.keys():
+        if 'application/vnd.plotly.v1+json' not in data.keys() and 'iframe_figures' not in data.get('text/html', ''):
             return
 
         # Walk through the stack in *reverse* order (from top to bottom), to find the first call
