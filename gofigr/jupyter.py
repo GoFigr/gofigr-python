@@ -386,9 +386,11 @@ DEFAULT_ANNOTATORS = (NotebookMetadataAnnotator, EnvironmentAnnotator, CellIdAnn
                       SystemAnnotator, PipFreezeAnnotator, BackendAnnotator, HistoryAnnotator)
 DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
 if PY3DMOL_PRESENT:
+    # pylint: disable=possibly-used-before-assignment
     DEFAULT_BACKENDS = DEFAULT_BACKENDS + (Py3DmolBackend,)
 
 
+# pylint: disable=too-many-instance-attributes
 class Publisher:
     """\
     Publishes revisions to the GoFigr server.

@@ -6,7 +6,6 @@ All rights reserved.
 import inspect
 import sys
 
-import plotly.io as pio
 import plotly.graph_objects as go
 from gofigr.backends import GoFigrBackend, get_all_function_arguments
 
