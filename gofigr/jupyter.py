@@ -399,6 +399,7 @@ class Publisher:
                  annotators,
                  backends,
                  watermark=None,
+                 show_watermark=True,
                  image_formats=("png", "eps", "svg"),
                  interactive=True,
                  default_metadata=None,
@@ -411,6 +412,8 @@ class Publisher:
         :param annotators: revision annotators
         :param backends: figure backends, e.g. MatplotlibBackend
         :param watermark: watermark generator, e.g. QRWatermark()
+        :param show_watermark: True to show watermarked figures instead of original.
+        False to always display the unmodified figure. Default True.
         :param image_formats: image formats to save by default
         :param interactive: whether to publish figure HTML if available
         :param clear: whether to close the original figures after publication. If False, Jupyter will display
@@ -422,6 +425,7 @@ class Publisher:
         """
         self.gf = gf
         self.watermark = watermark or DefaultWatermark()
+        self.show_watermark = show_watermark
         self.annotators = annotators
         self.backends = backends
         self.image_formats = image_formats
@@ -638,7 +642,7 @@ class Publisher:
         with MeasureExecution("Image data"):
             rev.image_data, image_to_display = self._get_image_data(gf, backend, fig, rev, image_options)
 
-        if image_to_display is not None:
+        if image_to_display is not None and self.show_watermark:
             with SuppressDisplayTrap():
                 if isinstance(image_to_display, gf.ImageData):
                     display(image_to_display.image)
@@ -670,7 +674,7 @@ class Publisher:
 
         _mark_as_published(fig)
 
-        if self.clear:
+        if self.clear and self.show_watermark:
             backend.close(fig)
 
         with SuppressDisplayTrap():
@@ -774,7 +778,8 @@ def configure(username=None, password=None,
               notebook_name=None, notebook_path=None,
               backends=DEFAULT_BACKENDS,
               widget_class=DetailedWidget,
-              save_pickle=True):
+              save_pickle=True,
+              show_watermark=True):
     """\
     Configures the Jupyter plugin for use.
 
@@ -794,7 +799,8 @@ def configure(username=None, password=None,
     :param widget_class: Widget type to show, e.g. DetailedWidget or CompactWidget. It will appear below the
         published figure
     :param save_pickle: if True, will save the figure in pickle format in addition to any of the image formats
-
+    :param show_watermark: True to show watermarked figures instead of original.
+        False to always display the unmodified figure. Default True.
     :return: None
 
     """
@@ -851,7 +857,8 @@ def configure(username=None, password=None,
                           annotators=[make_annotator(extension) for make_annotator in annotators],
                           backends=[_make_backend(bck) for bck in backends],
                           widget_class=widget_class,
-                          save_pickle=save_pickle)
+                          save_pickle=save_pickle,
+                          show_watermark=show_watermark)
     extension.gf = gf
     extension.analysis = analysis
     extension.workspace = workspace
