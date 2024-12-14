@@ -7,8 +7,6 @@ import inspect
 import io
 import sys
 
-import matplotlib
-import matplotlib.pyplot as plt
 import plotnine
 
 from gofigr.backends import GoFigrBackend, get_all_function_arguments
@@ -44,18 +42,6 @@ class PlotnineBackend(GoFigrBackend):
     def get_default_figure(self, silent=False):
         if not silent:
             print("plotnine does not have a default figure. Please specify a figure to publish.", file=sys.stderr)
-
-    @staticmethod
-    def title_to_string(title):
-        """Extracts the title as a string from a title-like object (e.g. Text)"""
-        if title is None:
-            return None
-        elif isinstance(title, matplotlib.text.Text):
-            return title.get_text()
-        elif isinstance(title, str):
-            return title
-        else:
-            return None
 
     def get_title(self, fig):
         return fig.labels.title

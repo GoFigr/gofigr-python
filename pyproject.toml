@@ -22,12 +22,12 @@ dependencies = [
     "python-dateutil", "ipython", "requests", "pypng", "plotly", "kaleido",
     "humanize"
 ]
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 
 [project.optional-dependencies]
 dev = ["pip-tools", "bumpver", "build", "twine", "pylint", "flake8", "sphinx", "sphinx_rtd_theme",
        "sphinxcontrib-jquery", "seaborn", "matplotlib", "tqdm", "selenium", "webdriver-manager", "openpyxl",
-       "py3Dmol", "html2image", "teamcity-messages"]
+       "py3Dmol", "html2image", "teamcity-messages", "plotnine"]
 
 [project.urls]
 Homepage = "https://www.gofigr.io"
