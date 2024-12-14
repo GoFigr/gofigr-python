@@ -46,6 +46,14 @@ if sys.version_info >= (3, 8):
     except ModuleNotFoundError:
         pass
 
+PLOTNINE_PRESENT = False
+try:
+    import plotnine
+    from gofigr.backends.plotnine import PlotnineBackend
+    PLOTNINE_PRESENT = True
+except ModuleNotFoundError:
+    pass
+
 
 DISPLAY_TRAP = None
 
@@ -388,6 +396,10 @@ DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
 if PY3DMOL_PRESENT:
     # pylint: disable=possibly-used-before-assignment
     DEFAULT_BACKENDS = DEFAULT_BACKENDS + (Py3DmolBackend,)
+
+if PLOTNINE_PRESENT:
+    # pylint: disable=possibly-used-before-assignment
+    DEFAULT_BACKENDS = DEFAULT_BACKENDS + (PlotnineBackend,)
 
 
 # pylint: disable=too-many-instance-attributes
