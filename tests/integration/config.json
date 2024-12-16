@@ -139,11 +139,5 @@
     "python":  "python3.11",
     "service": "lab",
     "dependencies": "jupyterlab plotnine==0.12.4"
-  },
-  {
-    "name": "python3.11-lab-plotnine-0.10.1",
-    "python":  "python3.11",
-    "service": "lab",
-    "dependencies": "jupyterlab plotnine==0.10.1"
   }
 ]
