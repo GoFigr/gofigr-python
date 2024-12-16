@@ -32,7 +32,7 @@ class PlotnineBackend(GoFigrBackend):
         # Walk through the stack in *reverse* order (from top to bottom), to find the first call
         # in case display() was called recursively
         for f in reversed(frames):
-            if "ipython_display" in f.function and f.filename.endswith("ggplot.py"):
+            if ("ipython_display" in f.function or "draw" in f.function) and f.filename.endswith("ggplot.py"):
                 for arg_value in get_all_function_arguments(f):
                     if self.is_compatible(arg_value):
                         yield arg_value

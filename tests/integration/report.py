@@ -140,14 +140,15 @@ def summarize_results(df):
             is_plotly = "plotly" in test_name.lower()
             is_py3dmol = 'py3dmol' in test_name.lower()
             is_matplotlib = 'mpl' in test_name.lower()
+            is_plotnine = "plotnine" in test_name.lower()
 
             for col in TEST_COLUMNS:
                 check_name = f"{test_name}>{col}"
                 if row.get(col) is True:  # test passed
                     passed_tests.append(check_name)
                     all_tests.append(check_name)
-                elif is_matplotlib and col in ['image_html', 'image_html_watermark']:  # matplotlib isn't interactive
-                    pass
+                elif (is_matplotlib or is_plotnine) and col in ['image_html', 'image_html_watermark']:
+                    pass  # not an interactive backend
                 elif is_plotly and col in ["image_eps"]:  # plotly doesn't support EPS, so this failure is expected
                     pass
                 elif is_py3dmol and (col in ["image_svg", "image_eps"] or "3.7" in row["python"]): # similar for py3dmol

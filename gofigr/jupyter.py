@@ -410,7 +410,7 @@ if PY3DMOL_PRESENT:
 
 if PLOTNINE_PRESENT:
     # pylint: disable=possibly-used-before-assignment
-    DEFAULT_BACKENDS = DEFAULT_BACKENDS + (PlotnineBackend,)
+    DEFAULT_BACKENDS = (PlotnineBackend,) + DEFAULT_BACKENDS
 
 
 # pylint: disable=too-many-instance-attributes
@@ -475,6 +475,9 @@ class Publisher:
             for fig in compatible_figures:
                 if not _is_published(fig) and not is_suppressed(fig):
                     self.publish(fig=fig, backend=backend, suppress_display=suppress_display)
+
+            if len(compatible_figures) > 0:
+                break
 
     @staticmethod
     def _resolve_target(gf, fig, target, backend):
