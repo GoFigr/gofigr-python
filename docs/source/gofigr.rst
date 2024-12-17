@@ -52,3 +52,44 @@ gofigr.widget module
    :members:
    :undoc-members:
    :show-inheritance:
+
+
+gofigr.backends module
+------------------------
+
+.. automodule:: gofigr.backends
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+gofigr.backends.matplotlib module
+------------------------
+
+.. automodule:: gofigr.backends.matplotlib
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+gofigr.backends.plotly module
+------------------------
+
+.. automodule:: gofigr.backends.plotly
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+gofigr.backends.plotnine module
+------------------------
+
+.. automodule:: gofigr.backends.plotnine
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+gofigr.backends.py3dmol module
+------------------------
+
+.. automodule:: gofigr.backends.py3dmol
+   :members:
+   :undoc-members:
+   :show-inheritance:
