@@ -446,7 +446,8 @@ disable=raw-checker-failed,
         no-else-break,
         unnecessary-pass,
         unnecessary-lambda-assignment,
-        too-few-public-methods
+        too-few-public-methods,
+        too-many-positional-arguments
 
 # Enable the message, report, category or checker with the given id(s). You can
 # either give multiple identifier separated by comma (,) or put this option
@@ -525,7 +526,7 @@ ignore-imports=yes
 ignore-signatures=yes
 
 # Minimum lines number of a similarity.
-min-similarity-lines=4
+min-similarity-lines=6
 
 
 [SPELLING]

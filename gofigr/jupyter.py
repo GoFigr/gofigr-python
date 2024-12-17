@@ -46,6 +46,14 @@ if sys.version_info >= (3, 8):
     except ModuleNotFoundError:
         pass
 
+PLOTNINE_PRESENT = False
+try:
+    import plotnine # pylint: disable=unused-import
+    from gofigr.backends.plotnine import PlotnineBackend
+    PLOTNINE_PRESENT = True
+except ModuleNotFoundError:
+    pass
+
 
 DISPLAY_TRAP = None
 
@@ -54,6 +62,17 @@ def _mark_as_published(fig):
     """Marks the figure as published so that it won't be re-published again."""
     fig._gf_is_published = True
     return fig
+
+
+def suppress(fig):
+    """Suppresses the figure from being auto-published. You can still publish it by calling publish()."""
+    fig._gf_is_suppressed = True
+    return fig
+
+
+def is_suppressed(fig):
+    """Determines if the figure is suppressed from publication"""
+    return getattr(fig, "_gf_is_suppressed", False)
 
 
 def _is_published(fig):
@@ -90,16 +109,16 @@ class GfDisplayPublisher:
         """
 
         # Python doesn't support assignment to variables in closure scope, so we use a mutable list instead
-        is_suppressed = [False]
+        is_display_suppressed = [False]
         def suppress_display():
-            is_suppressed[0] = True
+            is_display_suppressed[0] = True
 
         if DISPLAY_TRAP is not None:
             trap = DISPLAY_TRAP
             with SuppressDisplayTrap():
                 trap(data, suppress_display=suppress_display)
 
-        if not is_suppressed[0]:
+        if not is_display_suppressed[0]:
             self.pub.publish(data, *args, **kwargs)
 
     def __getattr__(self, item):
@@ -389,6 +408,10 @@ if PY3DMOL_PRESENT:
     # pylint: disable=possibly-used-before-assignment
     DEFAULT_BACKENDS = DEFAULT_BACKENDS + (Py3DmolBackend,)
 
+if PLOTNINE_PRESENT:
+    # pylint: disable=possibly-used-before-assignment
+    DEFAULT_BACKENDS = (PlotnineBackend,) + DEFAULT_BACKENDS
+
 
 # pylint: disable=too-many-instance-attributes
 class Publisher:
@@ -450,8 +473,11 @@ class Publisher:
         for backend in self.backends:
             compatible_figures = list(backend.find_figures(extension.shell, data))
             for fig in compatible_figures:
-                if not _is_published(fig):
+                if not _is_published(fig) and not is_suppressed(fig):
                     self.publish(fig=fig, backend=backend, suppress_display=suppress_display)
+
+            if len(compatible_figures) > 0:
+                break
 
     @staticmethod
     def _resolve_target(gf, fig, target, backend):

@@ -150,9 +150,12 @@ class NotebookMetadataAnnotator(Annotator):
         full_path = None
 
         for candidate_path in [os.path.join(notebook_dir, notebook_name),
-                               os.path.join(os.path.dirname(notebook_dir), notebook_name)]:
+                               os.path.join(notebook_dir, os.path.basename(notebook_name)),
+                               os.path.join(os.path.dirname(notebook_dir), notebook_name),
+                               os.path.join(os.path.dirname(notebook_dir), os.path.basename(notebook_name))]:
             if os.path.exists(candidate_path):
                 full_path = candidate_path
+                break
 
         if full_path is None:
             full_path = os.path.join(notebook_dir, notebook_name)  # might still be helpful, even if slightly incorrect

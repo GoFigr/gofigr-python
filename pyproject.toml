@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gofigr"
-version = "0.17.3"
+version = "0.18.0"
 description = "GoFigr client library"
 readme = "README.rst"
 authors = [{ name = "Maciej Pacula", email = "maciej@gofigr.io" }]
@@ -22,22 +22,22 @@ dependencies = [
     "python-dateutil", "ipython", "requests", "pypng", "plotly", "kaleido",
     "humanize"
 ]
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 
 [project.optional-dependencies]
 dev = ["pip-tools", "bumpver", "build", "twine", "pylint", "flake8", "sphinx", "sphinx_rtd_theme",
        "sphinxcontrib-jquery", "seaborn", "matplotlib", "tqdm", "selenium", "webdriver-manager", "openpyxl",
-       "py3Dmol", "html2image", "teamcity-messages"]
+       "py3Dmol", "html2image", "teamcity-messages", "plotnine"]
 
 [project.urls]
 Homepage = "https://www.gofigr.io"
-Documentation = "https://gofigr.io/docs/gofigr-python/0.17.3/"
+Documentation = "https://gofigr.io/docs/gofigr-python/0.18.0/"
 
 [project.scripts]
 gfconfig = "gofigr.gfconfig:main"
 
 [tool.bumpver]
-current_version = "0.17.3"
+current_version = "0.18.0"
 version_pattern = "MAJOR.MINOR.PATCH"
 commit_message = "Bump version {old_version} -> {new_version}"
 commit = true

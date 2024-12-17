@@ -127,5 +127,17 @@
     "python": "python3.10",
     "service": "lab",
     "dependencies": "jupyterlab seaborn plotly==4.14.3"
+  },
+  {
+    "name": "python3.11-lab-plotnine-0.14.3",
+    "python":  "python3.11",
+    "service": "lab",
+    "dependencies": "jupyterlab plotnine==0.14.3"
+  },
+  {
+    "name": "python3.11-lab-plotnine-0.12.4",
+    "python":  "python3.11",
+    "service": "lab",
+    "dependencies": "jupyterlab plotnine==0.12.4"
   }
 ]

@@ -12,6 +12,25 @@ import matplotlib.pyplot as plt
 from gofigr.backends import GoFigrBackend, get_all_function_arguments
 
 
+class SuppressPltWarnings:
+    """Temporarily suppresses matplotlib warnings."""
+
+    def __init__(self):
+        self.plt_log = None
+        self.log_level = None
+
+    def __enter__(self):
+        # Save initial log level
+        self.plt_log = getattr(plt, "_log")
+        self.log_level = getattr(self.plt_log, "level") if self.plt_log is not None else None
+        plt.set_loglevel("error")
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Restore log level
+        if self.plt_log is not None and self.log_level is not None:
+            self.plt_log.setLevel(self.log_level)
+
+
 class MatplotlibBackend(GoFigrBackend):
     """\
     MatplotLib backend for GoFigr.
@@ -64,20 +83,11 @@ class MatplotlibBackend(GoFigrBackend):
             return None
 
     def figure_to_bytes(self, fig, fmt, params):
-
-        plt_log = getattr(plt, "_log")
-        log_level = getattr(plt_log, "level") if plt_log is not None else None
-
-        bio = io.BytesIO()
-        try:
-            plt.set_loglevel("error")
+        with SuppressPltWarnings():
+            bio = io.BytesIO()
             fig.savefig(bio, format=fmt, **params)
-        finally:
-            if plt_log is not None and log_level is not None:
-                plt_log.setLevel(log_level)
-
-        bio.seek(0)
-        return bio.read()
+            bio.seek(0)
+            return bio.read()
 
     def close(self, fig):
         plt.close(fig)
