@@ -547,7 +547,7 @@ class TestData:
     def load_file_data(self, nonce=None):
         data_obj = self.gf.FileData.read(pkg_resources.resource_filename('tests.data', 'blob.bin'))
         data_obj.data = data_obj.data + str(nonce).encode('ascii')
-        return data_obj
+        return [data_obj]
 
     def load_code_data(self, nonce=None):
         with open(__file__, 'r') as f:
