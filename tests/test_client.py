@@ -544,6 +544,11 @@ class TestData:
                                                     is_watermarked=(fmt == 'eps')))
         return image_data
 
+    def load_file_data(self, nonce=None):
+        data_obj = self.gf.FileData.read(pkg_resources.resource_filename('tests.data', 'blob.bin'))
+        data_obj.data = data_obj.data + str(nonce).encode('ascii')
+        return data_obj
+
     def load_code_data(self, nonce=None):
         with open(__file__, 'r') as f:
             return [self.gf.CodeData(name="test code",
@@ -573,7 +578,8 @@ class TestData:
                 self.gf.TableData(name="large table", dataframe=frame2)]
 
     def load_external_data(self, nonce=None):
-        return self.load_image_data(nonce) + self.load_table_data(nonce) + self.load_code_data(nonce)
+        return self.load_image_data(nonce) + self.load_table_data(nonce) + self.load_code_data(nonce) + \
+            self.load_file_data(nonce)
 
 
 class GfTestCase(TestCase):
@@ -719,7 +725,8 @@ class TestFigures(TestCase):
                 for data_getter, expected_length, fields_to_check in \
                     [(lambda r: _order_data(r.image_data), 3, ["name", "data", "is_watermarked", "format"]),
                      (lambda r: _order_data(r.code_data), 2, ["name", "data", "language", "contents"]),
-                     (lambda r: _order_data(r.table_data), 2, ["name", "data", "format", "dataframe"])]:
+                     (lambda r: _order_data(r.table_data), 2, ["name", "data", "format", "dataframe"]),
+                     (lambda r: _order_data(r.file_data), 1, ["name", "data", "path"])]:
                     self.assertEqual(len(data_getter(server_rev)), expected_length)
                     for img, srv_img in zip(data_getter(rev), data_getter(server_rev)):
                         for field_name in fields_to_check:
@@ -746,6 +753,10 @@ class TestFigures(TestCase):
                                                 data="updated".encode('ascii'))
                                     for code in server_rev.code_data]
 
+            server_rev.file_data = [gf.FileData(name="updated file",
+                                                data="updated".encode('ascii'))
+                                    for code in server_rev.code_data]
+
             server_rev.save()
             server_rev = gf.Revision(rev.api_id).fetch()
 
@@ -759,6 +770,10 @@ class TestFigures(TestCase):
 
             for code in server_rev.code_data:
                 self.assertEqual(code.name, "updated code")
+                self.assertEqual(code.data, "updated".encode('ascii'))
+
+            for code in server_rev.file_data:
+                self.assertEqual(code.name, "updated file")
                 self.assertEqual(code.data, "updated".encode('ascii'))
 
             _test_timestamps(self, gf, rev, 'metadata', ['a', 'b', 'c'])

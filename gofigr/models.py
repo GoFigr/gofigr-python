@@ -8,6 +8,7 @@ All rights reserved.
 
 import abc
 import io
+import os
 from base64 import b64encode, b64decode
 from collections import namedtuple
 from http import HTTPStatus
@@ -960,6 +961,7 @@ class DataType(abc.ABC):
     CODE = "code"
     IMAGE = "image"
     TEXT = "text"
+    FILE = "file"
 
 
 class MetadataProxyField:
@@ -1072,7 +1074,8 @@ class gf_Data(ModelMixin):
             DataType.IMAGE: self.client.ImageData,
             DataType.CODE: self.client.CodeData,
             DataType.TEXT: self.client.TextData,
-            DataType.DATA_FRAME: self.client.TableData
+            DataType.DATA_FRAME: self.client.TableData,
+            DataType.FILE: self.client.FileData
         }
         if self.type not in supported_types:
             raise ValueError(f"Unsupported data type: {self.type}. No specialized class exists.")
@@ -1131,6 +1134,32 @@ class gf_ImageData(gf_Data):
         img = PIL.Image.open(bio)
         img.load()
         return img
+
+
+class gf_FileData(gf_Data):
+    """Binary file data"""
+    # pylint: disable=no-member
+
+    DATA_TYPE = DataType.FILE
+
+    path = MetadataProxyField("path")
+    metadata_fields = [path]
+
+    @classmethod
+    def read(cls, path):
+        """\
+        Creates a new FileData object from the contents of a file.
+
+        :param path: path of the file to read
+        :return: FileData object
+        """
+        with open(path, 'rb') as f:
+            return cls(data=f.read(), name=os.path.basename(path), path=path)
+
+    def write(self, path):
+        """Writes the contents of this file to the given path"""
+        with open(path, 'wb') as f:
+            f.write(self.data)
 
 
 class CodeLanguage(abc.ABC):
@@ -1374,6 +1403,15 @@ class gf_Revision(ShareableModelMixin, ThumbnailMixin):
     @image_data.setter
     def image_data(self, value):
         self._replace_data_type(DataType.IMAGE, value)
+
+    @property
+    def file_data(self):
+        """Returns only file data (if any)"""
+        return [dat for dat in self.data if dat.type == DataType.FILE]
+
+    @file_data.setter
+    def file_data(self, value):
+        self._replace_data_type(DataType.FILE, value)
 
     @property
     def table_data(self):
