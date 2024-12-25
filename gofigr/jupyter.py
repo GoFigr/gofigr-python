@@ -619,8 +619,22 @@ class Publisher:
 
         return fig, backend
 
+    def _prepare_files(self, gf, files):
+        if not isinstance(files, dict):
+            files = {os.path.basename(p): p for p in files}
+
+        data = []
+        for name, filelike in files.items():
+            if isinstance(filelike, str): # path
+                with open(filelike, 'rb') as f:
+                    data.append(gf.FileData(data=f.read(), name=name, path=filelike))
+            else:  # stream
+                data.append(gf.FileData(data=filelike.read(), name=name, path=None))
+
+        return data
+
     def publish(self, fig=None, target=None, gf=None, dataframes=None, metadata=None,
-                backend=None, image_options=None, suppress_display=None):
+                backend=None, image_options=None, suppress_display=None, files=None):
         """\
         Publishes a revision to the server.
 
@@ -636,6 +650,7 @@ class Publisher:
         :param image_options: backend-specific params passed to backend.figure_to_bytes
         :param suppress_display: if used in an auto-publish hook, this will contain a callable which will
         suppress the display of this figure using the native IPython backend.
+        :param files: either (a) list of file paths or (b) dictionary of name to file path/file obj
 
         :return: FigureRevision instance
 
@@ -686,6 +701,9 @@ class Publisher:
                 table_data.append(gf.TableData(name=name, dataframe=frame))
 
             rev.table_data = table_data
+
+        if files is not None:
+            rev.file_data = self._prepare_files(gf, files)
 
         if not deferred:
             with MeasureExecution("Annotators"):
@@ -950,3 +968,52 @@ def load_pickled_figure(api_id):
             return _mark_as_published(fig)
 
     raise RuntimeError("This revision doesn't have pickle data.")
+
+
+@require_configured
+def download_file(api_id, file_name, path):
+    """\
+    Downloads a file and saves it.
+
+    :param api_id: API ID of the revision containing the file
+    :param file_name: name of the file to download
+    :param path: where to save the file (either existing directory or full path with the file name)
+    :return: number of bytes written
+
+    """
+    if os.path.exists(path) and os.path.isdir(path):
+        path = os.path.join(path, file_name)
+
+    gf = get_gofigr()
+    rev = gf.Revision(api_id=api_id).fetch(fetch_data=False)
+    for data in rev.file_data:
+        if data.name == file_name:
+            data.fetch()
+            data.write(path)
+            return len(data.data)
+
+    raise RuntimeError(f"Could not find file \"{file_name}\" in revision {api_id}.")
+
+
+@require_configured
+def download_all(api_id, path):
+    """\
+    Downloads all files attached to a revision
+
+    :param api_id: API ID of the revision containing the files
+    :param path: directory where to save the files
+    :return: number of bytes written
+
+    """
+    if not os.path.exists(path) or not os.path.isdir(path):
+        raise RuntimeError(f"{path} does not exist or is not a directory")
+
+    gf = get_gofigr()
+    rev = gf.Revision(api_id=api_id).fetch(fetch_data=False)
+    num_bytes = 0
+    for data in rev.file_data:
+        data.fetch()
+        data.write(os.path.join(path, data.name))
+        num_bytes += len(data.data)
+
+    return num_bytes

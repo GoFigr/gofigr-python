@@ -11,6 +11,7 @@ The GoFigr Jupyter extension has been tested with:
 * ``matplotlib >= 3.5.3``
 * ``ipython >= 7.34.0``
 * ``plotly >= 4.14.3``
+* ``plotnine >= 0.12.4``
 
 Library support
 ********************
