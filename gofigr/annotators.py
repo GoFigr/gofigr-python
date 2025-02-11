@@ -127,9 +127,28 @@ def _parse_path_from_tab_title(title):
 
 class NotebookMetadataAnnotator(Annotator):
     """"Annotates revisions with notebook metadata, including filename & path, as well as the full URL"""
+    def parse_from_vscode(self):
+        if self.extension.cell is None or self.extension.cell.cell_id is None:
+            return None
+        elif "vscode-notebook-cell:" not in self.extension.cell.cell_id:
+            return None
+
+        m = re.match(r'^vscode-notebook-cell:(.*)#.*$', unquote(self.extension.cell.cell_id))
+        if m is None:
+            return None
+
+        notebook_path = m.group(1)
+        notebook_name = os.path.basename(notebook_path)
+
+        return {NOTEBOOK_PATH: notebook_path,
+                NOTEBOOK_NAME: notebook_name}
 
     def parse_metadata(self):
         """Infers the notebook path & name from metadata passed through the WebSocket (if available)"""
+        vsc_meta = self.parse_from_vscode()
+        if vsc_meta is not None:
+            return vsc_meta
+
         meta = self.extension.notebook_metadata
         if meta is None:
             raise RuntimeError("No Notebook metadata available")

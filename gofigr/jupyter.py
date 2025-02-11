@@ -3,6 +3,7 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+import datetime
 # pylint: disable=cyclic-import, no-member, global-statement, protected-access, wrong-import-order, ungrouped-imports
 # pylint: disable=too-many-locals
 
@@ -14,14 +15,18 @@ import pickle
 import sys
 from collections import namedtuple
 from functools import wraps
+from pathlib import Path
 from uuid import UUID
+
+from IPython.core.display import HTML
 
 import PIL
 import six
 
 from gofigr import GoFigr, API_URL, UnauthorizedError
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
-    PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator
+    PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator, \
+    NOTEBOOK_NAME
 from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
@@ -35,7 +40,6 @@ try:
     from IPython.core.display_functions import display
 except ModuleNotFoundError:
     from IPython.core.display import display
-
 
 PY3DMOL_PRESENT = False
 if sys.version_info >= (3, 8):
@@ -176,7 +180,9 @@ class _GoFigrExtension:
     """
     def __init__(self, ip,
                  auto_publish=False,
-                 notebook_metadata=None):
+                 notebook_metadata=None,
+                 configured=False,
+                 loader_shown=False):
         """\
 
         :param ip: iPython shell instance
@@ -189,6 +195,9 @@ class _GoFigrExtension:
         self.shell = ip
         self.auto_publish = auto_publish
         self.cell = None
+        self.proxy = None
+        self.loader_shown = loader_shown
+        self.configured = configured
         self.notebook_metadata = notebook_metadata
 
         self.gf = None  # active GF object
@@ -228,10 +237,8 @@ class _GoFigrExtension:
 
     def check_config(self):
         """Ensures the plugin has been configured for use"""
-        props = ["gf", "workspace", "analysis", "publisher"]
-        for prop in props:
-            if getattr(self, prop, None) is None:
-                raise RuntimeError("GoFigr not configured. Please call configure() first.")
+        if not self.configured:
+            raise RuntimeError("GoFigr not configured. Please call configure() first.")
 
     def pre_run_cell(self, info):
         """\
@@ -251,6 +258,13 @@ class _GoFigrExtension:
 
         """
         self.cell = result.info
+
+        if self.configured and not self.loader_shown and "_VSCODE" not in result.info.raw_cell:
+            self.proxy, self.wait_for_metadata = run_proxy_async(self.gf, proxy_callback)
+
+            with SuppressDisplayTrap():
+                display(get_javascript_loader(self.gf, self.proxy))
+                self.loader_shown = True
 
         if self.notebook_metadata is None and self.wait_for_metadata is not None:
             self.wait_for_metadata()
@@ -379,6 +393,14 @@ class FindByName:
         return f"FindByName(name={self.name}, description={self.description}, create={self.create})"
 
 
+class NotebookName:
+    """\
+    Used as argument to configure() to specify that we want the analysis name to default to the name of the notebook
+    """
+    def __repr__(self):
+        return f"NotebookName"
+
+
 def parse_model_instance(model_class, value, find_by_name):
     """\
     Parses a model instance from a value, e.g. the API ID or a name.
@@ -480,8 +502,29 @@ class Publisher:
                 break
 
     @staticmethod
+    def _check_analysis(ext):
+        if ext.analysis is None:
+            print("You did not specify an analysis to publish under. Please call "
+                  "configure(...) and specify one. See "
+                  "https://gofigr.io/docs/gofigr-python/latest/gofigr.html#gofigr.jupyter.configure.",
+                  file=sys.stderr)
+            return None
+        elif isinstance(ext.analysis, NotebookName):
+            print("Your analysis is set to the name of this notebook, but the name could "
+                  "not be inferred. Please call "
+                  "configure(...) and specify the analysis manually. See "
+                  "https://gofigr.io/docs/gofigr-python/latest/gofigr.html#gofigr.jupyter.configure.",
+                  file=sys.stderr)
+            return None
+        else:
+            return ext.analysis
+
+    @staticmethod
     def _resolve_target(gf, fig, target, backend):
         ext = get_extension()
+        analysis = Publisher._check_analysis(ext)
+        if analysis is None:
+            return None
 
         if target is None:
             # Try to get the figure's title
@@ -494,13 +537,13 @@ class Publisher:
                 fig_name = "Anonymous Figure"
 
             sys.stdout.flush()
-            return ext.analysis.get_figure(fig_name, create=True)
+            return analysis.get_figure(fig_name, create=True)
         else:
             return parse_model_instance(gf.Figure,
                                         target,
-                                        lambda search: ext.analysis.get_figure(name=search.name,
-                                                                               description=search.description,
-                                                                               create=search.create))
+                                        lambda search: analysis.get_figure(name=search.name,
+                                                                           description=search.description,
+                                                                           create=search.create))
 
     def _get_pickle_data(self, gf, fig):
         if not self.save_pickle:
@@ -806,6 +849,16 @@ def proxy_callback(result):
     if result is not None and hasattr(result, 'metadata'):
         _GF_EXTENSION.notebook_metadata = result.metadata
 
+        if isinstance(_GF_EXTENSION.analysis, NotebookName):
+            meta = NotebookMetadataAnnotator(_GF_EXTENSION).parse_metadata()
+            _GF_EXTENSION.analysis = _GF_EXTENSION.workspace.get_analysis(name=Path(meta[NOTEBOOK_NAME]).stem,
+                                                                          create=True)
+            _GF_EXTENSION.analysis.fetch()
+
+        display(HTML(f"GoFigr active. Workspace: {_GF_EXTENSION.workspace.name}. "
+                     f"Analysis: {_GF_EXTENSION.analysis.name}. "
+                     f"Auto-publish: {_GF_EXTENSION.auto_publish}"))
+
 
 def _make_backend(backend):
     if isinstance(backend, GoFigrBackend):
@@ -818,7 +871,9 @@ def _make_backend(backend):
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username=None, password=None,
               api_key=None,
-              workspace=None, analysis=None, url=API_URL,
+              workspace=None,
+              analysis=NotebookName(),
+              url=API_URL,
               default_metadata=None, auto_publish=True,
               watermark=None, annotators=DEFAULT_ANNOTATORS,
               notebook_name=None, notebook_path=None,
@@ -878,6 +933,8 @@ def configure(username=None, password=None,
 
     if analysis is None:
         raise ValueError("Please specify an analysis")
+    elif isinstance(analysis, NotebookName) or str(analysis) == "NotebookName":  # str in case it's from config/env
+        analysis = NotebookName()
     else:
         with MeasureExecution("Find analysis"):
             analysis = parse_model_instance(gf.Analysis, analysis,
@@ -885,8 +942,8 @@ def configure(username=None, password=None,
                                                                                   description=search.description,
                                                                                   create=search.create))
 
-    with MeasureExecution("Fetch analysis"):
-        analysis.fetch()
+        with MeasureExecution("Fetch analysis"):
+            analysis.fetch()
 
     if default_metadata is None:
         default_metadata = {}
@@ -910,11 +967,8 @@ def configure(username=None, password=None,
     extension.workspace = workspace
     extension.publisher = publisher
     extension.auto_publish = auto_publish
-
-    proxy, extension.wait_for_metadata = run_proxy_async(gf, proxy_callback)
-
-    with SuppressDisplayTrap():
-        display(get_javascript_loader(gf, proxy))
+    extension.loader_shown = False
+    extension.configured = True
 
 
 @require_configured
