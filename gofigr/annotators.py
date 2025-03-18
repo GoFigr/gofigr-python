@@ -11,6 +11,8 @@ import sys
 from abc import ABC
 from urllib.parse import unquote, urlparse
 
+from docutils.nodes import revision
+
 from gofigr import CodeLanguage
 from gofigr.context import RevisionContext
 
@@ -191,6 +193,11 @@ class NotebookMetadataAnnotator(Annotator):
         try:
             if NOTEBOOK_NAME not in revision.metadata or NOTEBOOK_PATH not in revision.metadata:
                 revision.metadata.update(self.parse_metadata())
+
+            full_path = revision.metadata.get(NOTEBOOK_PATH)
+            if full_path and os.path.exists(full_path):
+                revision.data += [revision.client.FileData.read(full_path)]
+
         except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"GoFigr could not automatically obtain the name of the currently"
                   f" running notebook. {PATH_WARNING} Details: {e}",
