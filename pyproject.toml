@@ -29,6 +29,8 @@ dev = ["pip-tools", "bumpver", "build", "twine", "pylint", "flake8", "sphinx", "
        "sphinxcontrib-jquery", "seaborn", "matplotlib", "tqdm", "selenium", "webdriver-manager", "openpyxl",
        "py3Dmol", "html2image", "teamcity-messages", "plotnine"]
 
+databricks = ["databricks-sdk"]
+
 [project.urls]
 Homepage = "https://www.gofigr.io"
 Documentation = "https://gofigr.io/docs/gofigr-python/1.0.0/"

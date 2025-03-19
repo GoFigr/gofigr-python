@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlparse
 
 from gofigr import CodeLanguage
 from gofigr.context import RevisionContext
+from gofigr.databricks import get_dbutils
 
 PATH_WARNING = "To fix this warning, you can manually specify the notebook name & path in the call to configure(). " \
                "Please see https://gofigr.io/docs/gofigr-python/latest/customization.html#notebook-name-path " \
@@ -131,7 +132,8 @@ class NotebookMetadataAnnotator(Annotator):
         """Returns notebook path if running in Databricks"""
         try:
             # pylint: disable=undefined-variable
-            nb = self.extension.shell.user_ns['dbutils'].notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+            context = get_dbutils(self.extension.shell).notebook.entry_point.getDbutils().notebook().getContext()
+            nb = context.notebookPath().get()
             return {NOTEBOOK_PATH: nb, NOTEBOOK_NAME: os.path.basename(nb)}
         except Exception:  # pylint: disable=broad-exception-caught
             return None

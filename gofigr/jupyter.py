@@ -20,6 +20,7 @@ from uuid import UUID
 import PIL
 import six
 
+import gofigr.databricks
 from gofigr import GoFigr, API_URL, UnauthorizedError
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
     PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator, \
@@ -815,8 +816,9 @@ def from_config_or_env(env_prefix, config_path):
     Decorator that binds function arguments in order of priority (most important first):
     1. args/kwargs
     2. environment variables
-    3. config file
-    4. function defaults
+    3. vendor-specific secret manager
+    4. config file
+    5. function defaults
 
     :param env_prefix: prefix for environment variables. Variables are assumed to be named \
     `<prefix> + <name of function argument in all caps>`, e.g. if prefix is ``MYAPP`` and function argument \
@@ -839,6 +841,8 @@ def from_config_or_env(env_prefix, config_path):
             else:
                 config_file = {}
 
+            dbconfig = gofigr.databricks.get_config() or {}
+
             sig = inspect.signature(func)
             param_values = sig.bind_partial(*args, **kwargs).arguments
             for param_name in sig.parameters:
@@ -847,6 +851,8 @@ def from_config_or_env(env_prefix, config_path):
                     continue  # value supplied through args/kwargs: ignore env variables and the config file.
                 elif env_name in os.environ:
                     param_values[param_name] = os.environ[env_name]
+                elif param_name in dbconfig:
+                    param_values[param_name] = dbconfig[param_name]
                 elif param_name in config_file:
                     param_values[param_name] = config_file[param_name]
 
