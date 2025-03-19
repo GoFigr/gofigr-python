@@ -12,6 +12,8 @@ from uuid import uuid4
 import humanize
 from IPython.core.display import HTML
 
+from gofigr import API_URL
+
 try:
     from IPython.core.display_functions import display
 except ModuleNotFoundError:
@@ -42,6 +44,8 @@ COMPACT_WIDGET_STYLE = "margin-top: 1rem; margin-bottom: 1rem; margin-left: auto
 MINIMAL_WIDGET_STYLE = "margin-top: 1rem; margin-bottom: 1rem; margin-left: auto; margin-right: auto;" + \
                "display: flex !important; padding: 0.25em; " + \
                "padding-top: 0.5em; flex-wrap: wrap; "
+
+ME2 = "margin-right: 1rem"
 
 MESSAGE_STYLE = "padding-top: 0.25rem; "
 
@@ -79,18 +83,24 @@ def timestamp_to_local_tz(dt_tz):
     return dt_tz.astimezone(tz=None)
 
 
+def get_logo_b64(self):
+    """Reads the GoFigr logo and returns it as a base64 string"""
+    if self._logo_b64 is not None:
+        return self._logo_b64
+
+    self._logo_b64 = read_resource_b64("gofigr.resources", "logo_small.png")
+    return self._logo_b64
+
+
 class WidgetBase(ABC):
     """Generates HTML/Javascript for the GoFigr Jupyter widget shown under each figure"""
 
-    def __init__(self, revision):
+    def __init__(self):
         """
 
         :param revision: gf.Revision instance
         """
-        self.revision = revision
         self._logo_b64 = None
-        self.id = f"gf-widget-{str(uuid4())}"
-        self.alert_id = f"{self.id}-alert"
 
     def get_logo_b64(self):
         """Reads the GoFigr logo and returns it as a base64 string"""
@@ -99,6 +109,24 @@ class WidgetBase(ABC):
 
         self._logo_b64 = read_resource_b64("gofigr.resources", "logo_small.png")
         return self._logo_b64
+
+    def show(self):
+        """Displays the widget in Jupyter"""
+        raise NotImplementedError
+
+
+class RevisionWidgetBase(WidgetBase, ABC):
+    """Generates HTML/Javascript for the GoFigr Jupyter widget shown under each figure"""
+
+    def __init__(self, revision):
+        """
+
+        :param revision: gf.Revision instance
+        """
+        super().__init__()
+        self.revision = revision
+        self.id = f"gf-widget-{str(uuid4())}"
+        self.alert_id = f"{self.id}-alert"
 
     def get_download_link(self, label, watermark, image_format="png"):
         """Generates HTML for the download link"""
@@ -149,12 +177,8 @@ class WidgetBase(ABC):
 
         return f"""<span onclick="{onclick}" style="cursor: pointer; color: #0d53b1; ">{label}</span>"""
 
-    def show(self):
-        """Displays the widget in Jupyter"""
-        raise NotImplementedError
 
-
-class DetailedWidget(WidgetBase):
+class DetailedWidget(RevisionWidgetBase):
     """Generates HTML/Javascript for the GoFigr Jupyter widget shown under each figure"""
     def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
@@ -200,7 +224,7 @@ class DetailedWidget(WidgetBase):
                 </div>"""))
 
 
-class CompactWidget(WidgetBase):
+class CompactWidget(RevisionWidgetBase):
     """Generates a compact GoFigr widget"""
 
     def show(self):
@@ -234,7 +258,7 @@ class CompactWidget(WidgetBase):
                 </div>"""))
 
 
-class MinimalWidget(WidgetBase):
+class MinimalWidget(RevisionWidgetBase):
     """Generates a compact GoFigr widget"""
 
     def show(self):
@@ -244,7 +268,7 @@ class MinimalWidget(WidgetBase):
         style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>""", self.revision.revision_url)
 
         return display(HTML(f"""
-                <div style="{MINIMAL_WIDGET_STYLE}">
+                <div style="{COMPACT_WIDGET_STYLE}">
                     <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
                     <!-- Logo -->
                     {logo_html}               
@@ -256,3 +280,35 @@ class MinimalWidget(WidgetBase):
                     <div id={self.alert_id} style="{ROW_STYLE + MESSAGE_STYLE}">
                     </div>
                 </div>"""))
+
+
+class StartupWidget(WidgetBase):
+    """Generates a GoFigr startup widget"""
+    def __init__(self, extension):
+        super().__init__()
+        self.extension = extension
+
+    def get_link(self, obj):
+        return f"""<a style="margin-left: 0.25em" href={obj.app_url}>{obj.name}</a>"""
+
+    def show(self):
+        """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
+        logo_b64 = self.get_logo_b64()
+        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+            style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>"""
+
+        return display(HTML(f"""
+                    <div style="{WIDGET_STYLE}">
+                        <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
+                            <!-- Logo -->
+                            {logo_html}      
+                            
+                            <div style="margin-top: auto; margin-bottom: auto;">
+                                <span style="font-weight: bold">GoFigr active</span>. 
+                                Workspace: {self.get_link(self.extension.workspace)}. 
+                                Analysis: {self.get_link(self.extension.analysis)}. 
+                                Autopublish: {self.extension.auto_publish}.
+                            </div>
+                        </div>
+                        
+                    </div>"""))

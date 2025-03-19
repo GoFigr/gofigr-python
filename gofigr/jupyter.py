@@ -34,7 +34,7 @@ from gofigr.context import RevisionContext
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
 from gofigr.watermarks import DefaultWatermark
-from gofigr.widget import DetailedWidget
+from gofigr.widget import DetailedWidget, StartupWidget
 
 try:
     from IPython.core.display_functions import display
@@ -198,15 +198,32 @@ class _GoFigrExtension:
         self.proxy = None
         self.loader_shown = loader_shown
         self.configured = configured
-        self.notebook_metadata = notebook_metadata
+        self.notebook_metadata = NotebookMetadataAnnotator(self).try_get_metadata()
 
         self.gf = None  # active GF object
         self.workspace = None  # current workspace
-        self.analysis = None  # current analysis
+        self._analysis = None  # current analysis
         self.publisher = None  # current Publisher instance
         self.wait_for_metadata = None  # callable which waits for metadata to become available
 
         self.deferred_revisions = []
+
+    @property
+    def is_ready(self):
+        return self.configured and self.notebook_metadata is not None
+
+    @property
+    def analysis(self):
+        if isinstance(self._analysis, NotebookName):
+            meta = NotebookMetadataAnnotator(self).parse_metadata()
+            self._analysis = self.workspace.get_analysis(name=Path(meta[NOTEBOOK_NAME]).stem, create=True)
+            self._analysis.fetch()
+
+        return self._analysis
+
+    @analysis.setter
+    def analysis(self, value):
+        self._analysis = value
 
     def display_trap(self, data, suppress_display):
         """\
@@ -250,15 +267,7 @@ class _GoFigrExtension:
         """
         self.cell = info
 
-    def post_run_cell(self, result):
-        """Post run cell hook.
-
-        :param result: ExecutionResult
-        :return: None
-
-        """
-        self.cell = result.info
-
+    def _get_metadata_from_proxy(self, result):
         if self.configured and not self.loader_shown and "_VSCODE" not in result.info.raw_cell:
             self.proxy, self.wait_for_metadata = run_proxy_async(self.gf, proxy_callback)
 
@@ -269,6 +278,19 @@ class _GoFigrExtension:
         if self.notebook_metadata is None and self.wait_for_metadata is not None:
             self.wait_for_metadata()
             self.wait_for_metadata = None
+
+
+    def post_run_cell(self, result):
+        """Post run cell hook.
+
+        :param result: ExecutionResult
+        :return: None
+
+        """
+        self.cell = result.info
+
+        if self.notebook_metadata is None:
+            self._get_metadata_from_proxy(result)
 
         while len(self.deferred_revisions) > 0:
             rev = self.deferred_revisions.pop(0)
@@ -361,6 +383,11 @@ def _load_ipython_extension(ip):
 
     _GF_EXTENSION = _GoFigrExtension(ip)
     _GF_EXTENSION.register_hooks()
+
+    configure()
+
+    for name in ['configure', 'publish', "FindByName", "ApiId", "NotebookName", "get_extension"]:
+        ip.user_ns[name] = globals()[name]
 
 
 def parse_uuid(val):
@@ -847,17 +874,10 @@ def find_workspace_by_name(gf, search):
 def proxy_callback(result):
     """Proxy callback"""
     if result is not None and hasattr(result, 'metadata'):
-        _GF_EXTENSION.notebook_metadata = result.metadata
+        get_extension().notebook_metadata = result.metadata
 
-        if isinstance(_GF_EXTENSION.analysis, NotebookName):
-            meta = NotebookMetadataAnnotator(_GF_EXTENSION).parse_metadata()
-            _GF_EXTENSION.analysis = _GF_EXTENSION.workspace.get_analysis(name=Path(meta[NOTEBOOK_NAME]).stem,
-                                                                          create=True)
-            _GF_EXTENSION.analysis.fetch()
-
-        display(HTML(f"GoFigr active. Workspace: {_GF_EXTENSION.workspace.name}. "
-                     f"Analysis: {_GF_EXTENSION.analysis.name}. "
-                     f"Auto-publish: {_GF_EXTENSION.auto_publish}"))
+        if get_extension().is_ready:
+            StartupWidget(get_extension()).show()
 
 
 def _make_backend(backend):
@@ -869,7 +889,8 @@ def _make_backend(backend):
 
 # pylint: disable=too-many-arguments, too-many-locals
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
-def configure(username=None, password=None,
+def configure(username=None,
+              password=None,
               api_key=None,
               workspace=None,
               analysis=NotebookName(),
@@ -889,7 +910,7 @@ def configure(username=None, password=None,
     :param api_key: API Key (if used instead of username and password)
     :param url: API URL
     :param workspace: one of: API ID (string), ApiId instance, or FindByName instance
-    :param analysis: one of: API ID (string), ApiId instance, or FindByName instance
+    :param analysis: one of: API ID (string), ApiId instance, FindByName, or NotebookName instance
     :param default_metadata: dictionary of default metadata values to save for each revision
     :param auto_publish: if True, all figures will be published automatically without needing to call publish()
     :param watermark: custom watermark instance (e.g. DefaultWatermark with custom arguments)
@@ -969,6 +990,9 @@ def configure(username=None, password=None,
     extension.auto_publish = auto_publish
     extension.loader_shown = False
     extension.configured = True
+
+    if get_extension().is_ready:
+        StartupWidget(get_extension()).show()
 
 
 @require_configured

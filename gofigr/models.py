@@ -371,6 +371,10 @@ class ModelMixin(abc.ABC):
     def __hash__(self):
         raise RuntimeError("Model instances are not hashable")
 
+    @property
+    def app_url(self):
+        return os.path.join(self._gf.app_url, self.endpoint, self.api_id)
+
     @classmethod
     def from_json(cls, data):
         """Parses an instance of this class from JSON data"""

@@ -8,10 +8,8 @@ import json
 import os
 import sys
 from argparse import ArgumentParser
-from pathlib import Path
 
 from gofigr import API_URL, GoFigr, WorkspaceType
-from gofigr.utils import read_resource_text
 
 
 def read_input(prompt, validator, default=None, password=False):
@@ -197,22 +195,6 @@ def main():
                                validator=integer_range(1, len(workspaces)),
                                default=default_idx)
     config['workspace'] = workspaces[workspace_idx - 1].api_id
-
-    if read_input("Enable GoFigr automatically for all notebooks [Y/n]: ",
-                  yes_no, default='yes'):
-        startup_dir = Path.home().joinpath(".ipython/profile_default/startup")
-        if not startup_dir.exists():
-            print(f"{startup_dir} doesn't exist.")
-            print("The IPython startup directory doesn't exist and GoFigr cannot be "
-                  "enabled automatically. However, you can still enable GoFigr manually by calling "
-                  "configure() in your notebooks. You can also contact support@gofigr.io and we will be happy to assist!")
-        else:
-            py_loader = read_resource_text("gofigr.resources", "loader.py")
-            with open(startup_dir.joinpath("gofigr_loader.py"), "w") as f:
-                f.write(py_loader)
-
-            print(f"  => Added to startup directory: {startup_dir}")
-
 
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(config, f, indent=4)

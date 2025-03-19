@@ -11,8 +11,6 @@ import sys
 from abc import ABC
 from urllib.parse import unquote, urlparse
 
-from docutils.nodes import revision
-
 from gofigr import CodeLanguage
 from gofigr.context import RevisionContext
 
@@ -129,7 +127,17 @@ def _parse_path_from_tab_title(title):
 
 class NotebookMetadataAnnotator(Annotator):
     """"Annotates revisions with notebook metadata, including filename & path, as well as the full URL"""
+    def parse_from_databricks(self):
+        """Returns notebook path if running in Databricks"""
+        try:
+            # pylint: disable=undefined-variable
+            nb = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+            return {NOTEBOOK_PATH: nb, NOTEBOOK_NAME: os.path.basename(nb)}
+        except Exception:  # pylint: disable=broad-exception-caught
+            return None
+
     def parse_from_vscode(self):
+        """Returns notebook path if running in VSCode"""
         if self.extension.cell is None or self.extension.cell.cell_id is None:
             return None
         elif "vscode-notebook-cell:" not in self.extension.cell.cell_id:
@@ -145,17 +153,38 @@ class NotebookMetadataAnnotator(Annotator):
         return {NOTEBOOK_PATH: notebook_path,
                 NOTEBOOK_NAME: notebook_name}
 
-    def parse_metadata(self):
-        """Infers the notebook path & name from metadata passed through the WebSocket (if available)"""
+    def try_get_metadata(self):
+        """Infers the notebook path & name using currently available metadata if possible, returning None otherwise"""
+        try:
+            return self.parse_metadata(error=False)
+        except Exception:  # pylint: disable=broad-exception-caught
+            return None
+
+    def parse_metadata(self, error=True):
+        """
+        Infers the notebook path & name from metadata passed through the WebSocket (if available)
+
+        :param error: if True, will raise an error if metadata is not available
+        """
         vsc_meta = self.parse_from_vscode()
         if vsc_meta is not None:
             return vsc_meta
 
+        db_meta = self.parse_from_databricks()
+        if db_meta is not None:
+            return db_meta
+
         meta = self.extension.notebook_metadata
         if meta is None:
-            raise RuntimeError("No Notebook metadata available")
+            if error:
+                raise RuntimeError("No Notebook metadata available")
+            else:
+                return None
         if 'url' not in meta and _ACTIVE_TAB_TITLE not in meta:
-            raise RuntimeError("No URL found in Notebook metadata")
+            if error:
+                raise RuntimeError("No URL found in Notebook metadata")
+            else:
+                return None
 
         notebook_name = None
 
