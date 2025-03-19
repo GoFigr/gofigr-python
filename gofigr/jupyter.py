@@ -387,7 +387,15 @@ def _load_ipython_extension(ip):
     _GF_EXTENSION = _GoFigrExtension(ip)
     _GF_EXTENSION.register_hooks()
 
-    configure()
+    try:
+        configure()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        if "auth" in str(e).lower() and "failed" in str(e).lower():
+            print("GoFigr authentication failed. Please manually call configure(api_key=<YOUR API KEY>).",
+                  file=sys.stderr)
+        else:
+            print(f"Could not automatically configure GoFigr. Please call configure() manually. Error: {e}",
+                  file=sys.stderr)
 
     for name in ['configure', 'publish', "FindByName", "ApiId", "NotebookName", "get_extension"]:
         ip.user_ns[name] = globals()[name]
