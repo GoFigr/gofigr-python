@@ -131,7 +131,7 @@ class NotebookMetadataAnnotator(Annotator):
         """Returns notebook path if running in Databricks"""
         try:
             # pylint: disable=undefined-variable
-            nb = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+            nb = self.extension.shell.user_ns['dbutils'].notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
             return {NOTEBOOK_PATH: nb, NOTEBOOK_NAME: os.path.basename(nb)}
         except Exception:  # pylint: disable=broad-exception-caught
             return None
