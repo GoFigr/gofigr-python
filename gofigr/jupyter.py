@@ -3,7 +3,6 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-import datetime
 # pylint: disable=cyclic-import, no-member, global-statement, protected-access, wrong-import-order, ungrouped-imports
 # pylint: disable=too-many-locals
 
@@ -17,8 +16,6 @@ from collections import namedtuple
 from functools import wraps
 from pathlib import Path
 from uuid import UUID
-
-from IPython.core.display import HTML
 
 import PIL
 import six
@@ -173,6 +170,7 @@ class SuppressDisplayTrap:
         self.trap = None
 
 
+# pylint: disable=too-many-instance-attributes
 class _GoFigrExtension:
     """\
     Implements the main Jupyter extension functionality. You will not want to instantiate this class directly.
@@ -198,7 +196,10 @@ class _GoFigrExtension:
         self.proxy = None
         self.loader_shown = loader_shown
         self.configured = configured
-        self.notebook_metadata = NotebookMetadataAnnotator(self).try_get_metadata()
+        if notebook_metadata is None:
+            self.notebook_metadata = NotebookMetadataAnnotator(self).try_get_metadata()
+        else:
+            self.notebook_metadata = notebook_metadata
 
         self.gf = None  # active GF object
         self.workspace = None  # current workspace
@@ -210,10 +211,12 @@ class _GoFigrExtension:
 
     @property
     def is_ready(self):
+        """True if the extension has been configured and ready for use."""
         return self.configured and self.notebook_metadata is not None
 
     @property
     def analysis(self):
+        """Gets the current analysis"""
         if isinstance(self._analysis, NotebookName):
             meta = NotebookMetadataAnnotator(self).parse_metadata()
             self._analysis = self.workspace.get_analysis(name=Path(meta[NOTEBOOK_NAME]).stem, create=True)
@@ -425,7 +428,7 @@ class NotebookName:
     Used as argument to configure() to specify that we want the analysis name to default to the name of the notebook
     """
     def __repr__(self):
-        return f"NotebookName"
+        return "NotebookName"
 
 
 def parse_model_instance(model_class, value, find_by_name):
@@ -887,6 +890,18 @@ def _make_backend(backend):
         return backend()
 
 
+def _resolve_workspace(gf, workspace):
+    if workspace is None:
+        if gf.primary_workspace is not None:
+            return gf.primary_workspace
+        elif len(gf.workspaces) == 1:  # this will happen if we're using a scoped API token
+            return gf.workspaces[0]
+        else:
+            raise ValueError("Please specify a workspace")
+    else:
+        return parse_model_instance(gf.Workspace, workspace, lambda search: find_workspace_by_name(gf, search))
+
+
 # pylint: disable=too-many-arguments, too-many-locals
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username=None,
@@ -934,16 +949,7 @@ def configure(username=None,
     with MeasureExecution("Login"):
         gf = GoFigr(username=username, password=password, url=url, api_key=api_key)
 
-    if workspace is None:
-        if gf.primary_workspace is not None:
-            workspace = gf.primary_workspace
-        elif len(gf.workspaces) == 1:  # this will happen if we're using a scoped API token
-            workspace = gf.workspaces[0]
-            print(f"Defaulting to workspace \"{workspace.name}\" ({workspace.api_id})")
-        else:
-            raise ValueError("Please specify a workspace")
-    else:
-        workspace = parse_model_instance(gf.Workspace, workspace, lambda search: find_workspace_by_name(gf, search))
+    workspace = _resolve_workspace(gf, workspace)
 
     with MeasureExecution("Fetch workspace"):
         try:

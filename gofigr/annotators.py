@@ -160,26 +160,7 @@ class NotebookMetadataAnnotator(Annotator):
         except Exception:  # pylint: disable=broad-exception-caught
             return None
 
-    def parse_metadata(self, error=True):
-        """
-        Infers the notebook path & name from metadata passed through the WebSocket (if available)
-
-        :param error: if True, will raise an error if metadata is not available
-        """
-        vsc_meta = self.parse_from_vscode()
-        if vsc_meta is not None:
-            return vsc_meta
-
-        db_meta = self.parse_from_databricks()
-        if db_meta is not None:
-            return db_meta
-
-        meta = self.extension.notebook_metadata
-        if meta is None:
-            if error:
-                raise RuntimeError("No Notebook metadata available")
-            else:
-                return None
+    def _parse_from_proxy(self, meta, error):
         if 'url' not in meta and _ACTIVE_TAB_TITLE not in meta:
             if error:
                 raise RuntimeError("No URL found in Notebook metadata")
@@ -214,6 +195,29 @@ class NotebookMetadataAnnotator(Annotator):
         return {NOTEBOOK_PATH: full_path,
                 NOTEBOOK_NAME: notebook_name,
                 NOTEBOOK_URL: meta.get('url')}
+
+    def parse_metadata(self, error=True):
+        """
+        Infers the notebook path & name from metadata passed through the WebSocket (if available)
+
+        :param error: if True, will raise an error if metadata is not available
+        """
+        vsc_meta = self.parse_from_vscode()
+        if vsc_meta is not None:
+            return vsc_meta
+
+        db_meta = self.parse_from_databricks()
+        if db_meta is not None:
+            return db_meta
+
+        # At this point the metadata needs to come from the JavaScript proxy
+        meta = self.extension.notebook_metadata
+        if meta is None and error:
+            raise RuntimeError("No Notebook metadata available")
+        elif meta is None:
+            return None
+
+        return self._parse_from_proxy(meta, error)
 
     def annotate(self, revision):
         if revision.metadata is None:

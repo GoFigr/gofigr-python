@@ -12,8 +12,6 @@ from uuid import uuid4
 import humanize
 from IPython.core.display import HTML
 
-from gofigr import API_URL
-
 try:
     from IPython.core.display_functions import display
 except ModuleNotFoundError:
@@ -81,15 +79,6 @@ Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://f
 def timestamp_to_local_tz(dt_tz):
     """Converts a datetime to the local timezone"""
     return dt_tz.astimezone(tz=None)
-
-
-def get_logo_b64(self):
-    """Reads the GoFigr logo and returns it as a base64 string"""
-    if self._logo_b64 is not None:
-        return self._logo_b64
-
-    self._logo_b64 = read_resource_b64("gofigr.resources", "logo_small.png")
-    return self._logo_b64
 
 
 class WidgetBase(ABC):
@@ -289,6 +278,7 @@ class StartupWidget(WidgetBase):
         self.extension = extension
 
     def get_link(self, obj):
+        """Gets the app link to a GoFigr object"""
         return f"""<a style="margin-left: 0.25em" href={obj.app_url}>{obj.name}</a>"""
 
     def show(self):

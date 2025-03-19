@@ -373,6 +373,7 @@ class ModelMixin(abc.ABC):
 
     @property
     def app_url(self):
+        """Gets the URL to this object in the GoFigr web app"""
         return os.path.join(self._gf.app_url, self.endpoint, self.api_id)
 
     @classmethod
