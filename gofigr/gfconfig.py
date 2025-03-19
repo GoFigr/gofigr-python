@@ -11,7 +11,6 @@ from argparse import ArgumentParser
 
 from gofigr import API_URL, GoFigr, WorkspaceType
 import gofigr.databricks as db
-from gofigr.databricks import is_databricks_environment
 
 
 def read_input(prompt, validator, default=None, password=False):
@@ -138,7 +137,7 @@ def login_with_api_key(gf, config, config_path):
         if token in [None, ""]:
             key_name = read_input("Key name: ", assert_nonempty)
             apikey = gf.create_api_key(key_name)
-            if config_path is not None:
+            if not db.is_databricks_environment():
                 print(f"  => Your new API key will be saved to {config_path}")
             config['api_key'] = apikey.token
         else:
