@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gofigr"
-version = "0.19.0"
+version = "1.0.0"
 description = "GoFigr client library"
 readme = "README.rst"
 authors = [{ name = "Maciej Pacula", email = "maciej@gofigr.io" }]
@@ -29,15 +29,17 @@ dev = ["pip-tools", "bumpver", "build", "twine", "pylint", "flake8", "sphinx", "
        "sphinxcontrib-jquery", "seaborn", "matplotlib", "tqdm", "selenium", "webdriver-manager", "openpyxl",
        "py3Dmol", "html2image", "teamcity-messages", "plotnine"]
 
+databricks = ["databricks-sdk"]
+
 [project.urls]
 Homepage = "https://www.gofigr.io"
-Documentation = "https://gofigr.io/docs/gofigr-python/0.19.0/"
+Documentation = "https://gofigr.io/docs/gofigr-python/1.0.0/"
 
 [project.scripts]
 gfconfig = "gofigr.gfconfig:main"
 
 [tool.bumpver]
-current_version = "0.19.0"
+current_version = "1.0.0"
 version_pattern = "MAJOR.MINOR.PATCH"
 commit_message = "Bump version {old_version} -> {new_version}"
 commit = true

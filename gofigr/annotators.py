@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlparse
 
 from gofigr import CodeLanguage
 from gofigr.context import RevisionContext
+from gofigr.databricks import get_dbutils
 
 PATH_WARNING = "To fix this warning, you can manually specify the notebook name & path in the call to configure(). " \
                "Please see https://gofigr.io/docs/gofigr-python/latest/customization.html#notebook-name-path " \
@@ -127,14 +128,46 @@ def _parse_path_from_tab_title(title):
 
 class NotebookMetadataAnnotator(Annotator):
     """"Annotates revisions with notebook metadata, including filename & path, as well as the full URL"""
+    def parse_from_databricks(self):
+        """Returns notebook path if running in Databricks"""
+        try:
+            # pylint: disable=undefined-variable
+            context = get_dbutils(self.extension.shell).notebook.entry_point.getDbutils().notebook().getContext()
+            nb = context.notebookPath().get()
+            return {NOTEBOOK_PATH: nb, NOTEBOOK_NAME: os.path.basename(nb)}
+        except Exception:  # pylint: disable=broad-exception-caught
+            return None
 
-    def parse_metadata(self):
-        """Infers the notebook path & name from metadata passed through the WebSocket (if available)"""
-        meta = self.extension.notebook_metadata
-        if meta is None:
-            raise RuntimeError("No Notebook metadata available")
+    def parse_from_vscode(self):
+        """Returns notebook path if running in VSCode"""
+        if self.extension.cell is None or self.extension.cell.cell_id is None:
+            return None
+        elif "vscode-notebook-cell:" not in self.extension.cell.cell_id:
+            return None
+
+        m = re.match(r'^vscode-notebook-cell:(.*)#.*$', unquote(self.extension.cell.cell_id))
+        if m is None:
+            return None
+
+        notebook_path = m.group(1)
+        notebook_name = os.path.basename(notebook_path)
+
+        return {NOTEBOOK_PATH: notebook_path,
+                NOTEBOOK_NAME: notebook_name}
+
+    def try_get_metadata(self):
+        """Infers the notebook path & name using currently available metadata if possible, returning None otherwise"""
+        try:
+            return self.parse_metadata(error=False)
+        except Exception:  # pylint: disable=broad-exception-caught
+            return None
+
+    def _parse_from_proxy(self, meta, error):
         if 'url' not in meta and _ACTIVE_TAB_TITLE not in meta:
-            raise RuntimeError("No URL found in Notebook metadata")
+            if error:
+                raise RuntimeError("No URL found in Notebook metadata")
+            else:
+                return None
 
         notebook_name = None
 
@@ -165,6 +198,29 @@ class NotebookMetadataAnnotator(Annotator):
                 NOTEBOOK_NAME: notebook_name,
                 NOTEBOOK_URL: meta.get('url')}
 
+    def parse_metadata(self, error=True):
+        """
+        Infers the notebook path & name from metadata passed through the WebSocket (if available)
+
+        :param error: if True, will raise an error if metadata is not available
+        """
+        vsc_meta = self.parse_from_vscode()
+        if vsc_meta is not None:
+            return vsc_meta
+
+        db_meta = self.parse_from_databricks()
+        if db_meta is not None:
+            return db_meta
+
+        # At this point the metadata needs to come from the JavaScript proxy
+        meta = self.extension.notebook_metadata
+        if meta is None and error:
+            raise RuntimeError("No Notebook metadata available")
+        elif meta is None:
+            return None
+
+        return self._parse_from_proxy(meta, error)
+
     def annotate(self, revision):
         if revision.metadata is None:
             revision.metadata = {}
@@ -172,6 +228,11 @@ class NotebookMetadataAnnotator(Annotator):
         try:
             if NOTEBOOK_NAME not in revision.metadata or NOTEBOOK_PATH not in revision.metadata:
                 revision.metadata.update(self.parse_metadata())
+
+            full_path = revision.metadata.get(NOTEBOOK_PATH)
+            if full_path and os.path.exists(full_path):
+                revision.data += [revision.client.FileData.read(full_path)]
+
         except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"GoFigr could not automatically obtain the name of the currently"
                   f" running notebook. {PATH_WARNING} Details: {e}",

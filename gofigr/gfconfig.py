@@ -10,6 +10,7 @@ import sys
 from argparse import ArgumentParser
 
 from gofigr import API_URL, GoFigr, WorkspaceType
+import gofigr.databricks as db
 
 
 def read_input(prompt, validator, default=None, password=False):
@@ -30,7 +31,7 @@ def read_input(prompt, validator, default=None, password=False):
     if password:
         val = getpass.getpass("")
     else:
-        val = sys.stdin.readline().strip()
+        val = input("").strip()
 
     try:
         if val == "" and default is not None:
@@ -136,7 +137,8 @@ def login_with_api_key(gf, config, config_path):
         if token in [None, ""]:
             key_name = read_input("Key name: ", assert_nonempty)
             apikey = gf.create_api_key(key_name)
-            print(f"  => Your new API key will be saved to {config_path}")
+            if not db.is_databricks_environment():
+                print(f"  => Your new API key will be saved to {config_path}")
             config['api_key'] = apikey.token
         else:
             config['api_key'] = token
@@ -151,14 +153,19 @@ def login_with_api_key(gf, config, config_path):
             print(f"{e}. Please try again.")
 
 
-def main():
+def gfconfig():
+    """Convenience when calling directly from Python"""
+    return main(args=[])
+
+
+def main(args=None):
     """\
     Main entry point
     """
     parser = ArgumentParser(prog="gfconfig",
                             description="Configures default settings for GoFigr.io")
     parser.add_argument("-a", "--advanced", action='store_true', help="Configure lesser-used settings.")
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     config_path = os.path.join(os.environ['HOME'], '.gofigr')
 
@@ -196,8 +203,12 @@ def main():
                                default=default_idx)
     config['workspace'] = workspaces[workspace_idx - 1].api_id
 
-    with open(config_path, 'w', encoding='utf-8') as f:
-        json.dump(config, f, indent=4)
-        f.write("\n")
+    if db.is_databricks_environment():
+        db.save_config(config)
+        print("\nConfiguration saved in Databricks under the gofigr secret scope. Happy analysis!")
+    else:
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4)
+            f.write("\n")
 
-    print(f"\nConfiguration saved to {config_path}. Happy analysis!")
+        print(f"\nConfiguration saved to {config_path}. Happy analysis!")

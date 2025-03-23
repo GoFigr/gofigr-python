@@ -14,14 +14,17 @@ import pickle
 import sys
 from collections import namedtuple
 from functools import wraps
+from pathlib import Path
 from uuid import UUID
 
 import PIL
 import six
 
+import gofigr.databricks
 from gofigr import GoFigr, API_URL, UnauthorizedError
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
-    PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator
+    PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator, \
+    NOTEBOOK_NAME
 from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
@@ -29,13 +32,12 @@ from gofigr.context import RevisionContext
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
 from gofigr.watermarks import DefaultWatermark
-from gofigr.widget import DetailedWidget
+from gofigr.widget import DetailedWidget, StartupWidget
 
 try:
     from IPython.core.display_functions import display
 except ModuleNotFoundError:
     from IPython.core.display import display
-
 
 PY3DMOL_PRESENT = False
 if sys.version_info >= (3, 8):
@@ -169,6 +171,7 @@ class SuppressDisplayTrap:
         self.trap = None
 
 
+# pylint: disable=too-many-instance-attributes
 class _GoFigrExtension:
     """\
     Implements the main Jupyter extension functionality. You will not want to instantiate this class directly.
@@ -176,7 +179,9 @@ class _GoFigrExtension:
     """
     def __init__(self, ip,
                  auto_publish=False,
-                 notebook_metadata=None):
+                 notebook_metadata=None,
+                 configured=False,
+                 loader_shown=False):
         """\
 
         :param ip: iPython shell instance
@@ -189,15 +194,40 @@ class _GoFigrExtension:
         self.shell = ip
         self.auto_publish = auto_publish
         self.cell = None
-        self.notebook_metadata = notebook_metadata
+        self.proxy = None
+        self.loader_shown = loader_shown
+        self.configured = configured
+        if notebook_metadata is None:
+            self.notebook_metadata = NotebookMetadataAnnotator(self).try_get_metadata()
+        else:
+            self.notebook_metadata = notebook_metadata
 
         self.gf = None  # active GF object
         self.workspace = None  # current workspace
-        self.analysis = None  # current analysis
+        self._analysis = None  # current analysis
         self.publisher = None  # current Publisher instance
         self.wait_for_metadata = None  # callable which waits for metadata to become available
 
         self.deferred_revisions = []
+
+    @property
+    def is_ready(self):
+        """True if the extension has been configured and ready for use."""
+        return self.configured and self.notebook_metadata is not None
+
+    @property
+    def analysis(self):
+        """Gets the current analysis"""
+        if isinstance(self._analysis, NotebookName):
+            meta = NotebookMetadataAnnotator(self).parse_metadata()
+            self._analysis = self.workspace.get_analysis(name=Path(meta[NOTEBOOK_NAME]).stem, create=True)
+            self._analysis.fetch()
+
+        return self._analysis
+
+    @analysis.setter
+    def analysis(self, value):
+        self._analysis = value
 
     def display_trap(self, data, suppress_display):
         """\
@@ -228,10 +258,8 @@ class _GoFigrExtension:
 
     def check_config(self):
         """Ensures the plugin has been configured for use"""
-        props = ["gf", "workspace", "analysis", "publisher"]
-        for prop in props:
-            if getattr(self, prop, None) is None:
-                raise RuntimeError("GoFigr not configured. Please call configure() first.")
+        if not self.configured:
+            raise RuntimeError("GoFigr not configured. Please call configure() first.")
 
     def pre_run_cell(self, info):
         """\
@@ -243,6 +271,19 @@ class _GoFigrExtension:
         """
         self.cell = info
 
+    def _get_metadata_from_proxy(self, result):
+        if self.configured and not self.loader_shown and "_VSCODE" not in result.info.raw_cell:
+            self.proxy, self.wait_for_metadata = run_proxy_async(self.gf, proxy_callback)
+
+            with SuppressDisplayTrap():
+                display(get_javascript_loader(self.gf, self.proxy))
+                self.loader_shown = True
+
+        if self.notebook_metadata is None and self.wait_for_metadata is not None:
+            self.wait_for_metadata()
+            self.wait_for_metadata = None
+
+
     def post_run_cell(self, result):
         """Post run cell hook.
 
@@ -252,9 +293,8 @@ class _GoFigrExtension:
         """
         self.cell = result.info
 
-        if self.notebook_metadata is None and self.wait_for_metadata is not None:
-            self.wait_for_metadata()
-            self.wait_for_metadata = None
+        if self.notebook_metadata is None:
+            self._get_metadata_from_proxy(result)
 
         while len(self.deferred_revisions) > 0:
             rev = self.deferred_revisions.pop(0)
@@ -348,6 +388,19 @@ def _load_ipython_extension(ip):
     _GF_EXTENSION = _GoFigrExtension(ip)
     _GF_EXTENSION.register_hooks()
 
+    try:
+        configure()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        if "auth" in str(e).lower() and "failed" in str(e).lower():
+            print("GoFigr authentication failed. Please manually call configure(api_key=<YOUR API KEY>).",
+                  file=sys.stderr)
+        else:
+            print(f"Could not automatically configure GoFigr. Please call configure() manually. Error: {e}",
+                  file=sys.stderr)
+
+    for name in ['configure', 'publish', "FindByName", "ApiId", "NotebookName", "get_extension"]:
+        ip.user_ns[name] = globals()[name]
+
 
 def parse_uuid(val):
     """\
@@ -377,6 +430,14 @@ class FindByName:
 
     def __repr__(self):
         return f"FindByName(name={self.name}, description={self.description}, create={self.create})"
+
+
+class NotebookName:
+    """\
+    Used as argument to configure() to specify that we want the analysis name to default to the name of the notebook
+    """
+    def __repr__(self):
+        return "NotebookName"
 
 
 def parse_model_instance(model_class, value, find_by_name):
@@ -480,8 +541,29 @@ class Publisher:
                 break
 
     @staticmethod
+    def _check_analysis(ext):
+        if ext.analysis is None:
+            print("You did not specify an analysis to publish under. Please call "
+                  "configure(...) and specify one. See "
+                  "https://gofigr.io/docs/gofigr-python/latest/gofigr.html#gofigr.jupyter.configure.",
+                  file=sys.stderr)
+            return None
+        elif isinstance(ext.analysis, NotebookName):
+            print("Your analysis is set to the name of this notebook, but the name could "
+                  "not be inferred. Please call "
+                  "configure(...) and specify the analysis manually. See "
+                  "https://gofigr.io/docs/gofigr-python/latest/gofigr.html#gofigr.jupyter.configure.",
+                  file=sys.stderr)
+            return None
+        else:
+            return ext.analysis
+
+    @staticmethod
     def _resolve_target(gf, fig, target, backend):
         ext = get_extension()
+        analysis = Publisher._check_analysis(ext)
+        if analysis is None:
+            return None
 
         if target is None:
             # Try to get the figure's title
@@ -494,13 +576,13 @@ class Publisher:
                 fig_name = "Anonymous Figure"
 
             sys.stdout.flush()
-            return ext.analysis.get_figure(fig_name, create=True)
+            return analysis.get_figure(fig_name, create=True)
         else:
             return parse_model_instance(gf.Figure,
                                         target,
-                                        lambda search: ext.analysis.get_figure(name=search.name,
-                                                                               description=search.description,
-                                                                               create=search.create))
+                                        lambda search: analysis.get_figure(name=search.name,
+                                                                           description=search.description,
+                                                                           create=search.create))
 
     def _get_pickle_data(self, gf, fig):
         if not self.save_pickle:
@@ -734,8 +816,9 @@ def from_config_or_env(env_prefix, config_path):
     Decorator that binds function arguments in order of priority (most important first):
     1. args/kwargs
     2. environment variables
-    3. config file
-    4. function defaults
+    3. vendor-specific secret manager
+    4. config file
+    5. function defaults
 
     :param env_prefix: prefix for environment variables. Variables are assumed to be named \
     `<prefix> + <name of function argument in all caps>`, e.g. if prefix is ``MYAPP`` and function argument \
@@ -758,6 +841,8 @@ def from_config_or_env(env_prefix, config_path):
             else:
                 config_file = {}
 
+            dbconfig = gofigr.databricks.get_config() or {}
+
             sig = inspect.signature(func)
             param_values = sig.bind_partial(*args, **kwargs).arguments
             for param_name in sig.parameters:
@@ -766,6 +851,8 @@ def from_config_or_env(env_prefix, config_path):
                     continue  # value supplied through args/kwargs: ignore env variables and the config file.
                 elif env_name in os.environ:
                     param_values[param_name] = os.environ[env_name]
+                elif param_name in dbconfig:
+                    param_values[param_name] = dbconfig[param_name]
                 elif param_name in config_file:
                     param_values[param_name] = config_file[param_name]
 
@@ -804,7 +891,10 @@ def find_workspace_by_name(gf, search):
 def proxy_callback(result):
     """Proxy callback"""
     if result is not None and hasattr(result, 'metadata'):
-        _GF_EXTENSION.notebook_metadata = result.metadata
+        get_extension().notebook_metadata = result.metadata
+
+        if get_extension().is_ready:
+            StartupWidget(get_extension()).show()
 
 
 def _make_backend(backend):
@@ -814,11 +904,26 @@ def _make_backend(backend):
         return backend()
 
 
+def _resolve_workspace(gf, workspace):
+    if workspace is None:
+        if gf.primary_workspace is not None:
+            return gf.primary_workspace
+        elif len(gf.workspaces) == 1:  # this will happen if we're using a scoped API token
+            return gf.workspaces[0]
+        else:
+            raise ValueError("Please specify a workspace")
+    else:
+        return parse_model_instance(gf.Workspace, workspace, lambda search: find_workspace_by_name(gf, search))
+
+
 # pylint: disable=too-many-arguments, too-many-locals
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
-def configure(username=None, password=None,
+def configure(username=None,
+              password=None,
               api_key=None,
-              workspace=None, analysis=None, url=API_URL,
+              workspace=None,
+              analysis=NotebookName(),
+              url=API_URL,
               default_metadata=None, auto_publish=True,
               watermark=None, annotators=DEFAULT_ANNOTATORS,
               notebook_name=None, notebook_path=None,
@@ -834,7 +939,7 @@ def configure(username=None, password=None,
     :param api_key: API Key (if used instead of username and password)
     :param url: API URL
     :param workspace: one of: API ID (string), ApiId instance, or FindByName instance
-    :param analysis: one of: API ID (string), ApiId instance, or FindByName instance
+    :param analysis: one of: API ID (string), ApiId instance, FindByName, or NotebookName instance
     :param default_metadata: dictionary of default metadata values to save for each revision
     :param auto_publish: if True, all figures will be published automatically without needing to call publish()
     :param watermark: custom watermark instance (e.g. DefaultWatermark with custom arguments)
@@ -858,16 +963,7 @@ def configure(username=None, password=None,
     with MeasureExecution("Login"):
         gf = GoFigr(username=username, password=password, url=url, api_key=api_key)
 
-    if workspace is None:
-        if gf.primary_workspace is not None:
-            workspace = gf.primary_workspace
-        elif len(gf.workspaces) == 1:  # this will happen if we're using a scoped API token
-            workspace = gf.workspaces[0]
-            print(f"Defaulting to workspace \"{workspace.name}\" ({workspace.api_id})")
-        else:
-            raise ValueError("Please specify a workspace")
-    else:
-        workspace = parse_model_instance(gf.Workspace, workspace, lambda search: find_workspace_by_name(gf, search))
+    workspace = _resolve_workspace(gf, workspace)
 
     with MeasureExecution("Fetch workspace"):
         try:
@@ -878,6 +974,8 @@ def configure(username=None, password=None,
 
     if analysis is None:
         raise ValueError("Please specify an analysis")
+    elif isinstance(analysis, NotebookName) or str(analysis) == "NotebookName":  # str in case it's from config/env
+        analysis = NotebookName()
     else:
         with MeasureExecution("Find analysis"):
             analysis = parse_model_instance(gf.Analysis, analysis,
@@ -885,8 +983,8 @@ def configure(username=None, password=None,
                                                                                   description=search.description,
                                                                                   create=search.create))
 
-    with MeasureExecution("Fetch analysis"):
-        analysis.fetch()
+        with MeasureExecution("Fetch analysis"):
+            analysis.fetch()
 
     if default_metadata is None:
         default_metadata = {}
@@ -910,11 +1008,11 @@ def configure(username=None, password=None,
     extension.workspace = workspace
     extension.publisher = publisher
     extension.auto_publish = auto_publish
+    extension.loader_shown = False
+    extension.configured = True
 
-    proxy, extension.wait_for_metadata = run_proxy_async(gf, proxy_callback)
-
-    with SuppressDisplayTrap():
-        display(get_javascript_loader(gf, proxy))
+    if get_extension().is_ready:
+        StartupWidget(get_extension()).show()
 
 
 @require_configured
