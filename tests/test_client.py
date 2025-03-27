@@ -6,6 +6,7 @@ All rights reserved.
 import abc
 import os
 import time
+import unittest
 from datetime import datetime, timedelta
 from http import HTTPStatus
 from unittest import TestCase
@@ -14,7 +15,9 @@ import numpy as np
 import pandas as pd
 import pkg_resources
 from PIL import Image
-from gofigr.models import gf_Revision, gf_Data
+from docutils.nodes import organization
+
+from gofigr.models import gf_Revision, gf_Data, MembershipInfo, OrganizationMembership
 
 from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership, \
     ThumbnailMixin, MethodNotAllowedError
@@ -595,12 +598,19 @@ class GfTestCase(TestCase):
 
     def clean_up(self):
         gf = self.gf
+
+        gf.primary_workspace.organization = None
+        gf.primary_workspace.save()
+
         for ana in gf.primary_workspace.analyses:
             ana.delete(delete=True)
 
         for w in gf.workspaces:
             if w.workspace_type != WorkspaceType.PRIMARY:
                 w.delete(delete=True)
+
+        for org in gf.organizations:
+            org.delete(delete=True)
 
 
 class TestFigures(TestCase):
@@ -823,6 +833,9 @@ class MultiUserTestCase(TestCase):
 
     def clean_up(self):
         for gf in self.clients:
+            gf.primary_workspace.organization = None
+            gf.primary_workspace.save()
+
             for w in gf.workspaces:
                 w.fetch()  # Refresh
                 if w.workspace_type != WorkspaceType.PRIMARY:
@@ -835,25 +848,35 @@ class MultiUserTestCase(TestCase):
                         if member.membership_type != "owner":
                             w.remove_member(member.username)
 
+            for org in gf.organizations:
+                org.delete(delete=True)
+
     def get_gf_type(self, obj, client):
         return getattr(client, type(obj)._gofigr_type_name)
 
-    def list_all_objects(self, gf):
-        for workspace in gf.workspaces:
+    def list_workspace_objects(self, workspace, include_self=True):
+        if include_self:
             yield workspace
 
-            for analysis in workspace.analyses:
-                analysis.fetch()
-                yield analysis
+        for analysis in workspace.analyses:
+            analysis.fetch()
+            yield analysis
 
-                for fig in analysis.figures:
-                    fig.fetch()
-                    yield fig
+            for fig in analysis.figures:
+                fig.fetch()
+                yield fig
 
-                    for rev in fig.revisions:
-                        rev.fetch()
-                        yield rev
-                        yield from rev.data
+                for rev in fig.revisions:
+                    rev.fetch()
+                    yield rev
+                    yield from rev.data
+
+    def list_all_objects(self, gf):
+        for org in gf.organizations:
+            yield org
+
+        for workspace in gf.workspaces:
+            yield from self.list_workspace_objects(workspace)
 
 
     def clone_gf_object(self, obj, client, bare=False):
@@ -1260,3 +1283,117 @@ class TestSizeCalculation(GfTestCase):
         ana.delete(delete=True)
         gf.primary_workspace.fetch()
         self.assertEqual(gf.primary_workspace.size_bytes, initial_workspace_size)
+
+
+class TestOrganizations(MultiUserTestCase):
+    def test_creation(self):
+        gf = make_gf()
+
+        # No organizations at beginning
+        self.assertListEqual(gf.organizations, [])
+
+        my_org = gf.Organization(name="test org", description="").create()
+        self.assertListEqual(gf.organizations, [my_org])
+        self.assertEqual(my_org.name, "test org")
+        self.assertEqual(my_org.description, "")
+
+        self.assertListEqual(my_org.get_members(),
+                             [MembershipInfo(gf.username, OrganizationMembership.ORG_ADMIN)])
+
+        # Create a new workspace under this org
+        worx = gf.Workspace(name="worx").create()
+        worx.organization = my_org
+        worx.save()
+
+        # Workspace should now appear under this organization
+        my_org.fetch()
+        self.assertListEqual(list(my_org.workspaces), [worx])
+
+        gf.primary_workspace.organization = my_org
+        gf.primary_workspace.save()
+        my_org.fetch()
+        self.assertListEqual(list(my_org.workspaces), [worx, gf.primary_workspace])
+
+        # Updates
+        my_org.description = "test org description"
+        my_org.save()
+
+        self.assertEqual(my_org.fetch().description, "test org description")
+
+    def test_member_management(self):
+        for client, other_client in self.client_pairs:
+            # Client creates an organization and a workspace under that org
+            my_org = client.Organization(name="test org", description="").create()
+            my_worx = client.Workspace(name="worx", organization=my_org).create()
+            client.primary_workspace.organization = my_org
+            client.primary_workspace.save()
+
+            # Other user should not be able to assign their workspaces to my org
+            self.assertRaises(UnauthorizedError, other_client.Workspace(name="other worx", organization=my_org).create)
+
+            self.assertListEqual(my_org.get_members(),
+                                 [MembershipInfo(client.username, OrganizationMembership.ORG_ADMIN)])
+
+            # Client 2 should be unable to access anything in the org
+            my_org2 = self.clone_gf_object(my_org, other_client)
+            self.assertRaises(UnauthorizedError, my_org2.fetch)
+
+            for obj in self.list_all_objects(client):
+                self.assertRaises(UnauthorizedError, lambda: self.clone_gf_object(obj, other_client).fetch())
+
+            # Add the other user as a creator
+            my_org.add_member(other_client.username, OrganizationMembership.WORKSPACE_CREATOR)
+
+            # They should now have access to all objects in the org's workspaces
+            for workspace in [my_worx, client.primary_workspace]:
+                for obj in self.list_workspace_objects(workspace):
+                    self.assertEqual(obj, self.clone_gf_object(obj, other_client).fetch())
+
+            # But they still shouldn't have access to the other workspace
+            non_org_workspaces = [w for w in client.workspaces if "test workspace" in w.name]
+            self.assertEqual(len(non_org_workspaces), 1)
+            non_org_worx = non_org_workspaces[0]
+
+            # They shouldn't be able to upgrade their membership level
+            self.assertRaises(UnauthorizedError,
+                              lambda: self.clone_gf_object(my_org, other_client).change_membership(other_client.username,
+                                                                                                   OrganizationMembership.ORG_ADMIN))
+
+            for obj in self.list_workspace_objects(non_org_worx):
+                self.assertRaises(UnauthorizedError, self.clone_gf_object(obj, other_client).fetch)
+
+            # Other user should be able to create workspaces under our org
+            worx2 = other_client.Workspace(name="other worx", organization=my_org).create()
+            my_org.fetch()  # refresh list of workspaces
+
+            self.assertEqual(worx2.fetch().organization.fetch(), my_org)
+
+            # Same for us under their workspace
+            ana = client.Analysis(name="my analysis", organization=my_org, workspace=self.clone_gf_object(worx2, client)).create()
+            self.assertEqual(ana.workspace.fetch().organization.fetch(), my_org)
+
+            # We shouldn't be able to access anything in other user's non-org workspaces
+            for worx in other_client.workspaces:
+                if worx.api_id in [w.api_id for w in my_org.workspaces]:
+                    continue
+
+                for obj in self.list_workspace_objects(worx):
+                    self.assertRaises(UnauthorizedError, lambda: self.clone_gf_object(obj, client).fetch())
+                    self.assertRaises((UnauthorizedError, MethodNotAllowedError),
+                                      lambda: self.clone_gf_object(obj, client).delete(delete=True))
+
+            # Remove user from org
+            my_org.remove_member(other_client.username)
+
+            # Allow authorization cache to expire
+            time.sleep(2.0)
+
+            # They should no longer have access
+            # They should now have access to all objects in the org's workspaces
+            for workspace in [my_worx, client.primary_workspace]:
+                for obj in self.list_workspace_objects(workspace):
+                    self.assertRaises(UnauthorizedError, self.clone_gf_object(obj, other_client).fetch)
+
+            # They should still have access to the workspace they themselves created.
+            self.assertEqual(worx2.fetch().name, "other worx")
+

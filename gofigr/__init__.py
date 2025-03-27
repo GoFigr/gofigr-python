@@ -428,6 +428,12 @@ class GoFigr:
         return self.Workspace.list()
 
     @property
+    def organizations(self):
+        """Returns a list of all organizations that the current user is a member of."""
+        # pylint: disable=no-member
+        return self.Organization.list()
+
+    @property
     def primary_workspace(self):
         """\
         Returns the primary workspace for this user.

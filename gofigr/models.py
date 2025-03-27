@@ -326,11 +326,15 @@ class NestedMixin(abc.ABC):
         """Parses this object from JSON"""
         raise NotImplementedError
 
+    def __eq__(self, other):
+        return self.to_json() == other.to_json()
+
 
 class ModelMixin(abc.ABC):
     """Base class for GoFigr API entities: workspaces, analyses, figures, etc."""
     # pylint: disable=protected-access
     fields = ['api_id', "_shallow"]
+    include_if_none = []
     endpoint = None
     _gf = None  # GoFigr instance. Will be set dynamically.
 
@@ -393,7 +397,7 @@ class ModelMixin(abc.ABC):
                 for fld in self.fields.values()
                 if (not fld.derived or include_derived)}
         if not include_none:
-            data = {k: v for k, v in data.items() if v is not None}
+            data = {k: v for k, v in data.items() if (v is not None) or (k in self.include_if_none)}
 
         return data
 
@@ -547,7 +551,7 @@ class SharingUserData(NestedMixin):
         return str(self.to_json())
 
 
-class WorkspaceMember(NestedMixin):
+class MembershipInfo(NestedMixin):
     """Stores information about a member of a workspace"""
     def __init__(self, username, membership_type):
         if username is None:
@@ -558,8 +562,8 @@ class WorkspaceMember(NestedMixin):
 
     @classmethod
     def from_json(cls, data):
-        return WorkspaceMember(username=data.get('username'),
-                               membership_type=data.get('membership_type'))
+        return MembershipInfo(username=data.get('username'),
+                              membership_type=data.get('membership_type'))
 
     def to_json(self):
         return {'username': self.username,
@@ -763,6 +767,17 @@ class WorkspaceMembership(abc.ABC):
     ALL_LEVELS = [OWNER, ADMIN, CREATOR, VIEWER]
 
 
+class OrganizationMembership(abc.ABC):
+    """Enum for organizational membership"""
+    ORG_ADMIN = "org_admin"
+    WORKSPACE_ADMIN = "workspace_admin"
+    WORKSPACE_CREATOR = "workspace_creator"
+    WORKSPACE_VIEWER = "workspace_viewer"
+
+    ALL_LEVELS = [ORG_ADMIN, WORKSPACE_ADMIN, WORKSPACE_CREATOR, WORKSPACE_VIEWER]
+
+
+
 Recents = namedtuple("Recents", ["analyses", "figures"])
 
 
@@ -812,7 +827,77 @@ class ThumbnailMixin:
         return img
 
 
-class gf_Workspace(ModelMixin, LogsMixin):
+class MembersMixin:
+    """Mixin for entities which support the /members/ endpoint."""
+
+    def get_members(self):
+        """\
+        Gets members of this workspace.
+
+        :return: list of WorkspaceMember objects
+        """
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/members/'),
+                                 expected_status=HTTPStatus.OK)
+        return [MembershipInfo.from_json(datum) for datum in response.json()]
+
+    def add_member(self, username, membership_type):
+        """\
+        Adds a member to this workspace.
+
+        :param username: username of the person to add
+        :param membership_type: WorkspaceMembership value, e.g. WorkspaceMembership.CREATOR
+        :return: WorkspaceMember instance
+        """
+        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/add/'),
+                                  json=MembershipInfo(username=username, membership_type=membership_type).to_json(),
+                                  expected_status=HTTPStatus.OK)
+
+        return MembershipInfo.from_json(response.json())
+
+    def change_membership(self, username, membership_type):
+        """\
+        Changes the membership level for a user.
+
+        :param username: username
+        :param membership_type: new membership type, e.g. WorkspaceMembership.CREATOR
+        :return: WorkspaceMember instance
+
+        """
+        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/change/'),
+                                  json=MembershipInfo(username=username, membership_type=membership_type).to_json(),
+                                  expected_status=HTTPStatus.OK)
+
+        return MembershipInfo.from_json(response.json())
+
+    def remove_member(self, username):
+        """\
+        Removes a member from this workspace.
+
+        :param username: username
+        :return: WorkspaceMember instance
+
+        """
+        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/remove/'),
+                                  json=MembershipInfo(username=username, membership_type=None).to_json(),
+                                  expected_status=HTTPStatus.OK)
+
+        return MembershipInfo.from_json(response.json())
+
+
+class gf_Organization(ModelMixin, LogsMixin, MembersMixin):
+    """Represents a workspace"""
+    # pylint: disable=protected-access
+
+    fields = ["api_id",
+              "name",
+              "email",
+              "description",
+              LinkedEntityField("workspaces", lambda gf: gf.Workspace, many=True, derived=True,
+                                backlink_property='organization')]
+    endpoint = "organization/"
+
+
+class gf_Workspace(ModelMixin, LogsMixin, MembersMixin):
     """Represents a workspace"""
     # pylint: disable=protected-access
 
@@ -822,8 +907,10 @@ class gf_Workspace(ModelMixin, LogsMixin):
               "description",
               "workspace_type",
               "size_bytes",
+              LinkedEntityField("organization", lambda gf: gf.Organization, many=False),
               LinkedEntityField("analyses", lambda gf: gf.Analysis, many=True, derived=True,
                                 backlink_property='workspace')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+    include_if_none = ["organization"]
     endpoint = "workspace/"
 
     def get_analysis(self, name, create=True, **kwargs):
@@ -848,58 +935,6 @@ class gf_Workspace(ModelMixin, LogsMixin):
                                  expected_status=HTTPStatus.OK)
         return [self._gf.WorkspaceInvitation(**datum, parse=True) for datum in response.json()]
 
-    def get_members(self):
-        """\
-        Gets members of this workspace.
-
-        :return: list of WorkspaceMember objects
-        """
-        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/members/'),
-                                 expected_status=HTTPStatus.OK)
-        return [WorkspaceMember.from_json(datum) for datum in response.json()]
-
-    def add_member(self, username, membership_type):
-        """\
-        Adds a member to this workspace.
-
-        :param username: username of the person to add
-        :param membership_type: WorkspaceMembership value, e.g. WorkspaceMembership.CREATOR
-        :return: WorkspaceMember instance
-        """
-        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/add/'),
-                                  json=WorkspaceMember(username=username, membership_type=membership_type).to_json(),
-                                  expected_status=HTTPStatus.OK)
-
-        return WorkspaceMember.from_json(response.json())
-
-    def change_membership(self, username, membership_type):
-        """\
-        Changes the membership level for a user.
-
-        :param username: username
-        :param membership_type: new membership type, e.g. WorkspaceMembership.CREATOR
-        :return: WorkspaceMember instance
-
-        """
-        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/change/'),
-                                  json=WorkspaceMember(username=username, membership_type=membership_type).to_json(),
-                                  expected_status=HTTPStatus.OK)
-
-        return WorkspaceMember.from_json(response.json())
-
-    def remove_member(self, username):
-        """\
-        Removes a member from this workspace.
-
-        :param username: username
-        :return: WorkspaceMember instance
-
-        """
-        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/remove/'),
-                                  json=WorkspaceMember(username=username, membership_type=None).to_json(),
-                                  expected_status=HTTPStatus.OK)
-
-        return WorkspaceMember.from_json(response.json())
 
     def get_recents(self, limit=100):
         """\
