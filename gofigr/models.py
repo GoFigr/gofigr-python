@@ -573,6 +573,26 @@ class MembershipInfo(NestedMixin):
         return str(self.to_json())
 
 
+class FlexibleStorageInfo(NestedMixin):
+    """Stores information required for flexible storage"""
+    def __init__(self, vendor, params):
+        self.vendor = vendor
+        self.params = params
+
+    @classmethod
+    def from_json(cls, data):
+        return FlexibleStorageInfo(vendor=data.get('vendor'),
+                                   params=data.get('params'))
+
+    def to_json(self):
+        return {'vendor': self.vendor,
+                'params': self.params}
+
+    def __repr__(self):
+        return str(self.to_json())
+
+
+
 class LogItem(NestedMixin):
     # pylint: disable=too-many-instance-attributes, too-many-arguments
 
@@ -830,15 +850,25 @@ class ThumbnailMixin:
 class MembersMixin:
     """Mixin for entities which support the /members/ endpoint."""
 
-    def get_members(self):
+    def get_members(self, unauthorized_error=True):
         """\
         Gets members of this workspace.
 
+        :param unauthorized_error: whether to raise an exception if unauthorized
+
         :return: list of WorkspaceMember objects
         """
-        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/members/'),
-                                 expected_status=HTTPStatus.OK)
-        return [MembershipInfo.from_json(datum) for datum in response.json()]
+        from gofigr import UnauthorizedError
+
+        try:
+            response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/members/'),
+                                     expected_status=HTTPStatus.OK)
+            return [MembershipInfo.from_json(datum) for datum in response.json()]
+        except UnauthorizedError:
+            if unauthorized_error:
+                raise
+            else:
+                return []
 
     def add_member(self, username, membership_type):
         """\
@@ -884,7 +914,34 @@ class MembersMixin:
         return MembershipInfo.from_json(response.json())
 
 
-class gf_Organization(ModelMixin, LogsMixin, MembersMixin):
+class FlexibleStorageMixin:
+    """Mixin for getting/setting custom storage parameters if allowed by subscription"""
+    def get_storage_info(self):
+        """\
+        Gets the storage information for this workspace/organization.
+
+        :return: FlexibleStorateInfo instance
+        """
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/storage/'),
+                                 expected_status=HTTPStatus.OK)
+        return FlexibleStorageInfo.from_json(response.json())
+
+    def set_storage_info(self, vendor, params):
+        """\
+        Sets the storage information for this workspace/organization.
+
+        :param vendor: vendor name
+        :param params: vendor-specific storage parameters
+        :return: FlexibleStorageInfo instance returned from the server
+
+        """
+        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/storage/'),
+                                  json=FlexibleStorageInfo(vendor, params).to_json(),
+                                  expected_status=HTTPStatus.OK)
+        return FlexibleStorageInfo.from_json(response.json())
+
+
+class gf_Organization(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
     """Represents a workspace"""
     # pylint: disable=protected-access
 
@@ -897,7 +954,7 @@ class gf_Organization(ModelMixin, LogsMixin, MembersMixin):
     endpoint = "organization/"
 
 
-class gf_Workspace(ModelMixin, LogsMixin, MembersMixin):
+class gf_Workspace(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
     """Represents a workspace"""
     # pylint: disable=protected-access
 

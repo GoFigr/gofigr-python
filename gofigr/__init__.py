@@ -447,7 +447,7 @@ class GoFigr:
         primaries = [w for w in self.workspaces if w.workspace_type == "primary"]
         primaries = [w for w in primaries if any(wm.username == self.username \
                                                  and wm.membership_type == WorkspaceMembership.OWNER
-                                                 for wm in w.get_members())]
+                                                 for wm in w.get_members(unauthorized_error=False))]
 
         if self.api_key is not None and len(primaries) == 0:
             self._primary_workspace = None

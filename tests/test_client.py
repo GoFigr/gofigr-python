@@ -1328,6 +1328,15 @@ class TestOrganizations(MultiUserTestCase):
             client.primary_workspace.organization = my_org
             client.primary_workspace.save()
 
+            my_org.fetch()
+            self.assertIsNone(my_org.get_storage_info().vendor)
+            self.assertIsNone(my_org.get_storage_info().params)
+
+            # Client should be able to set storage params
+            my_org.set_storage_info("aws", {"bucket": "gofigr-flextest"})
+            self.assertEqual(my_org.get_storage_info().vendor, "aws")
+            self.assertEqual(my_org.get_storage_info().params, {"bucket": "gofigr-flextest"})
+
             # Other user should not be able to assign their workspaces to my org
             self.assertRaises(UnauthorizedError, other_client.Workspace(name="other worx", organization=my_org).create)
 
@@ -1335,14 +1344,17 @@ class TestOrganizations(MultiUserTestCase):
                                  [MembershipInfo(client.username, OrganizationMembership.ORG_ADMIN)])
 
             # Client 2 should be unable to access anything in the org
-            my_org2 = self.clone_gf_object(my_org, other_client)
+            my_org2 = self.clone_gf_object(my_org, other_client, bare=True)
             self.assertRaises(UnauthorizedError, my_org2.fetch)
+            self.assertRaises(UnauthorizedError, my_org2.get_storage_info)
+            self.assertRaises(UnauthorizedError, lambda: my_org2.set_storage_info("aws", {"bucket": "gofigr-flextest"}))
 
             for obj in self.list_all_objects(client):
-                self.assertRaises(UnauthorizedError, lambda: self.clone_gf_object(obj, other_client).fetch())
+                self.assertRaises(UnauthorizedError, self.clone_gf_object(obj, other_client).fetch)
 
             # Add the other user as a creator
             my_org.add_member(other_client.username, OrganizationMembership.WORKSPACE_CREATOR)
+            my_org2.fetch()  # this should now work
 
             # They should now have access to all objects in the org's workspaces
             for workspace in [my_worx, client.primary_workspace]:
@@ -1366,7 +1378,7 @@ class TestOrganizations(MultiUserTestCase):
             worx2 = other_client.Workspace(name="other worx", organization=my_org).create()
             my_org.fetch()  # refresh list of workspaces
 
-            self.assertEqual(worx2.fetch().organization.fetch(), my_org)
+            self.assertEqual(worx2.fetch().organization.fetch().api_id, my_org.api_id)
 
             # Same for us under their workspace
             ana = client.Analysis(name="my analysis", organization=my_org, workspace=self.clone_gf_object(worx2, client)).create()
@@ -1389,11 +1401,9 @@ class TestOrganizations(MultiUserTestCase):
             time.sleep(2.0)
 
             # They should no longer have access
-            # They should now have access to all objects in the org's workspaces
             for workspace in [my_worx, client.primary_workspace]:
                 for obj in self.list_workspace_objects(workspace):
                     self.assertRaises(UnauthorizedError, self.clone_gf_object(obj, other_client).fetch)
 
             # They should still have access to the workspace they themselves created.
             self.assertEqual(worx2.fetch().name, "other worx")
-
