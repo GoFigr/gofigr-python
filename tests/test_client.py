@@ -3,10 +3,8 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-import abc
 import os
 import time
-import unittest
 from datetime import datetime, timedelta
 from http import HTTPStatus
 from unittest import TestCase
@@ -15,9 +13,8 @@ import numpy as np
 import pandas as pd
 import pkg_resources
 from PIL import Image
-from docutils.nodes import organization
 
-from gofigr.models import gf_Revision, gf_Data, MembershipInfo, OrganizationMembership
+from gofigr.models import gf_Data, MembershipInfo, OrganizationMembership
 
 from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership, \
     ThumbnailMixin, MethodNotAllowedError
@@ -801,7 +798,7 @@ class TestFigures(TestCase):
         ana.delete(delete=True)
 
 
-class MultiUserTestCase(TestCase):
+class MultiUserTestCaseBase:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.n_revisions = 2
@@ -936,6 +933,10 @@ class MultiUserTestCase(TestCase):
                 # Make sure the properties didn't actually change
                 own_obj2 = self.clone_gf_object(own_obj, client, bare=True).fetch()
                 self.assertEqual(str(own_obj.to_json()), str(own_obj2.to_json()))
+
+
+class MultiUserTestCase(MultiUserTestCaseBase, TestCase):
+    pass
 
 
 class TestPermissions(MultiUserTestCase):

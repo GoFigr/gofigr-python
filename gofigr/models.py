@@ -967,6 +967,16 @@ class gf_Organization(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin)
                                 backlink_property='organization')]
     endpoint = "organization/"
 
+    def get_invitations(self):
+        """\
+        Gets members of this workspace.
+
+        :return: list of WorkspaceMember objects
+        """
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/invitations/'),
+                                 expected_status=HTTPStatus.OK)
+        return [self._gf.OrganizationInvitation(**datum, parse=True) for datum in response.json()]
+
 
 class gf_Workspace(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
     """Represents a workspace"""
@@ -1593,11 +1603,12 @@ class gf_ApiKey(ModelMixin):
         return self
 
 
-class gf_WorkspaceInvitation(ModelMixin):
+class InvitationMixin(ModelMixin):
     """\
-    Represents an invitation to join a workspace.
+        Represents an invitation to join a workspace.
 
-    """
+        """
+
     # pylint: disable=protected-access
 
     def _require_token(self):
@@ -1633,9 +1644,25 @@ class gf_WorkspaceInvitation(ModelMixin):
               "status",
               Timestamp("created"),
               Timestamp("expiry"),
-              LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),
               "membership_type"]
+
+
+class gf_WorkspaceInvitation(InvitationMixin):
+    """\
+    Represents an invitation to join a workspace.
+
+    """
+    fields = InvitationMixin.fields + [LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False)]
     endpoint = "invitations/workspace/"
+
+
+class gf_OrganizationInvitation(InvitationMixin):
+    """\
+    Represents an invitation to join an organization.
+
+    """
+    fields = InvitationMixin.fields + [LinkedEntityField("organization", lambda gf: gf.Organization, many=False)]
+    endpoint = "invitations/organization/"
 
 
 class gf_MetadataProxy(ModelMixin):

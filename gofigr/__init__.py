@@ -172,8 +172,10 @@ class GoFigr:
                 class _Bound(obj):
                     _gf = self
 
-                _Bound.__qualname__ = f"GoFigr.{name}"
-                _Bound._gofigr_type_name = name.replace("gf_", "")
+                clean_name = name.replace("gf_", "")
+                _Bound.__name__ = f"GoFigr.{clean_name}"
+                _Bound.__qualname__ = f"GoFigr.{clean_name}"
+                _Bound._gofigr_type_name = clean_name
 
                 setattr(self, name.replace("gf_", ""), _Bound)
             elif inspect.isclass(obj) and issubclass(obj, NestedMixin):
