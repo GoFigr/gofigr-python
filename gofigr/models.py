@@ -1206,7 +1206,8 @@ class gf_Data(ModelMixin):
                                           name=self.name,
                                           type=self.type,
                                           metadata=self.metadata,
-                                          data=self.data)
+                                          data=self.data,
+                                          size_bytes=self.size_bytes)
 
     def get_storage_info(self):
         """\

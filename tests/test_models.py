@@ -5,10 +5,12 @@ from gofigr.models import DataType
 from tests.test_client import make_gf
 
 
-def _remove_local_id(json_data):
-    if 'metadata' in json_data and 'local_id' in json_data['metadata']:
-        del json_data['metadata']['local_id']
-
+def _strip_fields(json_data):
+    for name in ['local_id', 'size_bytes']:
+        if 'metadata' in json_data and name in json_data['metadata']:
+            del json_data['metadata'][name]
+        elif name in json_data:
+            del json_data[name]
     return json_data
 
 
@@ -20,7 +22,7 @@ class TestMixins(unittest.TestCase):
         gf = make_gf()
         img = gf.ImageData(data=bytes([1, 2, 3]))
 
-        self.assertEqual(_remove_local_id(img.to_json(include_none=True)),
+        self.assertEqual(_strip_fields(img.to_json(include_none=True)),
                          {'api_id': None,
                           'name': None,
                           'type': 'image',
@@ -40,7 +42,7 @@ class TestMixins(unittest.TestCase):
         gf = make_gf()
         img = gf.ImageData(name="test image", data=bytes([1, 2, 3]), is_watermarked=True, format="png")
 
-        self.assertEqual(_remove_local_id(img.to_json(include_none=True)),
+        self.assertEqual(_strip_fields(img.to_json(include_none=True)),
                          {'api_id': None,
                          'name': 'test image',
                           'type': 'image',
@@ -63,7 +65,7 @@ class TestMixins(unittest.TestCase):
                            metadata={'is_watermarked': False, 'format': "eps"},
                            is_watermarked=True, format="png")
 
-        self.assertEqual(_remove_local_id(img.to_json(include_none=True)),
+        self.assertEqual(_strip_fields(img.to_json(include_none=True)),
                          {'api_id': None,
                           'name': 'test image',
                           'type': 'image',
