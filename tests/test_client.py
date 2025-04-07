@@ -806,6 +806,17 @@ class MultiUserTestCase(TestCase):
         super().__init__(*args, **kwargs)
         self.n_revisions = 2
 
+    def create_test_analysis(self, gf, workspace):
+        ana = workspace.analyses.create(gf.Analysis(name=f"{gf.username}'s test analysis"))
+        fig = ana.figures.create(gf.Figure(name=f"{gf.username}'s test figure"))
+
+        for idx in range(self.n_revisions):
+            rev = gf.Revision(metadata={'index': idx},
+                              data=TestData(gf).load_external_data(nonce=idx))
+            fig.revisions.create(rev)
+
+        return ana
+
     def setUp(self):
         self.gf1 = make_gf(username="testuser")
         self.gf2 = make_gf(username="testuser2")
@@ -820,13 +831,7 @@ class MultiUserTestCase(TestCase):
             test_workspace = gf.Workspace(name=f"{gf.username}'s test workspace").create()
 
             for workspace in [test_workspace, gf.primary_workspace]:
-                ana = workspace.analyses.create(gf.Analysis(name=f"{gf.username}'s test analysis"))
-                fig = ana.figures.create(gf.Figure(name=f"{gf.username}'s test figure"))
-
-                for idx in range(self.n_revisions):
-                    rev = gf.Revision(metadata={'index': idx},
-                                      data=TestData(gf).load_external_data(nonce=idx))
-                    fig.revisions.create(rev)
+                self.create_test_analysis(gf, workspace)
 
     def tearDown(self):
         return self.clean_up()
@@ -853,6 +858,11 @@ class MultiUserTestCase(TestCase):
 
     def get_gf_type(self, obj, client):
         return getattr(client, type(obj)._gofigr_type_name)
+
+    def list_data_objects(self, workspace):
+        for obj in self.list_workspace_objects(workspace):
+            if isinstance(obj, gf_Data):
+                yield obj
 
     def list_workspace_objects(self, workspace, include_self=True):
         if include_self:
@@ -1333,9 +1343,9 @@ class TestOrganizations(MultiUserTestCase):
             self.assertIsNone(my_org.get_storage_info().params)
 
             # Client should be able to set storage params
-            my_org.set_storage_info("aws", {"bucket": "gofigr-flextest"})
+            my_org.set_storage_info("aws", {"bucket": "gofigr-flextest", "key": "data"})
             self.assertEqual(my_org.get_storage_info().vendor, "aws")
-            self.assertEqual(my_org.get_storage_info().params, {"bucket": "gofigr-flextest"})
+            self.assertEqual(my_org.get_storage_info().params, {"bucket": "gofigr-flextest", "key": "data"})
 
             # Other user should not be able to assign their workspaces to my org
             self.assertRaises(UnauthorizedError, other_client.Workspace(name="other worx", organization=my_org).create)
@@ -1347,7 +1357,8 @@ class TestOrganizations(MultiUserTestCase):
             my_org2 = self.clone_gf_object(my_org, other_client, bare=True)
             self.assertRaises(UnauthorizedError, my_org2.fetch)
             self.assertRaises(UnauthorizedError, my_org2.get_storage_info)
-            self.assertRaises(UnauthorizedError, lambda: my_org2.set_storage_info("aws", {"bucket": "gofigr-flextest"}))
+            self.assertRaises(UnauthorizedError, lambda: my_org2.set_storage_info("aws", {"bucket": "gofigr-flextest",
+                                                                                          "key": "data"}))
 
             for obj in self.list_all_objects(client):
                 self.assertRaises(UnauthorizedError, self.clone_gf_object(obj, other_client).fetch)
@@ -1407,3 +1418,74 @@ class TestOrganizations(MultiUserTestCase):
 
             # They should still have access to the workspace they themselves created.
             self.assertEqual(worx2.fetch().name, "other worx")
+
+
+class TestFlexStorage(MultiUserTestCase):
+    def _check_data(self, client, worx, prefix="s3://gofigr-flextest/", create=True):
+        if create:
+            self.create_test_analysis(client, worx)
+
+        for data in self.list_data_objects(worx):
+            info = data.get_storage_info()
+            self.assertEqual(info['vendor'], "AWS")
+            self.assertTrue(info['path'].startswith(prefix))
+
+            self.assertGreater(data.size_bytes, 0)
+            self.assertEqual(data.size_bytes, len(data.fetch().data))
+
+    def test_flex_workspace(self):
+        # By default, the vendor should be GoFigr
+        for client in self.clients:
+            for obj in self.list_data_objects(client.primary_workspace):
+                self.assertEqual(obj.get_storage_info()['vendor'], "GoFigr.io")
+                self.assertIsNone(obj.get_storage_info().get('path'))
+
+            # Switch to flex storage
+            worx = client.Workspace(name="worx").create()
+
+            # Check the testing endpoint
+            self.assertRaises(RuntimeError, lambda: worx.test_storage("aws", {"bucket": "gofigr-badbucket", "key": "data"}))
+            self.assertEqual(worx.test_storage("aws", {"bucket": "gofigr-flextest", "key": "data"}).vendor, 'aws')
+            self.assertEqual(worx.test_storage("aws", {"bucket": "gofigr-flextest2", "key": "data"}).vendor, 'aws')
+
+            # The actual storage settings shouldn't have changed
+            self.assertIsNone(worx.get_storage_info().vendor)
+
+            # Switch storage
+            self.assertRaises(RuntimeError, lambda: worx.set_storage_info("aws", {"bucket": "gofigr-badbucket", "key": "data"}))
+            worx.set_storage_info("aws", {"bucket": "gofigr-flextest", "key": "data"})
+            self.assertEqual(worx.get_storage_info().vendor, "aws")
+
+            # Check
+            self._check_data(client, worx)
+
+    def test_flex_organizations(self):
+        for client in self.clients:
+            org = client.Organization(name="test org").create()
+            worx = client.Workspace(name="org worx", organization=org).create()
+
+            # Should fail because the org doesn't allow custom storage
+            self.assertRaises(RuntimeError,
+                              lambda: worx.set_storage_info("aws", {"bucket": "gofigr-flextest2", "key": "data"}))
+
+            # Set flex storage through the organization
+            org.set_storage_info("aws", {"bucket": "gofigr-flextest", "key": "data"})
+            self.assertEqual(org.get_storage_info().vendor, "aws")
+            self.assertEqual(worx.get_storage_info().vendor, None)  # no flex at the workspace level
+            self._check_data(client, worx, "s3://gofigr-flextest/")
+
+            # Set to allow flex storage per workspace
+            org.allow_per_workspace_storage_settings = True
+            org.save()
+            worx2 = client.Workspace(name="other worx", organization=org).create()
+            worx2.set_storage_info("aws", {"bucket": "gofigr-flextest2", "key": "data"})
+            self._check_data(client, worx2, "s3://gofigr-flextest2/")
+
+            # New workspaces should still default to org's storage settings
+            worx3 = client.Workspace(name="org worx 3", organization=org).create()
+            self._check_data(client, worx3, "s3://gofigr-flextest/")
+
+            # ... without impact on previously created workspaces
+            self._check_data(client, worx2, "s3://gofigr-flextest2/", create=False)
+            self._check_data(client, worx, "s3://gofigr-flextest/", create=False)
+

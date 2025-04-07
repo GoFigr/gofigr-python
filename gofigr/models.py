@@ -4,7 +4,7 @@ All rights reserved.
 
 """
 # Many of the properties here are defined dynamically based on Field specifications, so no-member isn't meaningful
-# pylint: disable=no-member
+# pylint: disable=no-member, protected-access
 
 import abc
 import io
@@ -20,6 +20,7 @@ import dateutil.parser
 
 import pandas as pd
 
+from gofigr.exceptions import UnauthorizedError
 from gofigr.profile import MeasureExecution
 
 
@@ -858,8 +859,6 @@ class MembersMixin:
 
         :return: list of WorkspaceMember objects
         """
-        from gofigr import UnauthorizedError
-
         try:
             response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/members/'),
                                      expected_status=HTTPStatus.OK)
@@ -940,6 +939,20 @@ class FlexibleStorageMixin:
                                   expected_status=HTTPStatus.OK)
         return FlexibleStorageInfo.from_json(response.json())
 
+    def test_storage(self, vendor, params):
+        """\
+        Runs a storage test for flexible storage parameters.
+
+        :param vendor: vendor name
+        :param params: vendor-specific storage parameters
+        :return: FlexibleStorageInfo instance returned from the server
+
+        """
+        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/storage/test/'),
+                                  json=FlexibleStorageInfo(vendor, params).to_json(),
+                                  expected_status=HTTPStatus.OK)
+        return FlexibleStorageInfo.from_json(response.json())
+
 
 class gf_Organization(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
     """Represents a workspace"""
@@ -949,6 +962,7 @@ class gf_Organization(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin)
               "name",
               "email",
               "description",
+              "allow_per_workspace_storage_settings",
               LinkedEntityField("workspaces", lambda gf: gf.Workspace, many=True, derived=True,
                                 backlink_property='organization')]
     endpoint = "organization/"
@@ -1118,6 +1132,7 @@ class gf_Data(ModelMixin):
     fields = ["api_id",
               "name",
               "type",
+              "size_bytes",
               JSONField("metadata"),
               Base64Field("data")]
 
@@ -1182,6 +1197,16 @@ class gf_Data(ModelMixin):
                                           type=self.type,
                                           metadata=self.metadata,
                                           data=self.data)
+
+    def get_storage_info(self):
+        """\
+        Gets the storage information for this workspace/organization.
+
+        :return: FlexibleStorateInfo instance
+        """
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/storage/'),
+                                 expected_status=HTTPStatus.OK)
+        return response.json()
 
     def __eq__(self, other):
         repr1 = self.to_json()

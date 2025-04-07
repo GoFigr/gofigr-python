@@ -11,6 +11,7 @@ import requests
 from requests import Session
 from PIL import Image
 
+from gofigr.exceptions import UnauthorizedError, MethodNotAllowedError
 from gofigr.models import *
 
 LOGGER = logging.getLogger(__name__)
@@ -37,20 +38,6 @@ def assert_one(elements, error_none=None, error_many=None):
         raise ValueError(error_many or f"Expected exactly one value but got n={len(elements)}")
     else:
         return elements[0]
-
-
-class UnauthorizedError(RuntimeError):
-    """\
-    Thrown if user doesn't have permissions to perform an action.
-    """
-    pass
-
-
-class MethodNotAllowedError(RuntimeError):
-    """\
-    Thrown if a given REST action is not supported/allowed.
-    """
-    pass
 
 
 class UserInfo:
