@@ -45,7 +45,8 @@ class UserInfo:
     Stores basic information about a user: username, email, etc.
 
     """
-    def __init__(self, username, first_name, last_name, email, date_joined, is_active, avatar):
+    def __init__(self, username, first_name, last_name, email, date_joined, is_active, avatar,
+                 is_staff, user_profile):
         """\
 
         :param username:
@@ -55,6 +56,7 @@ class UserInfo:
         :param date_joined:
         :param is_active:
         :param avatar: avatar as a PIL.Image instance
+        :param is_staff: whether the user is staff or not
         """
         self.username = username
         self.first_name, self.last_name = first_name, last_name
@@ -62,6 +64,8 @@ class UserInfo:
         self.date_joined = date_joined
         self.is_active = is_active
         self.avatar = avatar
+        self.is_staff = is_staff
+        self.user_profile = user_profile
 
     @staticmethod
     def _avatar_to_b64(img):
@@ -94,6 +98,8 @@ class UserInfo:
                         email=obj.get('email'),
                         date_joined=dateutil.parser.parse(date_joined) if date_joined is not None else None,
                         is_active=obj.get('is_active'),
+                        is_staff=obj.get('is_staff'),
+                        user_profile=obj.get('user_profile', {}),
                         avatar=UserInfo._avatar_from_b64(obj.get('avatar')))
 
     def to_json(self):
@@ -104,6 +110,8 @@ class UserInfo:
                 'email': self.email,
                 'date_joined': str(self.date_joined) if self.date_joined else None,
                 'is_active': self.is_active,
+                'is_staff': self.is_staff,
+                'user_profile': self.user_profile,
                 'avatar': UserInfo._avatar_to_b64(self.avatar)}
 
     def __str__(self):

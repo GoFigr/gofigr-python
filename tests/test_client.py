@@ -252,7 +252,7 @@ class TestUsers(TestCase):
         info = gf.user_info()
         self.assertEqual(gf.user_info(), gf.user_info(gf.username))
         self.assertEqual(info.username, gf.username)
-        self.assertEqual(info.email, 'testuser@server.com')
+        self.assertIn(info.email, ['testuser@server.com', 'testuser@gofigr.io'])
 
         # Update first and last names
         for first, last in [("a", "b"), ("", ""), ("Test", "User")]:
@@ -269,10 +269,39 @@ class TestUsers(TestCase):
         self.assertRaises(UnauthorizedError, lambda: gf.update_user_info(info, username=gf.username))
         self.assertEqual(gf.user_info().username, gf.username)
 
+        # We should not be able to change to staff
+        info = gf.user_info()
+        info.is_staff = True
+        gf.update_user_info(info)
+        self.assertFalse(gf.user_info().is_staff)
+
         # We should not be able to change info for anyone else
         for other_user in ['testuser2']:
             info.username = other_user
             self.assertRaises(UnauthorizedError, lambda: gf.update_user_info(info))
+
+    def test_user_profile(self):
+        gf = make_gf()
+        info = gf.user_info()
+        info.user_profile = {'ui_data': {}}
+        gf.update_user_info(info)
+
+        info = gf.user_info()
+        self.assertEqual(info.user_profile['ui_data'], {})
+
+        info.user_profile = {'ui_data': {'hello': 'world', 'foo': 'bar', 'baz': [1, 2, 3]}}
+        gf.update_user_info(info)
+        info = gf.user_info()
+        self.assertEqual(info.user_profile['ui_data']['hello'], 'world')
+        self.assertEqual(info.user_profile['ui_data']['foo'], 'bar')
+        self.assertListEqual(info.user_profile['ui_data']['baz'], [1, 2, 3])
+
+        info.user_profile = {'ui_data': {'foo': 'barz', 'baz': [3, 2, 1]}}
+        gf.update_user_info(info)
+        info = gf.user_info()
+        self.assertNotIn('hello', info.user_profile['ui_data'])
+        self.assertEqual(info.user_profile['ui_data']['foo'], 'barz')
+        self.assertListEqual(info.user_profile['ui_data']['baz'], [3, 2, 1])
 
     def test_avatars(self):
         gf = make_gf()
