@@ -1369,7 +1369,7 @@ class TestOrganizations(MultiUserTestCase):
             client.primary_workspace.save()
 
             my_org.fetch()
-            self.assertIsNone(my_org.get_storage_info().vendor)
+            self.assertEqual(my_org.get_storage_info().vendor, "GoFigr.io")
             self.assertIsNone(my_org.get_storage_info().params)
 
             # Client should be able to set storage params
@@ -1479,7 +1479,7 @@ class TestFlexStorage(MultiUserTestCase):
             self.assertEqual(worx.test_storage("aws", {"bucket": "gofigr-flextest2", "key": "data"}).vendor, 'aws')
 
             # The actual storage settings shouldn't have changed
-            self.assertIsNone(worx.get_storage_info().vendor)
+            self.assertEqual(worx.get_storage_info().vendor, "GoFigr.io")
 
             # Switch storage
             self.assertRaises(RuntimeError, lambda: worx.set_storage_info("aws", {"bucket": "gofigr-badbucket", "key": "data"}))
@@ -1501,7 +1501,7 @@ class TestFlexStorage(MultiUserTestCase):
             # Set flex storage through the organization
             org.set_storage_info("aws", {"bucket": "gofigr-flextest", "key": "data"})
             self.assertEqual(org.get_storage_info().vendor, "aws")
-            self.assertEqual(worx.get_storage_info().vendor, None)  # no flex at the workspace level
+            self.assertEqual(worx.get_storage_info().vendor, "GoFigr.io")  # no flex at the workspace level
             self._check_data(client, worx, "s3://gofigr-flextest/")
 
             # Set to allow flex storage per workspace
