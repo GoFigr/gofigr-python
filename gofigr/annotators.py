@@ -140,20 +140,23 @@ class NotebookMetadataAnnotator(Annotator):
 
     def parse_from_vscode(self):
         """Returns notebook path if running in VSCode"""
-        if self.extension.cell is None or self.extension.cell.cell_id is None:
-            return None
-        elif "vscode-notebook-cell:" not in self.extension.cell.cell_id:
-            return None
+        try:
+            if self.extension.cell is None or getattr(self.extension.cell, "cell_id") is None:
+                return None
+            elif "vscode-notebook-cell:" not in self.extension.cell.cell_id:
+                return None
 
-        m = re.match(r'^vscode-notebook-cell:(.*)#.*$', unquote(self.extension.cell.cell_id))
-        if m is None:
+            m = re.match(r'^vscode-notebook-cell:(.*)#.*$', unquote(self.extension.cell.cell_id))
+            if m is None:
+                return None
+
+            notebook_path = m.group(1)
+            notebook_name = os.path.basename(notebook_path)
+
+            return {NOTEBOOK_PATH: notebook_path,
+                    NOTEBOOK_NAME: notebook_name}
+        except Exception:  # pylint: disable=broad-exception-caught
             return None
-
-        notebook_path = m.group(1)
-        notebook_name = os.path.basename(notebook_path)
-
-        return {NOTEBOOK_PATH: notebook_path,
-                NOTEBOOK_NAME: notebook_name}
 
     def try_get_metadata(self):
         """Infers the notebook path & name using currently available metadata if possible, returning None otherwise"""
