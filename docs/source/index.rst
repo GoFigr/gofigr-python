@@ -10,7 +10,7 @@
 Welcome to GoFigr Client Library's documentation!
 =================================================
 
-Version: 1.1.1
+Version: 1.2.0
 
 .. toctree::
    :maxdepth: 4
