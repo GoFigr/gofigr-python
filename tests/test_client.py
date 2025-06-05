@@ -14,7 +14,7 @@ import pandas as pd
 import pkg_resources
 from PIL import Image
 
-from gofigr.models import gf_Data, MembershipInfo, OrganizationMembership
+from gofigr.models import gf_Data, MembershipInfo, OrganizationMembership, DataType
 
 from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership, \
     ThumbnailMixin, MethodNotAllowedError
@@ -630,6 +630,9 @@ class GfTestCase(TestCase):
 
         for ana in gf.primary_workspace.analyses:
             ana.delete(delete=True)
+
+        for ds in gf.primary_workspace.datasets:
+            ds.delete(delete=True)
 
         for w in gf.workspaces:
             if w.workspace_type != WorkspaceType.PRIMARY:
@@ -1519,3 +1522,57 @@ class TestFlexStorage(MultiUserTestCase):
             self._check_data(client, worx2, "s3://gofigr-flextest2/", create=False)
             self._check_data(client, worx, "s3://gofigr-flextest/", create=False)
 
+
+class TestDatasets(GfTestCase):
+    def test_dataset_creation(self):
+        gf = make_gf()
+        initial_worx_size = gf.primary_workspace.fetch().size_bytes
+
+        ds = gf.Dataset(name="test dataset", workspace=gf.primary_workspace).create()
+        ds2 = gf.Dataset(name="test dataset 2", workspace=gf.primary_workspace).create()
+
+        for dsi in [ds, ds2]:
+            actual_ds = gf.Dataset(api_id=dsi.api_id).fetch()
+            self.assertEqual(dsi.name, actual_ds.name)
+            self.assertEqual(dsi.workspace.api_id, actual_ds.workspace.api_id)
+
+        reference_revs = [gf.DatasetRevision(dataset=ds,
+                                             data=[gf.Data(name="test.bin", data=bytes([idx, idx+1, idx+2, idx+3]),
+                                             type=DataType.FILE)]).create()
+                          for idx in range(5)]
+
+        for idx, rev in enumerate(reference_revs):
+            rev2 = gf.DatasetRevision(api_id=rev.api_id).fetch()
+            self.assertEqual(rev.dataset.api_id, rev2.dataset.api_id)
+            self.assertEqual(rev.data[0].data, rev2.data[0].data)
+
+        actual_ds = gf.Dataset(api_id=ds.api_id).fetch()
+        actual_ds.fetch()  # fetch new revisions
+
+        actual_ds2 = gf.Dataset(api_id=ds2.api_id).fetch()
+        actual_ds2.fetch()  # fetch new revisions
+
+        for idx, rev in enumerate(reference_revs):
+            rev2 = actual_ds.revisions[idx].fetch()
+            self.assertEqual(rev.dataset.api_id, rev2.dataset.api_id)
+            self.assertEqual(rev.data[0].data, rev2.data[0].data)
+            self.assertEqual(rev2.data[0].data, bytes([idx, idx+1, idx+2, idx+3]))
+            self.assertEqual(rev2.size_bytes, 4)
+
+        self.assertEqual(actual_ds.size_bytes, 20)
+        self.assertEqual(gf.primary_workspace.fetch().size_bytes, initial_worx_size + 20)
+
+        # Delete a revision
+        reference_revs[0].delete(delete=True)
+        actual_ds.fetch()  # fetch new revisions
+        actual_ds2.fetch()  # fetch new revisions
+        self.assertEqual(len(actual_ds.revisions), 4)
+        self.assertEqual(actual_ds.size_bytes, 16)
+        self.assertEqual(len(actual_ds2.revisions), 0)
+        self.assertEqual(actual_ds2.size_bytes, 0)
+        self.assertEqual(gf.primary_workspace.fetch().size_bytes, initial_worx_size + 16)
+
+        # Make sure the new dataset appears in recents
+        recents = gf.primary_workspace.get_recents()
+        self.assertIn(ds.api_id, [x.api_id for x in recents.datasets])
+        self.assertIn(ds2.api_id, [x.api_id for x in recents.datasets])

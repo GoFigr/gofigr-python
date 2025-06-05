@@ -225,13 +225,19 @@ class LinkedEntityField(Field):
                                  sort_key=self.sort_key)
 
     def to_representation(self, value):
+        def _get_api_id(obj):
+            if isinstance(obj, str):
+                return obj
+            else:
+                return obj.api_id
+
         if value is None:
             return None
         elif self.many:
             sorted_value = value if self.sort_key is None else sorted(value, key=self.sort_key)
-            return [x.api_id for x in sorted_value]
+            return [_get_api_id(x) for x in sorted_value]
         else:
-            return value.api_id
+            return _get_api_id(value)
 
     def to_internal_value(self, gf, data):
         make_prefetched = lambda obj: self.entity_type(gf)(parse=True, **obj)
@@ -799,7 +805,7 @@ class OrganizationMembership(abc.ABC):
 
 
 
-Recents = namedtuple("Recents", ["analyses", "figures"])
+Recents = namedtuple("Recents", ["analyses", "figures", "datasets"])
 
 
 class LogsMixin:
@@ -990,7 +996,10 @@ class gf_Workspace(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
               "size_bytes",
               LinkedEntityField("organization", lambda gf: gf.Organization, many=False),
               LinkedEntityField("analyses", lambda gf: gf.Analysis, many=True, derived=True,
-                                backlink_property='workspace')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+                                backlink_property='workspace'),
+              LinkedEntityField("datasets", lambda gf: gf.Dataset, many=True, derived=True,
+                                backlink_property='workspace')
+              ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     include_if_none = ["organization"]
     endpoint = "workspace/"
 
@@ -1029,7 +1038,8 @@ class gf_Workspace(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
         data = response.json()
         analyses = [self._gf.Analysis(**datum) for datum in data.get("analyses", [])]
         figures = [self._gf.Figure(**datum) for datum in data.get("figures", [])]
-        return Recents(analyses, figures)
+        datasets = [self._gf.Dataset(**datum) for datum in data.get("datasets", [])]
+        return Recents(analyses, figures, datasets)
 
 
 class gf_Analysis(ShareableModelMixin, LogsMixin, ThumbnailMixin):
@@ -1072,6 +1082,19 @@ class gf_Figure(ShareableModelMixin, ThumbnailMixin):
                                 derived=True, backlink_property='figure')
               ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "figure/"
+
+
+class gf_Dataset(ShareableModelMixin, ThumbnailMixin):
+    """Represents a dataset"""
+    fields = ["api_id",
+              "name",
+              "description",
+              "size_bytes",
+              LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),
+              LinkedEntityField("revisions", lambda gf: gf.DatasetRevision, many=True,
+                                derived=True, backlink_property='dataset')
+              ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+    endpoint = "dataset/"
 
 
 class DataType(abc.ABC):
@@ -1417,17 +1440,7 @@ class gf_TableData(gf_Data):
         """
         self.data = value.to_csv().encode(self.encoding) if value is not None else None
 
-
-class gf_Revision(ShareableModelMixin, ThumbnailMixin):
-    """Represents a figure revision"""
-    fields = ["api_id", "revision_index", "size_bytes",
-              JSONField("metadata"),
-              LinkedEntityField("figure", lambda gf: gf.Figure, many=False),
-              DataField("data", lambda gf: gf.Data, many=True),
-              ] + TIMESTAMP_FIELDS
-
-    endpoint = "revision/"
-
+class RevisionMixin(ShareableModelMixin):
     def _replace_data_type(self, data_type, value):
         """\
         Because different data types (image, text, etc.) are stored in a flat list, this is a convenience
@@ -1519,9 +1532,20 @@ class gf_Revision(ShareableModelMixin, ThumbnailMixin):
         super()._update_properties(props, parse=parse)
         if self.data is None:
             self.data = []
-
-        self.data = [dat.specialize() for dat in self.data]
+        else:
+            self.data = [dat.specialize() for dat in self.data]
         return self
+
+
+class gf_Revision(RevisionMixin, ThumbnailMixin):
+    """Represents a figure revision"""
+    fields = ["api_id", "revision_index", "size_bytes",
+              JSONField("metadata"),
+              LinkedEntityField("figure", lambda gf: gf.Figure, many=False),
+              DataField("data", lambda gf: gf.Data, many=True),
+              ] + TIMESTAMP_FIELDS
+
+    endpoint = "revision/"
 
     @property
     def revision_url(self):
@@ -1572,6 +1596,17 @@ class gf_Revision(ShareableModelMixin, ThumbnailMixin):
     @text_data.setter
     def text_data(self, value):
         self._replace_data_type(DataType.TEXT, value)
+
+
+class gf_DatasetRevision(RevisionMixin, ThumbnailMixin):
+    """Represents a figure revision"""
+    fields = ["api_id", "revision_index", "size_bytes",
+              JSONField("metadata"),
+              LinkedEntityField("dataset", lambda gf: gf.Dataset, many=False),
+              DataField("data", lambda gf: gf.Data, many=True),
+              ] + TIMESTAMP_FIELDS
+
+    endpoint = "dataset_revision/"
 
 
 class gf_ApiKey(ModelMixin):
