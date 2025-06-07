@@ -1524,22 +1524,38 @@ class TestFlexStorage(MultiUserTestCase):
 
 
 class TestDatasets(GfTestCase):
-    def test_dataset_creation(self):
-        gf = make_gf()
-        initial_worx_size = gf.primary_workspace.fetch().size_bytes
+    def setUp(self):
+        self.gf = make_gf()
+        self.initial_worx_size = self.gf.primary_workspace.fetch().size_bytes
 
-        ds = gf.Dataset(name="test dataset", workspace=gf.primary_workspace).create()
-        ds2 = gf.Dataset(name="test dataset 2", workspace=gf.primary_workspace).create()
+        self.ds = self.gf.Dataset(name="test dataset", workspace=self.gf.primary_workspace).create()
+        self.ds2 = self.gf.Dataset(name="test dataset 2", workspace=self.gf.primary_workspace).create()
 
-        for dsi in [ds, ds2]:
-            actual_ds = gf.Dataset(api_id=dsi.api_id).fetch()
+        for dsi in [self.ds, self.ds2]:
+            actual_ds = self.gf.Dataset(api_id=dsi.api_id).fetch()
             self.assertEqual(dsi.name, actual_ds.name)
             self.assertEqual(dsi.workspace.api_id, actual_ds.workspace.api_id)
 
-        reference_revs = [gf.DatasetRevision(dataset=ds,
-                                             data=[gf.Data(name="test.bin", data=bytes([idx, idx+1, idx+2, idx+3]),
-                                             type=DataType.FILE)]).create()
+        self.reference_revs = [self.gf.DatasetRevision(dataset=self.ds,
+                                             data=[
+                                                 self.gf.Data(name="test.bin", data=bytes([idx, idx + 1, idx + 2, idx + 3]),
+                                                         type=DataType.FILE)]).create()
                           for idx in range(5)]
+
+    def test_find_hash(self):
+        for rev in self.reference_revs:
+            hits = self.gf.DatasetRevision.find_by_hash(rev.data[0].calculate_hash())
+            self.assertEqual(len(hits), 1)
+
+            onehit = hits[0].fetch()
+            self.assertEqual(onehit.api_id, rev.api_id)
+            self.assertIsNotNone(onehit.api_id)
+            self.assertEqual(onehit.data[0].calculate_hash(), rev.data[0].calculate_hash())
+            self.assertIsNotNone(onehit.data[0].calculate_hash())
+
+    def test_dataset_creation(self):
+        gf = make_gf()
+        gf, ds, ds2, reference_revs = self.gf, self.ds, self.ds2, self.reference_revs
 
         for idx, rev in enumerate(reference_revs):
             rev2 = gf.DatasetRevision(api_id=rev.api_id).fetch()
@@ -1560,7 +1576,7 @@ class TestDatasets(GfTestCase):
             self.assertEqual(rev2.size_bytes, 4)
 
         self.assertEqual(actual_ds.size_bytes, 20)
-        self.assertEqual(gf.primary_workspace.fetch().size_bytes, initial_worx_size + 20)
+        self.assertEqual(gf.primary_workspace.fetch().size_bytes, self.initial_worx_size + 20)
 
         # Delete a revision
         reference_revs[0].delete(delete=True)
@@ -1570,7 +1586,7 @@ class TestDatasets(GfTestCase):
         self.assertEqual(actual_ds.size_bytes, 16)
         self.assertEqual(len(actual_ds2.revisions), 0)
         self.assertEqual(actual_ds2.size_bytes, 0)
-        self.assertEqual(gf.primary_workspace.fetch().size_bytes, initial_worx_size + 16)
+        self.assertEqual(gf.primary_workspace.fetch().size_bytes, self.initial_worx_size + 16)
 
         # Make sure the new dataset appears in recents
         recents = gf.primary_workspace.get_recents()

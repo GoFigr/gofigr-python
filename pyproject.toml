@@ -20,7 +20,7 @@ keywords = ["science", "visualization", "version control", "plotting", "data", "
 dependencies = [
     "numpy", "pandas", "pyqrcode", "pillow", "matplotlib", "dateutils",
     "python-dateutil", "ipython", "requests", "pypng", "plotly", "kaleido",
-    "humanize"
+    "humanize", "blake3"
 ]
 requires-python = ">=3.8"
 

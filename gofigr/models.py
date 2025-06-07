@@ -19,6 +19,7 @@ import PIL
 import dateutil.parser
 
 import pandas as pd
+from blake3 import blake3
 
 from gofigr.exceptions import UnauthorizedError
 from gofigr.profile import MeasureExecution
@@ -1165,6 +1166,7 @@ class gf_Data(ModelMixin):
     fields = ["api_id",
               "name",
               "type",
+              "hash",
               "size_bytes",
               JSONField("metadata"),
               Base64Field("data")]
@@ -1191,6 +1193,24 @@ class gf_Data(ModelMixin):
 
         if self.local_id is None:
             self.local_id = str(uuid4())
+
+    def calculate_hash(self, hash_type="blake3"):
+        """\
+        Calculates the hash of the instance's data.
+
+        :param hash_type: The type of hash algorithm to use. Defaults to "blake3".
+                          Currently, only "blake3" is supported.
+        :type hash_type: str, optional
+        :return: The hexadecimal representation of the hash if data exists, otherwise None.
+        :rtype: str or None
+        :raises ValueError: If an unsupported hash_type is specified.
+        """
+        if not self.data:
+            return None
+        if hash_type == "blake3":
+            return blake3(self.data).hexdigest()
+        else:
+            raise ValueError(f"Unsupported hash type: {hash_type}")
 
     @property
     def local_id(self):
@@ -1607,6 +1627,17 @@ class gf_DatasetRevision(RevisionMixin, ThumbnailMixin):
               ] + TIMESTAMP_FIELDS
 
     endpoint = "dataset_revision/"
+
+    @classmethod
+    def find_by_hash(cls, hash, hash_type="blake3"):
+        if hash is None:
+            raise ValueError("Hash cannot be None")
+        elif hash_type is None:
+            raise ValueError("Hash type cannot be None")
+
+        response = cls._gf._get(urljoin(cls.endpoint, f'find_by_hash/{hash_type}/{hash.lower()}'),
+                                 expected_status=HTTPStatus.OK)
+        return [cls.from_json(datum) for datum in response.json()]
 
 
 class gf_ApiKey(ModelMixin):
