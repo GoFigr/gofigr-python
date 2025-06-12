@@ -179,7 +179,7 @@ class GoFigr:
     def sync(self):
         if not self._sync:
             self._sync = DatasetSync(self)
-        
+
         return self._sync
 
     def open(self, *args, **kwargs):
