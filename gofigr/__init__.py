@@ -173,7 +173,14 @@ class GoFigr:
         self._bind_models()
         self._bind_readers()
 
-        self.sync = DatasetSync(self)
+        self._sync = None
+
+    @property
+    def sync(self):
+        if not self._sync:
+            self._sync = DatasetSync(self)
+        
+        return self._sync
 
     def open(self, *args, **kwargs):
         return self.sync.open(*args, **kwargs)

@@ -1635,7 +1635,6 @@ class TestFigureDatasetAssociations(DatasetTestCase):
         for client, other_client in self.client_pairs:
             other_client.primary_workspace.fetch()
             other_ds1 = other_client.primary_workspace.datasets[0].fetch()
-            other_ds2 = other_client.primary_workspace.datasets[1].fetch()
 
             for worx in client.workspaces:
                 worx.fetch()
