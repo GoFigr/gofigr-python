@@ -198,7 +198,7 @@ class LinkedEntityField(Field):
     # pylint: disable=too-many-arguments
     def __init__(self, name, entity_type, many=False,
                  read_only=False, backlink_property=None, parent=None,
-                 derived=False, sort_key=None):
+                 derived=False, sort_key=None, nested=False):
         """\
 
         :param name: field name
@@ -209,6 +209,7 @@ class LinkedEntityField(Field):
         :param parent: parent object
         :param derived: True if derived (won't be transmitted through the API)
         :param sort_key: sort key (callable) for entities. None if no sort (default).
+        :param nested: True if this field is nested (i.e. it's embedded fully instead of linked by API ID)
 
         """
         super().__init__(name, parent=parent, derived=derived)
@@ -217,16 +218,20 @@ class LinkedEntityField(Field):
         self.read_only = read_only
         self.backlink_property = backlink_property
         self.sort_key = sort_key
+        self.nested = nested
 
     def clone(self):
         return LinkedEntityField(self.name, self.entity_type,
                                  many=self.many, read_only=self.read_only,
                                  backlink_property=self.backlink_property,
                                  parent=self.parent, derived=self.derived,
-                                 sort_key=self.sort_key)
+                                 sort_key=self.sort_key, nested=self.nested)
 
     def to_representation(self, value):
         def _get_api_id(obj):
+            if self.nested:
+                return obj.to_json()
+
             if isinstance(obj, str):
                 return obj
             else:
@@ -283,41 +288,6 @@ class DataField(LinkedEntityField):
         else:
             self._assert_not_shallow(value)
             return value.to_json()
-
-
-class NestedEntityField(Field):
-    """\
-    Represents a nested entity. Nested entities are embedded fully in the parent object's JSON representation
-    and cannot be manipulated on their own.
-    """
-    def __init__(self, name, entity_type, many=False, read_only=False, derived=False, parent=None):
-        super().__init__(name, parent=parent, derived=derived)
-        self.entity_type = entity_type
-        self.many = many
-        self.read_only = read_only
-
-    def clone(self):
-        return NestedEntityField(self.name, self.entity_type,
-                                 many=self.many,
-                                 read_only=self.read_only,
-                                 derived=self.derived,
-                                 parent=self.parent)
-
-    def to_representation(self, value):
-        if value is None:
-            return None
-        elif self.many:
-            return [x.to_json() for x in value]
-        else:
-            return value.to_json()
-
-    def to_internal_value(self, gf, data):
-        make_one = lambda d: self.entity_type(gf).from_json(d)
-        if self.many:
-            coltype = tuple if self.read_only else list
-            return coltype([make_one(d) for d in data])
-        else:
-            return make_one(data)
 
 
 class NestedMixin(abc.ABC):
@@ -1097,6 +1067,16 @@ class gf_Dataset(ShareableModelMixin, ThumbnailMixin):
               ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "dataset/"
 
+    @classmethod
+    def find_by_name(cls, name):
+        if name is None:
+            raise ValueError("Name cannot be None")
+
+        response = cls._gf._post(urljoin(cls.endpoint, 'find_by_name/'),
+                                json={'name': name},
+                                expected_status=HTTPStatus.OK)
+        return [cls.from_json(datum) for datum in response.json()]
+
 
 class DataType(abc.ABC):
     """\
@@ -1557,11 +1537,20 @@ class RevisionMixin(ShareableModelMixin):
         return self
 
 
+class gf_DatasetLinkedToFigure(ModelMixin):
+    fields = ["use_type",
+              LinkedEntityField("figure_revision", lambda gf: gf.Revision, many=False),
+              LinkedEntityField("dataset_revision", lambda gf: gf.DatasetRevision, many=False)]
+    endpoint = None
+
+
 class gf_Revision(RevisionMixin, ThumbnailMixin):
     """Represents a figure revision"""
     fields = ["api_id", "revision_index", "size_bytes",
               JSONField("metadata"),
               LinkedEntityField("figure", lambda gf: gf.Figure, many=False),
+              LinkedEntityField("datasets", lambda gf: gf.DatasetLinkedToFigure, many=True, nested=True,
+                                sort_key=lambda ds: ds.use_type),
               DataField("data", lambda gf: gf.Data, many=True),
               ] + TIMESTAMP_FIELDS
 
@@ -1635,7 +1624,8 @@ class gf_DatasetRevision(RevisionMixin, ThumbnailMixin):
         elif hash_type is None:
             raise ValueError("Hash type cannot be None")
 
-        response = cls._gf._get(urljoin(cls.endpoint, f'find_by_hash/{hash_type}/{hash.lower()}'),
+        response = cls._gf._post(urljoin(cls.endpoint, f'find_by_hash/'),
+                                 json={'digest': hash, 'hash_type': hash_type},
                                  expected_status=HTTPStatus.OK)
         return [cls.from_json(datum) for datum in response.json()]
 

@@ -3,7 +3,9 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+import contextlib
 import inspect
+import warnings
 from json import dumps as json_dumps
 import logging
 
@@ -13,6 +15,7 @@ from PIL import Image
 
 from gofigr.exceptions import UnauthorizedError, MethodNotAllowedError
 from gofigr.models import *
+from gofigr.utils import from_config_or_env
 
 LOGGER = logging.getLogger(__name__)
 
@@ -21,6 +24,9 @@ API_VERSION = "v1.2"
 
 APP_URL = "https://app.gofigr.io"
 
+PANDAS_READERS = ["read_csv", "read_excel", "read_json", "read_html", "read_parquet", "read_feather",
+                  "read_hdf", "read_pickle", "read_sas"]
+REVISION_ATTR = "_gofigr_revision"
 
 def assert_one(elements, error_none=None, error_many=None):
     """\
@@ -127,12 +133,15 @@ class GoFigr:
     sharing, retrieval of user information, etc.
 
     """
+
+    @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
     def __init__(self,
                  username=None,
                  password=None,
                  api_key=None,
                  url=API_URL,
                  authenticate=True,
+                 workspace_id=None,
                  anonymous=False):
         """\
 
@@ -142,6 +151,7 @@ class GoFigr:
         :param url: API URL
         :param authenticate: whether to authenticate right away. If False, authentication will happen during
         the first request.
+        :param workspace_id: workspace ID to use for all requests. If None, will use the primary workspace.
         :param anonymous: True for anonymous access. Default False.
 
         """
@@ -150,7 +160,7 @@ class GoFigr:
         self.password = password
         self.api_key = api_key
         self.anonymous = anonymous
-
+        self.workspace_id = workspace_id
         self._primary_workspace = None
 
         # Tokens for JWT authentication
@@ -161,11 +171,17 @@ class GoFigr:
             self.authenticate()
 
         self._bind_models()
+        self._bind_readers()
+
+        self.sync = DatasetSync(self)
+
+    def open(self, *args, **kwargs):
+        return self.sync.open(*args, **kwargs)
 
     @property
     def app_url(self):
         """Returns the URL to the GoFigr app"""
-        return self.service_url.replace("api", "app").replace(":8000", ":3000")
+        return self.service_url.replace("api", "app").replace(":8000", ":5173")
 
     def _bind_models(self):
         """\
@@ -457,6 +473,11 @@ class GoFigr:
         self._primary_workspace = pw
         return self._primary_workspace
 
+    def _bind_readers(self):
+        for name in PANDAS_READERS:
+            # Store name in closure scope
+            (lambda bound_name: setattr(self, name, lambda *args, **kwargs: getattr(self.sync, bound_name)(*args, **kwargs)))(name)
+
 
 def load_ipython_extension(ip):
     """\
@@ -470,3 +491,124 @@ def load_ipython_extension(ip):
     # pylint: disable=import-outside-toplevel
     from gofigr.jupyter import _load_ipython_extension
     return _load_ipython_extension(ip)
+
+
+class DatasetSync:
+    def __init__(self, gf, workspace_id=None):
+        self.gf = gf
+        self.workspace_id = workspace_id or self.gf.primary_workspace.api_id
+        self.revision_cache = {}
+        self._bind_readers()
+
+        logging.debug(f"Using workspace ID {self.workspace_id}")
+
+    @property
+    def revisions(self):
+        return self.revision_cache.values()
+
+    def _new_dataset(self, pathlike):
+        logging.debug(f"Creating new dataset for {pathlike}")
+        ds = self.gf.Dataset(name=os.path.basename(pathlike), workspace=self.gf.Workspace(api_id=self.workspace_id))
+        ds.create()
+        logging.debug(f"Created dataset {ds.api_id}")
+        return ds
+
+    def _new_revision(self, pathlike):
+        logging.debug("New revision detected. Syncing...")
+        datasets = self.gf.Dataset.find_by_name(os.path.basename(pathlike))
+        logging.debug(f"Found datasets: {datasets}")
+
+        # First, figure out which dataset we're syncing to
+        if len(datasets) == 0:
+            ds = self._new_dataset(pathlike)
+        elif len(datasets) == 1:
+            ds = datasets[0]
+        else:
+            warnings.warn(f"Multiple datasets with the same name found. Defaulting to first: "
+                          f"{[d.api_id for d in datasets]}")
+            ds = datasets[0]
+
+        logging.debug(f"Creating a new revision for dataset {ds.api_id} with path {pathlike}")
+
+        # Now create the revision under the dataset
+        rev = self.gf.DatasetRevision(dataset=ds,
+                                      data=[self.gf.FileData.read(pathlike)]).create()
+        return rev
+
+    def _log(self, revision):
+        self.revision_cache[revision.api_id] = revision
+        logging.debug(f"Logged revision {revision.api_id} for dataset {revision.dataset.api_id}")
+        logging.debug(f"Current revision cache: {self.revision_cache.keys()}")
+        return revision
+
+    def sync(self, pathlike):
+        # Grab the checksum
+        logging.debug(f"Syncing {pathlike}")
+
+        checksum = self._calc_checksum(pathlike)
+        if checksum is None:
+            warnings.warn(f"Unable to calculate checksum for {pathlike}. Skipping sync.")
+            return None
+
+        logging.debug(f"Calculated checksum for {pathlike}: {checksum}")
+
+        # Check if we already have this dataset
+        revisions = self.gf.DatasetRevision.find_by_hash(checksum, "blake3")
+
+        if len(revisions) == 0:
+            return self._log(self._new_revision(pathlike))
+        elif len(revisions) == 1:
+            logging.debug(f"Found existing revision {revisions[0].api_id}")
+            return self._log(revisions[0])
+        else:
+            logging.debug(f"Found existing revisions: {[rev.api_id for rev in revisions]}")
+            warnings.warn(f"Multiple datasets with the same checksum found. Defaulting to first: "
+                          f"{[d.api_id for d in revisions]}")
+            return self._log(revisions[0])
+
+
+    @contextlib.contextmanager
+    def open_with_revision(self, pathlike, *args, **kwargs):
+        io = None
+        try:
+            rev = self.sync(pathlike)
+            logging.info(f"Dataset synced: {rev.app_url}")
+            io = open(pathlike, *args, **kwargs)
+            yield io, rev
+        finally:
+            if io is not None and not io.closed:
+                io.close()
+
+    @contextlib.contextmanager
+    def open(self, pathlike, *args, **kwargs):
+        with self.open_with_revision(pathlike, *args, **kwargs) as (io, rev):
+            yield io
+
+    def _wrap_reader(self, func):
+        def wrapper(pathlike, *args, **kwargs):
+            logging.debug(f"Calling {func.__name__} for {pathlike}")
+            with self.open_with_revision(pathlike, 'rb') as (f, rev):
+                frame = func(f, *args, **kwargs)
+                frame.attrs = {REVISION_ATTR: rev.api_id}
+                return frame
+        return wrapper
+
+    def _calc_checksum(self, pathlike):
+        try:
+            path = os.fspath(pathlike)
+            if os.path.exists(path):
+                file_hasher = blake3(max_threads=blake3.AUTO)
+                file_hasher.update_mmap(path)
+                return file_hasher.hexdigest()
+            else:
+                warnings.warn(
+                    "Non-local paths aren't supported yet. Please consider submitting an issue here: https://github.com/GoFigr/gofigr-python/issues")
+                return None
+        except TypeError:
+            warnings.warn(
+                "This type of input isn't supported yet. Please consider submitting an issue here: https://github.com/GoFigr/gofigr-python/issues")
+            return None
+
+    def _bind_readers(self):
+        for name in PANDAS_READERS:
+            setattr(self, name, self._wrap_reader(getattr(pd, name)))

@@ -6,9 +6,7 @@ All rights reserved.
 # pylint: disable=cyclic-import, no-member, global-statement, protected-access, wrong-import-order, ungrouped-imports
 # pylint: disable=too-many-locals
 
-import inspect
 import io
-import json
 import os
 import pickle
 import sys
@@ -18,9 +16,7 @@ from pathlib import Path
 from uuid import UUID
 
 import PIL
-import six
 
-import gofigr.databricks
 from gofigr import GoFigr, API_URL, UnauthorizedError
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
     PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator, \
@@ -31,6 +27,7 @@ from gofigr.backends.plotly import PlotlyBackend
 from gofigr.context import RevisionContext
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
+from gofigr.utils import from_config_or_env
 from gofigr.watermarks import DefaultWatermark
 from gofigr.widget import DetailedWidget, StartupWidget
 
@@ -809,58 +806,6 @@ class Publisher:
             self.widget_class(rev).show()
 
         return rev
-
-
-def from_config_or_env(env_prefix, config_path):
-    """\
-    Decorator that binds function arguments in order of priority (most important first):
-    1. args/kwargs
-    2. environment variables
-    3. vendor-specific secret manager
-    4. config file
-    5. function defaults
-
-    :param env_prefix: prefix for environment variables. Variables are assumed to be named \
-    `<prefix> + <name of function argument in all caps>`, e.g. if prefix is ``MYAPP`` and function argument \
-    is called host_name, we'll look for an \
-    environment variable named ``MYAPP_HOST_NAME``.
-    :param config_path: path to the JSON config file. Function arguments will be looked up using their verbatim names.
-    :return: decorated function
-
-    """
-    def decorator(func):
-        @six.wraps(func)
-        def wrapper(*args, **kwargs):
-            # Read config file, if it exists
-            if os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    try:
-                        config_file = json.load(f)
-                    except Exception as e:
-                        raise RuntimeError(f"Error parsing configuration file {config_path}") from e
-            else:
-                config_file = {}
-
-            dbconfig = gofigr.databricks.get_config() or {}
-
-            sig = inspect.signature(func)
-            param_values = sig.bind_partial(*args, **kwargs).arguments
-            for param_name in sig.parameters:
-                env_name = f'{env_prefix}{param_name.upper()}'
-                if param_name in param_values:
-                    continue  # value supplied through args/kwargs: ignore env variables and the config file.
-                elif env_name in os.environ:
-                    param_values[param_name] = os.environ[env_name]
-                elif param_name in dbconfig:
-                    param_values[param_name] = dbconfig[param_name]
-                elif param_name in config_file:
-                    param_values[param_name] = config_file[param_name]
-
-            return func(**param_values)
-
-        return wrapper
-
-    return decorator
 
 
 def find_workspace_by_name(gf, search):

@@ -14,7 +14,7 @@ from argparse import ArgumentParser
 from teamcity.messages import TeamcityServiceMessages
 
 from gofigr import GoFigr
-from gofigr.jupyter import from_config_or_env
+from gofigr.utils import from_config_or_env
 
 
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
