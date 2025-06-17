@@ -5,17 +5,19 @@ All rights reserved.
 """
 import contextlib
 import inspect
+import logging
 import warnings
 from json import dumps as json_dumps
-import logging
 
 import requests
-from requests import Session
 from PIL import Image
+from requests import Session
 
+from gofigr.context import RevisionContext
 from gofigr.exceptions import UnauthorizedError, MethodNotAllowedError
 from gofigr.models import *
 from gofigr.utils import from_config_or_env
+from gofigr.widget import DatasetWidget
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,6 +29,7 @@ APP_URL = "https://app.gofigr.io"
 PANDAS_READERS = ["read_csv", "read_excel", "read_json", "read_html", "read_parquet", "read_feather",
                   "read_hdf", "read_pickle", "read_sas"]
 REVISION_ATTR = "_gofigr_revision"
+
 
 def assert_one(elements, error_none=None, error_many=None):
     """\
@@ -142,7 +145,8 @@ class GoFigr:
                  url=API_URL,
                  authenticate=True,
                  workspace_id=None,
-                 anonymous=False):
+                 anonymous=False,
+                 data_log=None):
         """\
 
         :param username: username to connect with
@@ -153,6 +157,7 @@ class GoFigr:
         the first request.
         :param workspace_id: workspace ID to use for all requests. If None, will use the primary workspace.
         :param anonymous: True for anonymous access. Default False.
+        :param data_log: log of datasets referenced by this instance
 
         """
         self.service_url = url
@@ -161,6 +166,7 @@ class GoFigr:
         self.api_key = api_key
         self.anonymous = anonymous
         self.workspace_id = workspace_id
+        self.data_log = data_log if data_log is not None else dict()
         self._primary_workspace = None
 
         # Tokens for JWT authentication
@@ -178,7 +184,7 @@ class GoFigr:
     @property
     def sync(self):
         if not self._sync:
-            self._sync = DatasetSync(self)
+            self._sync = DatasetSync(self, data_log=self.data_log)
 
         return self._sync
 
@@ -501,17 +507,20 @@ def load_ipython_extension(ip):
 
 
 class DatasetSync:
-    def __init__(self, gf, workspace_id=None):
+    def __init__(self, gf, workspace_id=None, data_log=None):
         self.gf = gf
         self.workspace_id = workspace_id or self.gf.primary_workspace.api_id
-        self.revision_cache = {}
+        self.data_log = data_log if data_log is not None else dict()
         self._bind_readers()
 
         logging.debug(f"Using workspace ID {self.workspace_id}")
 
     @property
     def revisions(self):
-        return self.revision_cache.values()
+        return self.data_log.values()
+
+    def clear_revisions(self):
+        self.data_log.clear()
 
     def _new_dataset(self, pathlike):
         logging.debug(f"Creating new dataset for {pathlike}")
@@ -542,10 +551,11 @@ class DatasetSync:
                                       data=[self.gf.FileData.read(pathlike)]).create()
         return rev
 
-    def _log(self, revision):
-        self.revision_cache[revision.api_id] = revision
+    def _log(self, revision, is_new_revision=False):
+        revision.is_new_revision = is_new_revision
+        self.data_log[revision.api_id] = revision
         logging.debug(f"Logged revision {revision.api_id} for dataset {revision.dataset.api_id}")
-        logging.debug(f"Current revision cache: {self.revision_cache.keys()}")
+        logging.debug(f"Current revision cache: {self.data_log.keys()}")
         return revision
 
     def sync(self, pathlike):
@@ -563,7 +573,7 @@ class DatasetSync:
         revisions = self.gf.DatasetRevision.find_by_hash(checksum, "blake3")
 
         if len(revisions) == 0:
-            return self._log(self._new_revision(pathlike))
+            return self._log(self._new_revision(pathlike), is_new_revision=True)
         elif len(revisions) == 1:
             logging.debug(f"Found existing revision {revisions[0].api_id}")
             return self._log(revisions[0])
@@ -579,7 +589,10 @@ class DatasetSync:
         io = None
         try:
             rev = self.sync(pathlike)
-            logging.info(f"Dataset synced: {rev.app_url}")
+            if rev:
+                logging.info(f"Dataset synced: {rev.app_url}")
+                DatasetWidget().show(rev)
+
             io = open(pathlike, *args, **kwargs)
             yield io, rev
         finally:
@@ -619,3 +632,5 @@ class DatasetSync:
     def _bind_readers(self):
         for name in PANDAS_READERS:
             setattr(self, name, self._wrap_reader(getattr(pd, name)))
+
+

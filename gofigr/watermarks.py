@@ -164,7 +164,7 @@ class DefaultWatermark:
 
         qr_img = None
         if self.show_qr_code:
-            qr_img = _qr_to_image(f'{APP_URL}/r/{revision.api_id}', scale=self.qr_scale,
+            qr_img = _qr_to_image(identifier_text, scale=self.qr_scale,
                                   module_color=self.qr_foreground,
                                   background=self.qr_background)
             qr_img = add_margins(qr_img, self.margin_px)

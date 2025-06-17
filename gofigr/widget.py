@@ -295,10 +295,43 @@ class StartupWidget(WidgetBase):
                             
                             <div style="margin-top: auto; margin-bottom: auto;">
                                 <span style="font-weight: bold">GoFigr active</span>. 
-                                Workspace: {self.get_link(self.extension.workspace)}. 
-                                Analysis: {self.get_link(self.extension.analysis)}. 
+                                Workspace: {self.get_link(self.extension.publisher.workspace)}. 
+                                Analysis: {self.get_link(self.extension.publisher.analysis)}. 
                                 Autopublish: {self.extension.auto_publish}.
                             </div>
                         </div>
                         
+                    </div>"""))
+
+
+class DatasetWidget(WidgetBase):
+    """Generates a GoFigr startup widget"""
+
+    def __init__(self):
+        super().__init__()
+
+    def get_link(self, obj):
+        """Gets the app link to a GoFigr object"""
+        if not obj.dataset.name:
+            obj.dataset.fetch()
+        return f"""<a style="margin-left: 0.25em" href={obj.app_url}>{obj.dataset.name}</a>"""
+
+    def show(self, rev):
+        """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
+        logo_b64 = self.get_logo_b64()
+        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+            style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>"""
+
+        return display(HTML(f"""
+                    <div style="{WIDGET_STYLE}">
+                        <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
+                            <!-- Logo -->
+                            {logo_html}      
+
+                            <div style="margin-top: auto; margin-bottom: auto;">
+                                <span style="font-weight: bold">Dataset: </span>
+                                {self.get_link(rev)} {"(new revision)" if rev.is_new_revision else "(existing revision)"}.
+                            </div>
+                        </div>
+
                     </div>"""))

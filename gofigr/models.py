@@ -486,7 +486,11 @@ class ModelMixin(abc.ABC):
         return self._gf._delete(urljoin(self.endpoint, self.api_id + "/"))
 
     def __repr__(self):
-        return str(self.to_json())
+        str_val = str(self.to_json())
+        if len(str_val) > 2048:
+            return f"{str_val[:2045]}..."
+        else:
+            return str_val
 
 
 class LinkSharingStatus(NestedMixin):

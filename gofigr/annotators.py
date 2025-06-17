@@ -4,6 +4,7 @@ All rights reserved.
 
 """
 import json
+import logging
 import os
 import re
 import subprocess
@@ -11,7 +12,9 @@ import sys
 from abc import ABC
 from urllib.parse import unquote, urlparse
 
-from gofigr import CodeLanguage
+import git
+
+from gofigr.models import CodeLanguage
 from gofigr.context import RevisionContext
 from gofigr.databricks import get_dbutils
 
@@ -91,6 +94,57 @@ class PipFreezeAnnotator(Annotator):
                 output = e.output
 
         revision.data.append(revision.client.TextData(name="pip freeze", contents=output))
+        return revision
+
+
+class GitAnnotator(Annotator):
+    """Annotates revisions with Git information"""
+
+    def annotate(self, revision):
+        """
+        Generates a link for the current commit of a local repository.
+        """
+        try:
+            # 1. Initialize the repository object
+            repo = git.Repo(".", search_parent_directories=True)
+
+            try:
+                branch_name = repo.active_branch.name
+            except TypeError:
+                branch_name = "Detached HEAD"
+
+            # 2. Get the current commit hash
+            commit_hash = repo.head.commit.hexsha
+
+            # 3. Get the URL of the 'origin' remote
+            remote_url = repo.remotes.origin.url
+
+            # 4. Clean and reformat the remote URL to a standard HTTPS format
+            #    Handles both SSH (git@github.com:user/repo.git) and HTTPS formats
+            http_url = re.sub(r'\.git$', '', remote_url)  # Remove .git suffix
+            if http_url.startswith('git@'):
+                # Convert SSH URL to HTTPS
+                http_url = http_url.replace(':', '/').replace('git@', 'https://', 1)
+
+            # 5. Construct the final commit link
+            if 'github.com' in http_url.lower():
+                commit_link = f"{http_url}/commit/{commit_hash}"
+            elif 'bitbucket.org' in http_url.lower():
+                commit_link = f"{http_url}/commits/{commit_hash}"
+            else:
+                commit_link = None
+
+            revision.metadata['git'] = {'branch': branch_name,
+                                        'hash': commit_hash,
+                                        'remote_url': remote_url,
+                                        'commit_link': commit_link}
+
+        except git.exc.InvalidGitRepositoryError:
+            logging.debug("Error: Not a valid git repository.")
+        except Exception as e:
+            logging.debug(f"An unexpected error occurred: {e}")
+            return None
+
         return revision
 
 
