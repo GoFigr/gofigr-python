@@ -306,9 +306,9 @@ class StartupWidget(WidgetBase):
 
 class DatasetWidget(WidgetBase):
     """Generates a GoFigr startup widget"""
-
-    def __init__(self):
+    def __init__(self, rev):
         super().__init__()
+        self.rev = rev
 
     def get_link(self, obj):
         """Gets the app link to a GoFigr object"""
@@ -316,7 +316,7 @@ class DatasetWidget(WidgetBase):
             obj.dataset.fetch()
         return f"""<a style="margin-left: 0.25em" href={obj.app_url}>{obj.dataset.name}</a>"""
 
-    def show(self, rev):
+    def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
         logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
@@ -330,7 +330,7 @@ class DatasetWidget(WidgetBase):
 
                             <div style="margin-top: auto; margin-bottom: auto;">
                                 <span style="font-weight: bold">Dataset: </span>
-                                {self.get_link(rev)} {"(new revision)" if rev.is_new_revision else "(existing revision)"}.
+                                {self.get_link(self.rev)} {"(new revision)" if self.rev.is_new_revision else "(existing revision)"}.
                             </div>
                         </div>
 

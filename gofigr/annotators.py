@@ -141,7 +141,7 @@ class GitAnnotator(Annotator):
 
         except git.exc.InvalidGitRepositoryError:
             logging.debug("Error: Not a valid git repository.")
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             logging.debug(f"An unexpected error occurred: {e}")
             return None
 

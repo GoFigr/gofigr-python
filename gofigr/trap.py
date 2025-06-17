@@ -1,7 +1,20 @@
+"""\
+Copyright (c) 2022-2025, Flagstaff Solutions, LLC
+All rights reserved.
+
+"""
+
 DISPLAY_TRAP = None
 
 
 def set_trap(func):
+    """\
+    Sets a display trap
+
+    :param func: function to call whenever data is being displayed
+    :return: trap function
+
+    """
     global DISPLAY_TRAP
     DISPLAY_TRAP = func
     return func

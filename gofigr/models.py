@@ -1073,6 +1073,13 @@ class gf_Dataset(ShareableModelMixin, ThumbnailMixin):
 
     @classmethod
     def find_by_name(cls, name):
+        """\
+        Finds a dataset by name.
+
+        :param name: name to search for
+        :return: Dataset instances, or empty list if not found
+
+        """
         if name is None:
             raise ValueError("Name cannot be None")
 
@@ -1192,7 +1199,7 @@ class gf_Data(ModelMixin):
         if not self.data:
             return None
         if hash_type == "blake3":
-            return blake3(self.data).hexdigest()
+            return blake3(self.data).hexdigest()  # pylint: disable=not-callable
         else:
             raise ValueError(f"Unsupported hash type: {hash_type}")
 
@@ -1445,6 +1452,8 @@ class gf_TableData(gf_Data):
         self.data = value.to_csv().encode(self.encoding) if value is not None else None
 
 class RevisionMixin(ShareableModelMixin):
+    """Base class for revisions, e.g. FigureRevision or DatasetRevision"""
+
     def _replace_data_type(self, data_type, value):
         """\
         Because different data types (image, text, etc.) are stored in a flat list, this is a convenience
@@ -1542,6 +1551,8 @@ class RevisionMixin(ShareableModelMixin):
 
 
 class gf_DatasetLinkedToFigure(ModelMixin):
+    """Many-to-many relationship between figure and dataset revisions"""
+
     fields = ["use_type",
               LinkedEntityField("figure_revision", lambda gf: gf.Revision, many=False),
               LinkedEntityField("dataset_revision", lambda gf: gf.DatasetRevision, many=False)]
@@ -1622,14 +1633,22 @@ class gf_DatasetRevision(RevisionMixin, ThumbnailMixin):
     endpoint = "dataset_revision/"
 
     @classmethod
-    def find_by_hash(cls, hash, hash_type="blake3"):
-        if hash is None:
+    def find_by_hash(cls, digest, hash_type="blake3"):
+        """\
+        Finds a dataset revision by its hash.
+
+        :param digest: digest hash (text)
+        :param hash_type: type of hash (only blake3 supported)
+        :return: list of matching dataset revisions, or empty list if not found
+
+        """
+        if digest is None:
             raise ValueError("Hash cannot be None")
         elif hash_type is None:
             raise ValueError("Hash type cannot be None")
 
-        response = cls._gf._post(urljoin(cls.endpoint, f'find_by_hash/'),
-                                 json={'digest': hash, 'hash_type': hash_type},
+        response = cls._gf._post(urljoin(cls.endpoint, 'find_by_hash/'),
+                                 json={'digest': digest, 'hash_type': hash_type},
                                  expected_status=HTTPStatus.OK)
         return [cls.from_json(datum) for datum in response.json()]
 

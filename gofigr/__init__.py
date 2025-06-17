@@ -130,6 +130,7 @@ class UserInfo:
         return str(self) == str(other)
 
 
+# pylint: disable=too-many-instance-attributes
 class GoFigr:
     """\
     The GoFigr client. Handles all communication with the API: authentication, figure creation and manipulation,
@@ -155,7 +156,7 @@ class GoFigr:
         :param url: API URL
         :param authenticate: whether to authenticate right away. If False, authentication will happen during
         the first request.
-        :param workspace_id: workspace ID to use for all requests. If None, will use the primary workspace.
+        :param workspace_id: workspace ID to use for data syncing. Defaults to primary workspace.
         :param anonymous: True for anonymous access. Default False.
         :param data_log: log of datasets referenced by this instance
 
@@ -166,7 +167,7 @@ class GoFigr:
         self.api_key = api_key
         self.anonymous = anonymous
         self.workspace_id = workspace_id
-        self.data_log = data_log if data_log is not None else dict()
+        self.data_log = data_log if data_log is not None else {}
         self._primary_workspace = None
 
         # Tokens for JWT authentication
@@ -183,12 +184,14 @@ class GoFigr:
 
     @property
     def sync(self):
+        """Returns the default DatasetSync object"""
         if not self._sync:
             self._sync = DatasetSync(self, data_log=self.data_log)
 
         return self._sync
 
     def open(self, *args, **kwargs):
+        """Opens a file using the default DataSync object"""
         return self.sync.open(*args, **kwargs)
 
     @property
@@ -487,9 +490,12 @@ class GoFigr:
         return self._primary_workspace
 
     def _bind_readers(self):
+        def _bind_one(name):
+            # pylint: disable=unnecessary-lambda
+            setattr(self, name, lambda *args, **kwargs: getattr(self.sync, name)(*args, **kwargs))
+
         for name in PANDAS_READERS:
-            # Store name in closure scope
-            (lambda bound_name: setattr(self, name, lambda *args, **kwargs: getattr(self.sync, bound_name)(*args, **kwargs)))(name)
+            _bind_one(name)
 
 
 def load_ipython_extension(ip):
@@ -507,22 +513,43 @@ def load_ipython_extension(ip):
 
 
 class DatasetSync:
+    """Provides drop-in replacements for open, read_xlsx, read_csv which version the data with the GoFigr service."""
+
     def __init__(self, gf, workspace_id=None, data_log=None):
+        """\
+
+        :param gf: GoFigr instance
+        :param workspace_id: workspace to sync under
+        :param data_log: dictionary of data revision IDs -> data revision objects
+        """
         self.gf = gf
         self.workspace_id = workspace_id or self.gf.primary_workspace.api_id
-        self.data_log = data_log if data_log is not None else dict()
+        self.data_log = data_log if data_log is not None else {}
         self._bind_readers()
 
         logging.debug(f"Using workspace ID {self.workspace_id}")
 
     @property
     def revisions(self):
+        """\
+        Returns all revisions in the log.
+        """
         return self.data_log.values()
 
     def clear_revisions(self):
+        """\
+        Clears the revision log
+        """
         self.data_log.clear()
 
     def _new_dataset(self, pathlike):
+        """\
+        Creates a new dataset from the given pathlike object.
+
+        :param pathlike: local path to the dataset e.g. ~/test.txt
+        :return: Dataset instance
+
+        """
         logging.debug(f"Creating new dataset for {pathlike}")
         ds = self.gf.Dataset(name=os.path.basename(pathlike), workspace=self.gf.Workspace(api_id=self.workspace_id))
         ds.create()
@@ -530,6 +557,11 @@ class DatasetSync:
         return ds
 
     def _new_revision(self, pathlike):
+        """\
+        Creates a new revision from the given pathlike object. The revision will be created under an
+        existing Dataset if one with the same basename already eixsts. Otherwise, a new dataset will be created.
+
+        """
         logging.debug("New revision detected. Syncing...")
         datasets = self.gf.Dataset.find_by_name(os.path.basename(pathlike))
         logging.debug(f"Found datasets: {datasets}")
@@ -552,6 +584,10 @@ class DatasetSync:
         return rev
 
     def _log(self, revision, is_new_revision=False):
+        """\
+        Stores a revision in the log.
+
+        """
         revision.is_new_revision = is_new_revision
         self.data_log[revision.api_id] = revision
         logging.debug(f"Logged revision {revision.api_id} for dataset {revision.dataset.api_id}")
@@ -559,6 +595,14 @@ class DatasetSync:
         return revision
 
     def sync(self, pathlike):
+        """\
+        Syncs a dataset: calculates the checksum for the file and either uploads it to GoFigr (if checksum isn't found)
+        or returns the existing revision.
+
+        :param pathlike: path to the file
+        :return: DataRevision instance
+
+        """
         # Grab the checksum
         logging.debug(f"Syncing {pathlike}")
 
@@ -585,52 +629,57 @@ class DatasetSync:
 
 
     @contextlib.contextmanager
-    def open_with_revision(self, pathlike, *args, **kwargs):
-        io = None
+    def open_and_get_revision(self, pathlike, *args, **kwargs):
+        """Syncs the data at pathlike with GoFigr and returns a tuple of file handle, DataRevision instance."""
+        f = None
         try:
             rev = self.sync(pathlike)
             if rev:
                 logging.info(f"Dataset synced: {rev.app_url}")
-                DatasetWidget().show(rev)
+                DatasetWidget(rev).show()
 
-            io = open(pathlike, *args, **kwargs)
-            yield io, rev
+            f = open(pathlike, *args, **kwargs)  # pylint: disable=unspecified-encoding
+            yield f, rev
         finally:
-            if io is not None and not io.closed:
-                io.close()
+            if f is not None and not f.closed:
+                f.close()
 
     @contextlib.contextmanager
     def open(self, pathlike, *args, **kwargs):
-        with self.open_with_revision(pathlike, *args, **kwargs) as (io, rev):
-            yield io
+        """Syncs the data at pathlike with GoFigr and returns an open file handle. Drop-in replacement for open()."""
+        with self.open_and_get_revision(pathlike, *args, **kwargs) as (f, _):
+            yield f
 
     def _wrap_reader(self, func):
+        """Wraps a pandas reader function (e.g. read_csv) to provide data versioning and sync."""
         def wrapper(pathlike, *args, **kwargs):
             logging.debug(f"Calling {func.__name__} for {pathlike}")
-            with self.open_with_revision(pathlike, 'rb') as (f, rev):
+            with self.open_and_get_revision(pathlike, 'rb') as (f, rev):
                 frame = func(f, *args, **kwargs)
                 frame.attrs = {REVISION_ATTR: rev.api_id}
                 return frame
         return wrapper
 
     def _calc_checksum(self, pathlike):
+        """Calculates a checksum for a file"""
         try:
             path = os.fspath(pathlike)
             if os.path.exists(path):
-                file_hasher = blake3(max_threads=blake3.AUTO)
+                file_hasher = blake3(max_threads=blake3.AUTO)  # pylint: disable=not-callable
                 file_hasher.update_mmap(path)
                 return file_hasher.hexdigest()
             else:
                 warnings.warn(
-                    "Non-local paths aren't supported yet. Please consider submitting an issue here: https://github.com/GoFigr/gofigr-python/issues")
+                    "Non-local paths aren't supported yet. Please consider submitting an issue here: "
+                    "https://github.com/GoFigr/gofigr-python/issues")
                 return None
         except TypeError:
             warnings.warn(
-                "This type of input isn't supported yet. Please consider submitting an issue here: https://github.com/GoFigr/gofigr-python/issues")
+                "This type of input isn't supported yet. Please consider submitting an issue here: "
+                "https://github.com/GoFigr/gofigr-python/issues")
             return None
 
     def _bind_readers(self):
+        """Binds all supported pandas reader functions."""
         for name in PANDAS_READERS:
             setattr(self, name, self._wrap_reader(getattr(pd, name)))
-
-

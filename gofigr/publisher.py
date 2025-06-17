@@ -3,6 +3,8 @@ Copyright (c) 2023-2025, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+# pylint: disable=protected-access, ungrouped-imports
+
 import io
 import os
 import pickle
@@ -15,12 +17,10 @@ from IPython.core.display_functions import display
 from gofigr import GoFigr, MeasureExecution, RevisionContext, UnauthorizedError
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
     PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator, \
-    GitAnnotator
-from gofigr.backends import get_backend
+    GitAnnotator, Annotator
+from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
-from gofigr.backends.plotnine import PlotnineBackend
-from gofigr.backends.py3dmol import Py3DmolBackend
 from gofigr.trap import SuppressDisplayTrap
 from gofigr.watermarks import DefaultWatermark
 from gofigr.widget import DetailedWidget
@@ -150,6 +150,7 @@ def _resolve_analysis(gf, workspace, analysis):
     return analysis
 
 
+# pylint: disable=too-many-instance-attributes
 class Publisher:
     """\
     Publishes revisions to the GoFigr server.
@@ -189,8 +190,8 @@ class Publisher:
         self.gf = gf or GoFigr()
         self.watermark = watermark or DefaultWatermark()
         self.show_watermark = show_watermark
-        self.annotators = annotators or DEFAULT_ANNOTATORS
-        self.backends = backends or DEFAULT_BACKENDS
+        self.annotators = [_make_annotator(ann) for ann in (annotators or DEFAULT_ANNOTATORS)]
+        self.backends = [_make_backend(bck) for bck in (backends or DEFAULT_BACKENDS)]
         self.image_formats = image_formats
         self.interactive = interactive
         self.clear = clear
@@ -207,7 +208,8 @@ class Publisher:
 
         :param extension: GoFigrExtension instance
         :param data: data being published. This will usually be a dictionary of mime formats.
-        :param native_publish: callable which will publish the figure using the native backend
+        :param suppress_display: if used in an auto-publish hook, this will contain a callable which will
+        suppress the display of this figure using the native IPython backend.
 
         :return: None
         """
@@ -289,6 +291,8 @@ class Publisher:
         :return: tuple of: list of ImageData objects, watermarked image to display
 
         """
+        # pylint: disable=too-many-locals
+
         if image_options is None:
             image_options = {}
 
@@ -418,7 +422,7 @@ class Publisher:
         :return: FigureRevision instance
 
         """
-        # pylint: disable=too-many-branches
+        # pylint: disable=too-many-branches, too-many-locals
         from gofigr.jupyter import get_extension
         ext = get_extension()
         gf = self.gf if self.gf is not None else ext.gf
@@ -526,3 +530,17 @@ def parse_model_instance(model_class, value, find_by_name):
         return find_by_name(value)
     else:
         return ValueError(f"Unsupported target specification: {value}. Please specify an API ID, or use FindByName.")
+
+
+def _make_backend(backend):
+    if isinstance(backend, GoFigrBackend):
+        return backend
+    else:
+        return backend()
+
+
+def _make_annotator(annotator):
+    if isinstance(annotator, Annotator):
+        return annotator
+    else:
+        return annotator()

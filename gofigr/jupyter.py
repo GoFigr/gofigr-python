@@ -3,7 +3,7 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-# pylint: disable=cyclic-import, no-member, global-statement, protected-access, wrong-import-order, ungrouped-imports
+# pylint: disable=cyclic-import, no-member, global-statement, protected-access
 # pylint: disable=too-many-locals
 
 import io
@@ -14,11 +14,10 @@ from functools import wraps
 from pathlib import Path
 from uuid import UUID
 
-from gofigr import GoFigr, API_URL, UnauthorizedError
+from gofigr import GoFigr, API_URL
 from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME
-from gofigr.publisher import Publisher, parse_model_instance, DEFAULT_ANNOTATORS, NotebookName, \
-    DEFAULT_BACKENDS, _mark_as_published, FindByName, ApiId, _resolve_workspace
-from gofigr.backends import GoFigrBackend
+from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, NotebookName, \
+    DEFAULT_BACKENDS, _mark_as_published, FindByName, ApiId
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
 from gofigr.trap import GfDisplayPublisher, SuppressDisplayTrap, set_trap
@@ -66,7 +65,7 @@ class _GoFigrExtension:
         self.gf = None  # active GF object
         self.publisher = None  # current Publisher instance
         self.wait_for_metadata = None  # callable which waits for metadata to become available
-        self.data_log = data_log if data_log is not None else dict()
+        self.data_log = data_log if data_log is not None else {}
 
         self.deferred_revisions = []
 
@@ -78,9 +77,11 @@ class _GoFigrExtension:
     def resolve_analysis(self):
         """Gets the current analysis"""
         if isinstance(self.publisher.analysis, NotebookName):
-            meta = NotebookMetadataAnnotator(self).parse_metadata()
-            self.publisher.analysis = self.publisher.workspace.get_analysis(name=Path(meta[NOTEBOOK_NAME]).stem, create=True)
-            self.publisher.analysis.fetch()
+            meta = NotebookMetadataAnnotator(self).try_get_metadata()
+            if meta is not None:
+                self.publisher.analysis = self.publisher.workspace.get_analysis(name=Path(meta[NOTEBOOK_NAME]).stem,
+                                                                                create=True)
+                self.publisher.analysis.fetch()
 
         return self.publisher.analysis
 
@@ -287,13 +288,6 @@ def proxy_callback(result):
             StartupWidget(get_extension()).show()
 
 
-def _make_backend(backend):
-    if isinstance(backend, GoFigrBackend):
-        return backend
-    else:
-        return backend()
-
-
 # pylint: disable=too-many-arguments, too-many-locals
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username=None,
@@ -347,6 +341,7 @@ def configure(username=None,
         default_metadata = {}
 
     if notebook_path is not None:
+
         default_metadata['notebook_path'] = notebook_path
 
     if notebook_name is not None:
@@ -358,7 +353,7 @@ def configure(username=None,
                           default_metadata=default_metadata,
                           watermark=watermark,
                           annotators=[make_annotator(extension) for make_annotator in annotators],
-                          backends=[_make_backend(bck) for bck in backends],
+                          backends=backends,
                           widget_class=widget_class,
                           save_pickle=save_pickle,
                           show_watermark=show_watermark)
@@ -367,6 +362,7 @@ def configure(username=None,
     extension.auto_publish = auto_publish
     extension.loader_shown = False
     extension.configured = True
+    extension.resolve_analysis()
 
     extension.shell.user_ns["gf"] = gf
 
@@ -394,6 +390,8 @@ def publish(fig=None, backend=None, **kwargs):
             fig = available_backend.get_default_figure(silent=True)
             if fig is not None:
                 return ext.publisher.publish(fig=fig, backend=available_backend, **kwargs)
+
+        return None
     else:
         return ext.publisher.publish(fig=fig, backend=backend, **kwargs)
 
