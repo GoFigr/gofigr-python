@@ -424,6 +424,92 @@ class GoFigr:
         else:
             return self._authenticate_jwt()
 
+    def _find_workspace_by_name(self, name, create, description=None):
+        """\
+        Finds a workspace by name.
+
+        :param name: name of the workspace
+        :param create: whether to create a new workspace or raise an exception if one doesn't exist
+        :param description: optional description of the workspace
+        :return: Workspace object
+
+        """
+        matches = [wx for wx in self.workspaces if wx.name == name]
+        if len(matches) == 0:
+            if create:
+                wx = self.Workspace(name=name, description=description)
+                wx.create()
+                print(f"Created a new workspace: {wx.api_id}")
+                return wx
+            else:
+                raise RuntimeError(f'Could not find workspace named "{name}"')
+        elif len(matches) > 1:
+            raise RuntimeError(f'Multiple (n={len(matches)}) workspaces match name "{name}". '
+                               f'Please use an API ID instead.')
+        else:
+            return matches[0]
+
+    def find_analysis(self, workspace, query):
+        if query is None:
+            raise ValueError("Please specify a query")
+        elif workspace is None:
+            raise ValueError("Please specify a workspace")
+        elif isinstance(query, gf_Analysis):
+            return query
+        elif isinstance(query, NotebookName):
+            return query  # will be set by the Jupyter extension
+        elif isinstance(query, str):
+            return self.Analysis(api_id=query)
+        elif isinstance(query, ApiId):
+            return self.Analysis(api_id=query.api_id)
+        elif isinstance(query, FindByName):
+            if workspace.analyses is None:
+                workspace.fetch()
+
+            return workspace.get_analysis(name=query.name, description=query.description, create=query.create)
+        else:
+            raise ValueError(f"Unsupported query type {query}")
+
+    def find_figure(self, analysis, query):
+        if query is None:
+            raise ValueError("Please specify a query")
+        elif analysis is None:
+            raise ValueError("Please specify an analysis")
+        elif isinstance(query, gf_Figure):
+            return query
+        elif isinstance(query, str):
+            return self.Figure(api_id=query)
+        elif isinstance(query, ApiId):
+            return self.Figure(api_id=query.api_id)
+        elif isinstance(query, FindByName):
+            if analysis.figures is None:
+                analysis.fetch()
+
+            return analysis.get_figure(name=query.name, description=query.description, create=query.create)
+        else:
+            raise ValueError(f"Unsupported query type {query}")
+
+    def find_workspace(self, query):
+        if query is None:
+            # Use default workspace
+            if self.primary_workspace is not None:
+                return self.primary_workspace
+            elif len(self.workspaces) == 1:  # this will happen if we're using a scoped API token
+                return self.workspaces[0]
+            else:
+                raise ValueError("Please specify a workspace")
+        elif isinstance(query, gf_Workspace):
+            return query
+        elif isinstance(query, str):
+            return self.Workspace(api_id=query)
+        elif isinstance(query, ApiId):
+            return self.Workspace(api_id=query.api_id)
+        elif isinstance(query, FindByName):
+            return self._find_workspace_by_name(query.name, query.create, description=query.description)
+        else:
+            raise ValueError(f"Unsupported query type {query}")
+
+
     def user_info(self, username=None):
         """\
         Retrieves information about a user.
@@ -683,3 +769,29 @@ class DatasetSync:
         """Binds all supported pandas reader functions."""
         for name in PANDAS_READERS:
             setattr(self, name, self._wrap_reader(getattr(pd, name)))
+
+
+
+class NotebookName:
+    """\
+    Used as argument to configure() to specify that we want the analysis name to default to the name of the notebook
+    """
+    def __repr__(self):
+        return "NotebookName"
+
+ApiId = namedtuple("ApiId", ["api_id"])
+
+class FindByName:
+    """\
+    Used as argument to configure() to specify that we want to find an analysis/workspace by name instead
+    of using an API ID
+    """
+    def __init__(self, name, description=None, create=False):
+        self.name = name
+        self.description = description
+        self.create = create
+
+    def __repr__(self):
+        return f"FindByName(name={self.name}, description={self.description}, create={self.create})"
+
+

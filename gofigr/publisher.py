@@ -9,12 +9,11 @@ import io
 import os
 import pickle
 import sys
-from collections import namedtuple
 
 import PIL
 from IPython.core.display_functions import display
 
-from gofigr import GoFigr, MeasureExecution, RevisionContext, UnauthorizedError
+from gofigr import GoFigr, MeasureExecution, RevisionContext, NotebookName
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
     PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator, \
     GitAnnotator, Annotator
@@ -55,39 +54,6 @@ if PLOTNINE_PRESENT:
     DEFAULT_BACKENDS = (PlotnineBackend,) + DEFAULT_BACKENDS
 
 
-def find_workspace_by_name(gf, search):
-    """\
-    Finds a workspace by name.
-
-    :param gf: GoFigr client
-    :param search: FindByName instance
-    :return: a Workspace object
-
-    """
-    matches = [wx for wx in gf.workspaces if wx.name == search.name]
-    if len(matches) == 0:
-        if search.create:
-            wx = gf.Workspace(name=search.name, description=search.description)
-            wx.create()
-            print(f"Created a new workspace: {wx.api_id}")
-            return wx
-        else:
-            raise RuntimeError(f'Could not find workspace named "{search.name}"')
-    elif len(matches) > 1:
-        raise RuntimeError(f'Multiple (n={len(matches)}) workspaces match name "{search.name}". '
-                           f'Please use an API ID instead.')
-    else:
-        return matches[0]
-
-
-class NotebookName:
-    """\
-    Used as argument to configure() to specify that we want the analysis name to default to the name of the notebook
-    """
-    def __repr__(self):
-        return "NotebookName"
-
-
 def _mark_as_published(fig):
     """Marks the figure as published so that it won't be re-published again."""
     fig._gf_is_published = True
@@ -108,46 +74,6 @@ def is_suppressed(fig):
 def _is_published(fig):
     """Returns True iff the figure has already been published"""
     return getattr(fig, "_gf_is_published", False)
-
-
-def _resolve_workspace(gf, workspace):
-    def _resolve():
-        if workspace is None:
-            if gf.primary_workspace is not None:
-                return gf.primary_workspace
-            elif len(gf.workspaces) == 1:  # this will happen if we're using a scoped API token
-                return gf.workspaces[0]
-            else:
-                raise ValueError("Please specify a workspace")
-        else:
-            return parse_model_instance(gf.Workspace, workspace, lambda search: find_workspace_by_name(gf, search))
-
-    worx = _resolve()
-    with MeasureExecution("Fetch workspace"):
-        try:
-            worx.fetch()
-        except UnauthorizedError as e:
-            raise UnauthorizedError(f"Permission denied for workspace {workspace.api_id}. "
-                                    f"Are you using a restricted API key?") from e
-    return worx
-
-
-def _resolve_analysis(gf, workspace, analysis):
-    if analysis is None:
-        raise ValueError("Please specify an analysis")
-    elif isinstance(analysis, NotebookName) or str(analysis) == "NotebookName":  # str in case it's from config/env
-        analysis = NotebookName()
-    else:
-        with MeasureExecution("Find analysis"):
-            analysis = parse_model_instance(gf.Analysis, analysis,
-                                            lambda search: workspace.get_analysis(name=search.name,
-                                                                                  description=search.description,
-                                                                                  create=search.create))
-
-        with MeasureExecution("Fetch analysis"):
-            analysis.fetch()
-
-    return analysis
 
 
 # pylint: disable=too-many-instance-attributes
@@ -199,8 +125,8 @@ class Publisher:
         self.save_pickle = save_pickle
         self.widget_class = widget_class
 
-        self.workspace = _resolve_workspace(self.gf, workspace)
-        self.analysis = _resolve_analysis(self.gf, self.workspace, analysis)
+        self.workspace = gf.find_workspace(workspace).fetch()
+        self.analysis = gf.find_analysis(self.workspace, analysis)
 
     def auto_publish_hook(self, extension, data, suppress_display=None):
         """\
@@ -257,13 +183,9 @@ class Publisher:
             sys.stdout.flush()
             return analysis.get_figure(fig_name, create=True)
         else:
-            return parse_model_instance(self.gf.Figure,
-                                        target,
-                                        lambda search: analysis.get_figure(name=search.name,
-                                                                           description=search.description,
-                                                                           create=search.create))
+            return self.gf.find_figure(analysis, target)
 
-    def _get_pickle_data(self, gf, fig):
+    def _get_pickle_data(self, gf, fig, revision, target):
         if not self.save_pickle:
             return []
 
@@ -272,21 +194,21 @@ class Publisher:
             pickle.dump(fig, bio)
             bio.seek(0)
 
-            return [gf.ImageData(name="figure", format="pickle",
-                                 data=bio.getvalue(),
-                                 is_watermarked=False)]
+            return [gf.FileData(name=f"{target.name}_rev_{revision.revision_index + 1}.pickle",
+                                 data=bio.getvalue())]
         except Exception as e: # pylint: disable=broad-exception-caught
             print(f"WARNING: We could not obtain the figure in pickle format: {e}", file=sys.stderr)
             return []
 
-    def _get_image_data(self, gf, backend, fig, rev, image_options):
+    def _get_image_data(self, gf, backend, fig, rev, target, image_options):
         """\
         Extracts ImageData in various formats.
 
         :param gf: GoFigr instance
         :param backend: backend to use
         :param fig: figure object
-        :param rev: Revision object
+        :param rev: gf.Revision object
+        :param target: gf.Figure object
         :param image_options: backend-specific parameters
         :return: tuple of: list of ImageData objects, watermarked image to display
 
@@ -342,7 +264,7 @@ class Publisher:
             image_data.append(html_with_watermark)
             image_to_display = wfig  # display the native Figure
 
-        image_data.extend(self._get_pickle_data(gf, fig))
+        image_data.extend(self._get_pickle_data(gf, fig, rev, target))
 
         return image_data, image_to_display
 
@@ -453,7 +375,7 @@ class Publisher:
                 self.annotate(rev)
 
         with MeasureExecution("Image data"):
-            rev.image_data, image_to_display = self._get_image_data(gf, backend, fig, rev, image_options)
+            rev.image_data, image_to_display = self._get_image_data(gf, backend, fig, rev, target, image_options)
 
         if image_to_display is not None and self.show_watermark:
             with SuppressDisplayTrap():
@@ -492,44 +414,6 @@ class Publisher:
             self.widget_class(rev).show()
 
         return rev
-
-
-ApiId = namedtuple("ApiId", ["api_id"])
-
-class FindByName:
-    """\
-    Used as argument to configure() to specify that we want to find an analysis/workspace by name instead
-    of using an API ID
-    """
-    def __init__(self, name, description=None, create=False):
-        self.name = name
-        self.description = description
-        self.create = create
-
-    def __repr__(self):
-        return f"FindByName(name={self.name}, description={self.description}, create={self.create})"
-
-
-def parse_model_instance(model_class, value, find_by_name):
-    """\
-    Parses a model instance from a value, e.g. the API ID or a name.
-
-    :param model_class: class of the model, e.g. gf.Workspace
-    :param value: value to parse into a model instance
-    :param find_by_name: callable to find the model instance by name
-    :return: model instance
-
-    """
-    if isinstance(value, model_class):
-        return value
-    elif isinstance(value, str):
-        return model_class(api_id=value)
-    elif isinstance(value, ApiId):
-        return model_class(api_id=value.api_id)
-    elif isinstance(value, FindByName):
-        return find_by_name(value)
-    else:
-        return ValueError(f"Unsupported target specification: {value}. Please specify an API ID, or use FindByName.")
 
 
 def _make_backend(backend):

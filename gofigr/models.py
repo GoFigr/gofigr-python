@@ -1041,6 +1041,9 @@ class gf_Analysis(ShareableModelMixin, LogsMixin, ThumbnailMixin):
         :return: Figure instance
 
         """
+        if self.figures is None:
+            self.fetch()
+
         return self.figures.find_or_create(name=name,
                                            default_obj=self._gf.Figure(name=name, **kwargs) if create else None)
 

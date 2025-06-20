@@ -14,10 +14,10 @@ from functools import wraps
 from pathlib import Path
 from uuid import UUID
 
+import gofigr
 from gofigr import GoFigr, API_URL
-from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME
-from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, NotebookName, \
-    DEFAULT_BACKENDS, _mark_as_published, FindByName, ApiId
+from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME, NOTEBOOK_PATH
+from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, DEFAULT_BACKENDS, _mark_as_published
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
 from gofigr.trap import GfDisplayPublisher, SuppressDisplayTrap, set_trap
@@ -76,7 +76,7 @@ class _GoFigrExtension:
 
     def resolve_analysis(self):
         """Gets the current analysis"""
-        if isinstance(self.publisher.analysis, NotebookName):
+        if isinstance(self.publisher.analysis, gofigr.NotebookName):
             meta = NotebookMetadataAnnotator(self).try_get_metadata()
             if meta is not None:
                 self.publisher.analysis = self.publisher.workspace.get_analysis(name=Path(meta[NOTEBOOK_NAME]).stem,
@@ -253,15 +253,16 @@ def _load_ipython_extension(ip):
             print(f"Could not automatically configure GoFigr. Please call configure() manually. Error: {e}",
                   file=sys.stderr)
 
-    for name in ['configure', 'publish', "get_extension"]:
-        ip.user_ns[name] = globals()[name]
-
     ip.user_ns["configure"] = configure
     ip.user_ns["get_extension"] = get_extension
     ip.user_ns["publish"] = publish
-    ip.user_ns["FindByName"] = FindByName
-    ip.user_ns["ApiId"] = ApiId
-    ip.user_ns["NotebookName"] = NotebookName
+
+    # These have to use the fully qualified reference or isinstance won't work correctly
+    # after the extension is re-loaded. That's because gofigr.FindByName and gofigr.jupyter.FindByName (imported scope)
+    # will contain different instantiations of the type.
+    ip.user_ns["FindByName"] = gofigr.FindByName
+    ip.user_ns["ApiId"] = gofigr.ApiId
+    ip.user_ns["NotebookName"] = gofigr.NotebookName
 
 
 def parse_uuid(val):
@@ -294,7 +295,7 @@ def configure(username=None,
               password=None,
               api_key=None,
               workspace=None,
-              analysis=NotebookName(),
+              analysis=gofigr.NotebookName(),
               url=API_URL,
               default_metadata=None, auto_publish=True,
               watermark=None, annotators=DEFAULT_ANNOTATORS,
@@ -336,20 +337,22 @@ def configure(username=None,
         gf = GoFigr(username=username, password=password, url=url, api_key=api_key,
                     data_log=extension.data_log)
 
-
     if default_metadata is None:
         default_metadata = {}
 
     if notebook_path is not None:
-
-        default_metadata['notebook_path'] = notebook_path
+        default_metadata[NOTEBOOK_PATH] = notebook_path
 
     if notebook_name is not None:
-        default_metadata['notebook_name'] = notebook_name
+        default_metadata[NOTEBOOK_NAME] = notebook_name
 
+    if str(analysis) == "NotebookName":  # str in case it's from config/env
+        analysis = gofigr.NotebookName()
+
+    worx = gf.find_workspace(workspace)
     publisher = Publisher(gf,
-                          workspace=workspace,
-                          analysis=analysis,
+                          workspace=worx,
+                          analysis=gf.find_analysis(worx, analysis),
                           default_metadata=default_metadata,
                           watermark=watermark,
                           annotators=[make_annotator(extension) for make_annotator in annotators],
