@@ -13,14 +13,13 @@ import sys
 import PIL
 from IPython.core.display_functions import display
 
-from gofigr import GoFigr, MeasureExecution, RevisionContext, NotebookName
+from gofigr import GoFigr, MeasureExecution, NotebookName
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
     PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator, \
     GitAnnotator, Annotator
 from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
-from gofigr.trap import SuppressDisplayTrap
 from gofigr.watermarks import DefaultWatermark
 from gofigr.widget import DetailedWidget
 
@@ -345,9 +344,6 @@ class Publisher:
 
         """
         # pylint: disable=too-many-branches, too-many-locals
-        from gofigr.jupyter import get_extension
-        ext = get_extension()
-        gf = self.gf if self.gf is not None else ext.gf
         fig, backend = self._infer_figure_and_backend(fig, backend)
 
         with MeasureExecution("Resolve target"):
@@ -359,30 +355,23 @@ class Publisher:
         if metadata is not None:
             combined_meta.update(metadata)
 
-        context = RevisionContext(backend=backend, extension=ext)
         with MeasureExecution("Bare revision"):
             # Create a bare revision first to get the API ID
-            rev = gf.Revision(figure=target, metadata=combined_meta)
+            rev = self.gf.Revision(figure=target, metadata=combined_meta, backend=backend)
             target.revisions.create(rev)
 
-            context.attach(rev)
-
-        if ext.cell is None:
-            ext.add_to_deferred(rev)
-        else:
-            with MeasureExecution("Annotators"):
-                # Annotate the revision
-                self.annotate(rev)
+        with MeasureExecution("Annotators"):
+            # Annotate the revision
+            self.annotate(rev)
 
         with MeasureExecution("Image data"):
-            rev.image_data, image_to_display = self._get_image_data(gf, backend, fig, rev, target, image_options)
+            rev.image_data, image_to_display = self._get_image_data(self.gf, backend, fig, rev, target, image_options)
 
         if image_to_display is not None and self.show_watermark:
-            with SuppressDisplayTrap():
-                if isinstance(image_to_display, gf.ImageData):
-                    display(image_to_display.image)
-                else:
-                    display(image_to_display)
+            if isinstance(image_to_display, self.gf.ImageData):
+                display(image_to_display.image)
+            else:
+                display(image_to_display)
 
             if suppress_display is not None:
                 suppress_display()
@@ -390,12 +379,12 @@ class Publisher:
         if dataframes is not None:
             table_data = []
             for name, frame in dataframes.items():
-                table_data.append(gf.TableData(name=name, dataframe=frame))
+                table_data.append(self.gf.TableData(name=name, dataframe=frame))
 
             rev.table_data = table_data
 
         if files is not None:
-            rev.file_data = self._prepare_files(gf, files)
+            rev.file_data = self._prepare_files(self.gf, files)
 
         with MeasureExecution("Final save"):
             rev.save(silent=True)
@@ -410,9 +399,7 @@ class Publisher:
         if self.clear and self.show_watermark:
             backend.close(fig)
 
-        with SuppressDisplayTrap():
-            self.widget_class(rev).show()
-
+        self.widget_class(rev).show()
         return rev
 
 

@@ -1574,6 +1574,11 @@ class gf_Revision(RevisionMixin, ThumbnailMixin):
 
     endpoint = "revision/"
 
+    def __init__(self, *args, **kwargs):
+        self.backend = kwargs.pop('backend', None)
+
+        super().__init__(*args, **kwargs)
+
     @property
     def revision_url(self):
         """Returns the GoFigr URL for this revision"""

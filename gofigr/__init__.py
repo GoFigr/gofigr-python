@@ -3,6 +3,8 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+# pylint: disable=no-member
+
 import contextlib
 import inspect
 import logging
@@ -13,7 +15,6 @@ import requests
 from PIL import Image
 from requests import Session
 
-from gofigr.context import RevisionContext
 from gofigr.exceptions import UnauthorizedError, MethodNotAllowedError
 from gofigr.models import *
 from gofigr.utils import from_config_or_env
@@ -450,6 +451,14 @@ class GoFigr:
             return matches[0]
 
     def find_analysis(self, workspace, query):
+        """\
+        Finds an analysis within a workspace
+
+        :param workspace: parent workspace (a gf.Workspace object)
+        :param query: gf.Analysis, UUID string, ApiId, or FindByName
+        :return: gf.Analysis object
+
+        """
         if query is None:
             raise ValueError("Please specify a query")
         elif workspace is None:
@@ -471,6 +480,14 @@ class GoFigr:
             raise ValueError(f"Unsupported query type {query}")
 
     def find_figure(self, analysis, query):
+        """\
+        Finds a figure within an analysis
+
+        :param analysis: parent analysis (a gf.Analysis object)
+        :param query: gf.Figure, UUID string, ApiId, or FindByName
+        :return: gf.Figure object
+
+        """
         if query is None:
             raise ValueError("Please specify a query")
         elif analysis is None:
@@ -490,6 +507,13 @@ class GoFigr:
             raise ValueError(f"Unsupported query type {query}")
 
     def find_workspace(self, query):
+        """\
+        Finds a workspace.
+
+        :param query: gf.Workspace, UUID string, ApiId, or FindByName
+        :return: gf.Workspace object
+
+        """
         if query is None:
             # Use default workspace
             if self.primary_workspace is not None:
@@ -793,5 +817,3 @@ class FindByName:
 
     def __repr__(self):
         return f"FindByName(name={self.name}, description={self.description}, create={self.create})"
-
-

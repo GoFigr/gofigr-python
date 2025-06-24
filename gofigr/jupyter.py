@@ -20,7 +20,7 @@ from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME, NOTEBOOK
 from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, DEFAULT_BACKENDS, _mark_as_published
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
-from gofigr.trap import GfDisplayPublisher, SuppressDisplayTrap, set_trap
+from gofigr.trap import GfDisplayPublisher, SuppressDisplayTrap
 from gofigr.utils import from_config_or_env
 from gofigr.widget import DetailedWidget, StartupWidget
 
@@ -58,7 +58,7 @@ class _GoFigrExtension:
         self.loader_shown = loader_shown
         self.configured = configured
         if notebook_metadata is None:
-            self.notebook_metadata = NotebookMetadataAnnotator(self).try_get_metadata()
+            self.notebook_metadata = NotebookMetadataAnnotator().try_get_metadata()
         else:
             self.notebook_metadata = notebook_metadata
 
@@ -77,7 +77,7 @@ class _GoFigrExtension:
     def resolve_analysis(self):
         """Gets the current analysis"""
         if isinstance(self.publisher.analysis, gofigr.NotebookName):
-            meta = NotebookMetadataAnnotator(self).try_get_metadata()
+            meta = NotebookMetadataAnnotator().try_get_metadata()
             if meta is not None:
                 self.publisher.analysis = self.publisher.workspace.get_analysis(name=Path(meta[NOTEBOOK_NAME]).stem,
                                                                                 create=True)
@@ -191,14 +191,12 @@ class _GoFigrExtension:
 
         :return: None
         """
-        set_trap(self.display_trap)
-
         self._register_handler('pre_run_cell', self.pre_run_cell)
         self._register_handler('post_run_cell', self.post_run_cell)
 
         native_display_publisher = self.shell.display_pub
         if not isinstance(native_display_publisher, GfDisplayPublisher):
-            self.shell.display_pub = GfDisplayPublisher(native_display_publisher)
+            self.shell.display_pub = GfDisplayPublisher(native_display_publisher, display_trap=self.display_trap)
 
 
 _GF_EXTENSION = None  # GoFigrExtension global
@@ -289,6 +287,20 @@ def proxy_callback(result):
             StartupWidget(get_extension()).show()
 
 
+class JupyterPublisher(Publisher):
+    """\
+    Adds Jupyter-specific functionality to GoFigr's base Publisher class.
+
+    """
+    def publish(self, *args, **kwargs):
+        with SuppressDisplayTrap():
+            revision = super().publish(*args, **kwargs)
+            ext = get_extension()
+            if ext.cell is None:
+                ext.add_to_deferred(revision)
+            return revision
+
+
 # pylint: disable=too-many-arguments, too-many-locals
 @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
 def configure(username=None,
@@ -350,16 +362,16 @@ def configure(username=None,
         analysis = gofigr.NotebookName()
 
     worx = gf.find_workspace(workspace)
-    publisher = Publisher(gf,
-                          workspace=worx,
-                          analysis=gf.find_analysis(worx, analysis),
-                          default_metadata=default_metadata,
-                          watermark=watermark,
-                          annotators=[make_annotator(extension) for make_annotator in annotators],
-                          backends=backends,
-                          widget_class=widget_class,
-                          save_pickle=save_pickle,
-                          show_watermark=show_watermark)
+    publisher = JupyterPublisher(gf,
+                                 workspace=worx,
+                                 analysis=gf.find_analysis(worx, analysis),
+                                 default_metadata=default_metadata,
+                                 watermark=watermark,
+                                 annotators=[make_annotator() for make_annotator in annotators],
+                                 backends=backends,
+                                 widget_class=widget_class,
+                                 save_pickle=save_pickle,
+                                 show_watermark=show_watermark)
     extension.gf = gf
     extension.publisher = publisher
     extension.auto_publish = auto_publish

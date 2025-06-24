@@ -37,21 +37,18 @@
     "service": "notebook",
     "dependencies": "notebook seaborn"
   },
-
   {
     "name": "python3.10-lab-4.0.0",
     "python": "python3.10",
     "service": "lab",
     "dependencies": "jupyterlab==4.0.0 seaborn"
   },
-
   {
     "name": "python3.10-notebook-6.5.4",
     "python": "python3.10",
     "service": "notebook",
     "dependencies": "notebook==6.5.4 seaborn traitlets==5.9.0"
   },
-
   {
     "name": "python3.10-notebook-5.7.16",
     "python": "python3.10",
@@ -72,25 +69,11 @@
     "service": "notebook",
     "dependencies": "notebook==6.5.4 ipython==7.34.0 seaborn traitlets==5.9.0"
   },
-
   {
     "name": "python3.10-matplotlib-3.7.1",
     "python": "python3.10",
     "service": "notebook",
     "dependencies": "notebook seaborn matplotlib==3.7.1"
-  },
-
-  {
-    "name": "python3.11-lab",
-    "python":  "python3.11",
-    "service": "lab",
-    "dependencies": "jupyterlab seaborn"
-  },
-  {
-    "name": "python3.11-notebook",
-    "python": "python3.11",
-    "service": "notebook",
-    "dependencies": "notebook seaborn"
   },
   {
     "name": "python3.10-notebook-plotly-5.15.0",
@@ -101,18 +84,6 @@
   {
     "name": "python3.10-notebook-plotly-4.14.3",
     "python": "python3.10",
-    "service": "notebook",
-    "dependencies": "notebook seaborn plotly==4.14.3"
-  },
-  {
-    "name": "python3.8-notebook-plotly-5.15.0",
-    "python": "python3.8",
-    "service": "notebook",
-    "dependencies": "notebook seaborn plotly==5.15.0"
-  },
-  {
-    "name": "python3.8-notebook-plotly-4.14.3",
-    "python": "python3.8",
     "service": "notebook",
     "dependencies": "notebook seaborn plotly==4.14.3"
   },
@@ -129,15 +100,15 @@
     "dependencies": "jupyterlab seaborn plotly==4.14.3"
   },
   {
-    "name": "python3.11-lab-plotnine-0.14.3",
+    "name": "python3.11-lab",
     "python":  "python3.11",
     "service": "lab",
-    "dependencies": "jupyterlab plotnine==0.14.3"
+    "dependencies": "jupyterlab seaborn"
   },
   {
-    "name": "python3.11-lab-plotnine-0.12.4",
-    "python":  "python3.11",
-    "service": "lab",
-    "dependencies": "jupyterlab plotnine==0.12.4"
+    "name": "python3.11-notebook",
+    "python": "python3.11",
+    "service": "notebook",
+    "dependencies": "notebook seaborn"
   }
 ]

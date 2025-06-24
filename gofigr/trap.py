@@ -3,21 +3,7 @@ Copyright (c) 2022-2025, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-
-DISPLAY_TRAP = None
-
-
-def set_trap(func):
-    """\
-    Sets a display trap
-
-    :param func: function to call whenever data is being displayed
-    :return: trap function
-
-    """
-    global DISPLAY_TRAP
-    DISPLAY_TRAP = func
-    return func
+from IPython import get_ipython
 
 
 class GfDisplayPublisher:
@@ -25,12 +11,14 @@ class GfDisplayPublisher:
     Custom IPython DisplayPublisher which traps all calls to publish() (e.g. when display(...) is called).
 
     """
-    def __init__(self, pub):
+    def __init__(self, pub, display_trap=None):
         """
 
         :param pub: Publisher to wrap around. We delegate all calls to this publisher unless trapped.
+        :param display_trap: function to use as a display trap
         """
         self.pub = pub
+        self.display_trap = display_trap
 
     def publish(self, data, *args, **kwargs):
         """
@@ -53,9 +41,9 @@ class GfDisplayPublisher:
         def suppress_display():
             is_display_suppressed[0] = True
 
-        if DISPLAY_TRAP is not None:
-            trap = DISPLAY_TRAP
-            with SuppressDisplayTrap():
+        if self.display_trap is not None:
+            trap = self.display_trap
+            with SuppressDisplayTrap(self):
                 trap(data, suppress_display=suppress_display)
 
         if not is_display_suppressed[0]:
@@ -95,15 +83,14 @@ class SuppressDisplayTrap:
     """\
     Context manager which temporarily suspends all display traps.
     """
-    def __init__(self):
+    def __init__(self, gf_publisher=None):
         self.trap = None
+        self.gf_publisher = gf_publisher or get_ipython().display_pub
 
     def __enter__(self):
-        global DISPLAY_TRAP
-        self.trap = DISPLAY_TRAP
-        DISPLAY_TRAP = None
+        self.trap = self.gf_publisher.display_trap
+        self.gf_publisher.display_trap = None
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        global DISPLAY_TRAP
-        DISPLAY_TRAP = self.trap
+        self.gf_publisher.display_trap = self.trap
         self.trap = None
