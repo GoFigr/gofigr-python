@@ -16,7 +16,7 @@ from uuid import UUID
 
 import gofigr
 from gofigr import GoFigr, API_URL
-from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME, NOTEBOOK_PATH
+from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME, NOTEBOOK_PATH, IPythonAnnotator
 from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, DEFAULT_BACKENDS, _mark_as_published
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
@@ -292,12 +292,19 @@ class JupyterPublisher(Publisher):
     Adds Jupyter-specific functionality to GoFigr's base Publisher class.
 
     """
+    @property
+    def _non_ipython_annotators(self):
+        return [ann for ann in self.annotators if not isinstance(ann, IPythonAnnotator)]
+
     def publish(self, *args, **kwargs):
         with SuppressDisplayTrap():
-            revision = super().publish(*args, **kwargs)
             ext = get_extension()
+
             if ext.cell is None:
+                revision = super().publish(*args, annotators=self._non_ipython_annotators, **kwargs)
                 ext.add_to_deferred(revision)
+            else:
+                revision = super().publish(*args, **kwargs)
             return revision
 
 

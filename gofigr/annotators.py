@@ -341,9 +341,6 @@ class NotebookMetadataAnnotator(IPythonAnnotator):
                   f" running notebook. {PATH_WARNING} Details: {e}",
                   file=sys.stderr)
 
-            revision.metadata[NOTEBOOK_NAME] = "N/A"
-            revision.metadata[NOTEBOOK_PATH] = "N/A"
-
         return revision
 
 

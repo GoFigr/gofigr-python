@@ -267,14 +267,15 @@ class Publisher:
 
         return image_data, image_to_display
 
-    def annotate(self, rev):
+    def annotate(self, rev, annotators=None):
         """
         Annotates a FigureRevision using self.annotators.
         :param rev: revision to annotate
+        :param annotators: list of annotators to use. Defaults to self.annotators
         :return: annotated revision
 
         """
-        for annotator in self.annotators:
+        for annotator in (annotators or self.annotators):
             with MeasureExecution(annotator.__class__.__name__):
                 annotator.annotate(rev)
 
@@ -323,7 +324,8 @@ class Publisher:
         return data
 
     def publish(self, fig=None, target=None, dataframes=None, metadata=None,
-                backend=None, image_options=None, suppress_display=None, files=None):
+                backend=None, image_options=None, suppress_display=None, files=None,
+                annotators=None):
         """\
         Publishes a revision to the server.
 
@@ -339,6 +341,7 @@ class Publisher:
         :param suppress_display: if used in an auto-publish hook, this will contain a callable which will
         suppress the display of this figure using the native IPython backend.
         :param files: either (a) list of file paths or (b) dictionary of name to file path/file obj
+        :param annotators: list of annotators to use. Defaults to self.annotators
 
         :return: FigureRevision instance
 
@@ -362,7 +365,7 @@ class Publisher:
 
         with MeasureExecution("Annotators"):
             # Annotate the revision
-            self.annotate(rev)
+            self.annotate(rev, annotators=annotators)
 
         with MeasureExecution("Image data"):
             rev.image_data, image_to_display = self._get_image_data(self.gf, backend, fig, rev, target, image_options)
