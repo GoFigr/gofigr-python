@@ -280,9 +280,9 @@ class Publisher:
                 annotator.annotate(rev)
 
         # Add data annotations
-        rev.datasets = [self.gf.DatasetLinkedToFigure(figure_revision=rev,
-                                                      dataset_revision=data_rev,
-                                                      use_type="indirect") for data_rev in self.gf.sync.revisions]
+        rev.assets = [self.gf.AssetLinkedToFigure(figure_revision=rev,
+                                                  asset_revision=data_rev,
+                                                  use_type="indirect") for data_rev in self.gf.sync.revisions]
         return rev
 
     def _infer_figure_and_backend(self, fig, backend):

@@ -41,7 +41,7 @@ class _GoFigrExtension:
                  notebook_metadata=None,
                  configured=False,
                  loader_shown=False,
-                 data_log=None):
+                 asset_log=None):
         """\
 
         :param ip: iPython shell instance
@@ -65,7 +65,7 @@ class _GoFigrExtension:
         self.gf = None  # active GF object
         self.publisher = None  # current Publisher instance
         self.wait_for_metadata = None  # callable which waits for metadata to become available
-        self.data_log = data_log if data_log is not None else {}
+        self.asset_log = asset_log if asset_log is not None else {}
 
         self.deferred_revisions = []
 
@@ -354,7 +354,7 @@ def configure(username=None,
 
     with MeasureExecution("Login"):
         gf = GoFigr(username=username, password=password, url=url, api_key=api_key,
-                    data_log=extension.data_log)
+                    asset_log=extension.asset_log)
 
     if default_metadata is None:
         default_metadata = {}

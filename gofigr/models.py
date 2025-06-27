@@ -780,7 +780,7 @@ class OrganizationMembership(abc.ABC):
 
 
 
-Recents = namedtuple("Recents", ["analyses", "figures", "datasets"])
+Recents = namedtuple("Recents", ["analyses", "figures", "assets"])
 
 
 class LogsMixin:
@@ -972,7 +972,7 @@ class gf_Workspace(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
               LinkedEntityField("organization", lambda gf: gf.Organization, many=False),
               LinkedEntityField("analyses", lambda gf: gf.Analysis, many=True, derived=True,
                                 backlink_property='workspace'),
-              LinkedEntityField("datasets", lambda gf: gf.Dataset, many=True, derived=True,
+              LinkedEntityField("assets", lambda gf: gf.Asset, many=True, derived=True,
                                 backlink_property='workspace')
               ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     include_if_none = ["organization"]
@@ -1013,8 +1013,8 @@ class gf_Workspace(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
         data = response.json()
         analyses = [self._gf.Analysis(**datum) for datum in data.get("analyses", [])]
         figures = [self._gf.Figure(**datum) for datum in data.get("figures", [])]
-        datasets = [self._gf.Dataset(**datum) for datum in data.get("datasets", [])]
-        return Recents(analyses, figures, datasets)
+        assets = [self._gf.Asset(**datum) for datum in data.get("assets", [])]
+        return Recents(analyses, figures, assets)
 
 
 class gf_Analysis(ShareableModelMixin, LogsMixin, ThumbnailMixin):
@@ -1062,25 +1062,25 @@ class gf_Figure(ShareableModelMixin, ThumbnailMixin):
     endpoint = "figure/"
 
 
-class gf_Dataset(ShareableModelMixin, ThumbnailMixin):
-    """Represents a dataset"""
+class gf_Asset(ShareableModelMixin, ThumbnailMixin):
+    """Represents an asset, e.g. a file or a dataset"""
     fields = ["api_id",
               "name",
               "description",
               "size_bytes",
               LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),
-              LinkedEntityField("revisions", lambda gf: gf.DatasetRevision, many=True,
-                                derived=True, backlink_property='dataset')
+              LinkedEntityField("revisions", lambda gf: gf.AssetRevision, many=True,
+                                derived=True, backlink_property='asset')
               ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
-    endpoint = "dataset/"
+    endpoint = "asset/"
 
     @classmethod
     def find_by_name(cls, name):
         """\
-        Finds a dataset by name.
+        Finds an asset by name.
 
         :param name: name to search for
-        :return: Dataset instances, or empty list if not found
+        :return: Asset instances, or empty list if not found
 
         """
         if name is None:
@@ -1455,7 +1455,7 @@ class gf_TableData(gf_Data):
         self.data = value.to_csv().encode(self.encoding) if value is not None else None
 
 class RevisionMixin(ShareableModelMixin):
-    """Base class for revisions, e.g. FigureRevision or DatasetRevision"""
+    """Base class for revisions, e.g. FigureRevision or AssetRevision"""
 
     def _replace_data_type(self, data_type, value):
         """\
@@ -1553,12 +1553,12 @@ class RevisionMixin(ShareableModelMixin):
         return self
 
 
-class gf_DatasetLinkedToFigure(ModelMixin):
-    """Many-to-many relationship between figure and dataset revisions"""
+class gf_AssetLinkedToFigure(ModelMixin):
+    """Many-to-many relationship between figure and asset revisions"""
 
     fields = ["use_type",
               LinkedEntityField("figure_revision", lambda gf: gf.Revision, many=False),
-              LinkedEntityField("dataset_revision", lambda gf: gf.DatasetRevision, many=False)]
+              LinkedEntityField("asset_revision", lambda gf: gf.AssetRevision, many=False)]
     endpoint = None
 
 
@@ -1567,7 +1567,7 @@ class gf_Revision(RevisionMixin, ThumbnailMixin):
     fields = ["api_id", "revision_index", "size_bytes",
               JSONField("metadata"),
               LinkedEntityField("figure", lambda gf: gf.Figure, many=False),
-              LinkedEntityField("datasets", lambda gf: gf.DatasetLinkedToFigure, many=True, nested=True,
+              LinkedEntityField("assets", lambda gf: gf.AssetLinkedToFigure, many=True, nested=True,
                                 sort_key=lambda ds: ds.use_type),
               DataField("data", lambda gf: gf.Data, many=True),
               ] + TIMESTAMP_FIELDS
@@ -1630,24 +1630,24 @@ class gf_Revision(RevisionMixin, ThumbnailMixin):
         self._replace_data_type(DataType.TEXT, value)
 
 
-class gf_DatasetRevision(RevisionMixin, ThumbnailMixin):
+class gf_AssetRevision(RevisionMixin, ThumbnailMixin):
     """Represents a figure revision"""
     fields = ["api_id", "revision_index", "size_bytes",
               JSONField("metadata"),
-              LinkedEntityField("dataset", lambda gf: gf.Dataset, many=False),
+              LinkedEntityField("asset", lambda gf: gf.Asset, many=False),
               DataField("data", lambda gf: gf.Data, many=True),
               ] + TIMESTAMP_FIELDS
 
-    endpoint = "dataset_revision/"
+    endpoint = "asset_revision/"
 
     @classmethod
     def find_by_hash(cls, digest, hash_type="blake3"):
         """\
-        Finds a dataset revision by its hash.
+        Finds an asset revision by its hash.
 
         :param digest: digest hash (text)
         :param hash_type: type of hash (only blake3 supported)
-        :return: list of matching dataset revisions, or empty list if not found
+        :return: list of matching asset revisions, or empty list if not found
 
         """
         if digest is None:

@@ -18,7 +18,7 @@ from requests import Session
 from gofigr.exceptions import UnauthorizedError, MethodNotAllowedError
 from gofigr.models import *
 from gofigr.utils import from_config_or_env
-from gofigr.widget import DatasetWidget
+from gofigr.widget import AssetWidget
 
 LOGGER = logging.getLogger(__name__)
 
@@ -148,7 +148,7 @@ class GoFigr:
                  authenticate=True,
                  workspace_id=None,
                  anonymous=False,
-                 data_log=None):
+                 asset_log=None):
         """\
 
         :param username: username to connect with
@@ -159,7 +159,7 @@ class GoFigr:
         the first request.
         :param workspace_id: workspace ID to use for data syncing. Defaults to primary workspace.
         :param anonymous: True for anonymous access. Default False.
-        :param data_log: log of datasets referenced by this instance
+        :param asset_log: log of assets referenced by this instance
 
         """
         self.service_url = url
@@ -168,7 +168,7 @@ class GoFigr:
         self.api_key = api_key
         self.anonymous = anonymous
         self.workspace_id = workspace_id
-        self.data_log = data_log if data_log is not None else {}
+        self.asset_log = asset_log if asset_log is not None else {}
         self._primary_workspace = None
 
         # Tokens for JWT authentication
@@ -185,9 +185,9 @@ class GoFigr:
 
     @property
     def sync(self):
-        """Returns the default DatasetSync object"""
+        """Returns the default AssetSync object"""
         if not self._sync:
-            self._sync = DatasetSync(self, data_log=self.data_log)
+            self._sync = AssetSync(self, asset_log=self.asset_log)
 
         return self._sync
 
@@ -622,19 +622,19 @@ def load_ipython_extension(ip):
     return _load_ipython_extension(ip)
 
 
-class DatasetSync:
+class AssetSync:
     """Provides drop-in replacements for open, read_xlsx, read_csv which version the data with the GoFigr service."""
 
-    def __init__(self, gf, workspace_id=None, data_log=None):
+    def __init__(self, gf, workspace_id=None, asset_log=None):
         """\
 
         :param gf: GoFigr instance
         :param workspace_id: workspace to sync under
-        :param data_log: dictionary of data revision IDs -> data revision objects
+        :param asset_log: dictionary of data revision IDs -> data revision objects
         """
         self.gf = gf
         self.workspace_id = workspace_id or self.gf.primary_workspace.api_id
-        self.data_log = data_log if data_log is not None else {}
+        self.asset_log = asset_log if asset_log is not None else {}
         self._bind_readers()
 
         logging.debug(f"Using workspace ID {self.workspace_id}")
@@ -644,53 +644,53 @@ class DatasetSync:
         """\
         Returns all revisions in the log.
         """
-        return self.data_log.values()
+        return self.asset_log.values()
 
     def clear_revisions(self):
         """\
         Clears the revision log
         """
-        self.data_log.clear()
+        self.asset_log.clear()
 
-    def _new_dataset(self, pathlike):
+    def _new_asset(self, pathlike):
         """\
-        Creates a new dataset from the given pathlike object.
+        Creates a new asset from the given pathlike object.
 
-        :param pathlike: local path to the dataset e.g. ~/test.txt
-        :return: Dataset instance
+        :param pathlike: local path to the asset e.g. ~/test.txt
+        :return: Asset instance
 
         """
-        logging.debug(f"Creating new dataset for {pathlike}")
-        ds = self.gf.Dataset(name=os.path.basename(pathlike), workspace=self.gf.Workspace(api_id=self.workspace_id))
+        logging.debug(f"Creating new asset for {pathlike}")
+        ds = self.gf.Asset(name=os.path.basename(pathlike), workspace=self.gf.Workspace(api_id=self.workspace_id))
         ds.create()
-        logging.debug(f"Created dataset {ds.api_id}")
+        logging.debug(f"Created asset {ds.api_id}")
         return ds
 
     def _new_revision(self, pathlike):
         """\
         Creates a new revision from the given pathlike object. The revision will be created under an
-        existing Dataset if one with the same basename already eixsts. Otherwise, a new dataset will be created.
+        existing Asset if one with the same basename already eixsts. Otherwise, a new asset will be created.
 
         """
         logging.debug("New revision detected. Syncing...")
-        datasets = self.gf.Dataset.find_by_name(os.path.basename(pathlike))
-        logging.debug(f"Found datasets: {datasets}")
+        assets = self.gf.Asset.find_by_name(os.path.basename(pathlike))
+        logging.debug(f"Found assets: {assets}")
 
-        # First, figure out which dataset we're syncing to
-        if len(datasets) == 0:
-            ds = self._new_dataset(pathlike)
-        elif len(datasets) == 1:
-            ds = datasets[0]
+        # First, figure out which asset we're syncing to
+        if len(assets) == 0:
+            ds = self._new_asset(pathlike)
+        elif len(assets) == 1:
+            ds = assets[0]
         else:
-            warnings.warn(f"Multiple datasets with the same name found. Defaulting to first: "
-                          f"{[d.api_id for d in datasets]}")
-            ds = datasets[0]
+            warnings.warn(f"Multiple assets with the same name found. Defaulting to first: "
+                          f"{[d.api_id for d in assets]}")
+            ds = assets[0]
 
-        logging.debug(f"Creating a new revision for dataset {ds.api_id} with path {pathlike}")
+        logging.debug(f"Creating a new revision for asset {ds.api_id} with path {pathlike}")
 
-        # Now create the revision under the dataset
-        rev = self.gf.DatasetRevision(dataset=ds,
-                                      data=[self.gf.FileData.read(pathlike)]).create()
+        # Now create the revision under the asset
+        rev = self.gf.AssetRevision(asset=ds,
+                                    data=[self.gf.FileData.read(pathlike)]).create()
         return rev
 
     def _log(self, revision, is_new_revision=False):
@@ -699,18 +699,18 @@ class DatasetSync:
 
         """
         revision.is_new_revision = is_new_revision
-        self.data_log[revision.api_id] = revision
-        logging.debug(f"Logged revision {revision.api_id} for dataset {revision.dataset.api_id}")
-        logging.debug(f"Current revision cache: {self.data_log.keys()}")
+        self.asset_log[revision.api_id] = revision
+        logging.debug(f"Logged revision {revision.api_id} for asset {revision.asset.api_id}")
+        logging.debug(f"Current revision cache: {self.asset_log.keys()}")
         return revision
 
     def sync(self, pathlike):
         """\
-        Syncs a dataset: calculates the checksum for the file and either uploads it to GoFigr (if checksum isn't found)
+        Syncs an asset: calculates the checksum for the file and either uploads it to GoFigr (if checksum isn't found)
         or returns the existing revision.
 
         :param pathlike: path to the file
-        :return: DataRevision instance
+        :return: AssetRevision instance
 
         """
         # Grab the checksum
@@ -723,8 +723,8 @@ class DatasetSync:
 
         logging.debug(f"Calculated checksum for {pathlike}: {checksum}")
 
-        # Check if we already have this dataset
-        revisions = self.gf.DatasetRevision.find_by_hash(checksum, "blake3")
+        # Check if we already have this asset
+        revisions = self.gf.AssetRevision.find_by_hash(checksum, "blake3")
 
         if len(revisions) == 0:
             return self._log(self._new_revision(pathlike), is_new_revision=True)
@@ -733,20 +733,20 @@ class DatasetSync:
             return self._log(revisions[0])
         else:
             logging.debug(f"Found existing revisions: {[rev.api_id for rev in revisions]}")
-            warnings.warn(f"Multiple datasets with the same checksum found. Defaulting to first: "
+            warnings.warn(f"Multiple assets with the same checksum found. Defaulting to first: "
                           f"{[d.api_id for d in revisions]}")
             return self._log(revisions[0])
 
 
     @contextlib.contextmanager
     def open_and_get_revision(self, pathlike, *args, **kwargs):
-        """Syncs the data at pathlike with GoFigr and returns a tuple of file handle, DataRevision instance."""
+        """Syncs the data at pathlike with GoFigr and returns a tuple of file handle, AssetRevision instance."""
         f = None
         try:
             rev = self.sync(pathlike)
             if rev:
-                logging.info(f"Dataset synced: {rev.app_url}")
-                DatasetWidget(rev).show()
+                logging.info(f"Asset synced: {rev.app_url}")
+                AssetWidget(rev).show()
 
             f = open(pathlike, *args, **kwargs)  # pylint: disable=unspecified-encoding
             yield f, rev
