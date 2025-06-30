@@ -1526,20 +1526,20 @@ class TestFlexStorage(MultiUserTestCase):
             self._check_data(client, worx, "s3://gofigr-flextest/", create=False)
 
 
-class TestDatasets(GfTestCase):
+class TestAssets(GfTestCase):
     def setUp(self):
         self.gf = make_gf()
         self.initial_worx_size = self.gf.primary_workspace.fetch().size_bytes
 
-        self.ds = self.gf.Dataset(name="test dataset", workspace=self.gf.primary_workspace).create()
-        self.ds2 = self.gf.Dataset(name="test dataset 2", workspace=self.gf.primary_workspace).create()
+        self.ds = self.gf.Asset(name="test dataset", workspace=self.gf.primary_workspace).create()
+        self.ds2 = self.gf.Asset(name="test dataset 2", workspace=self.gf.primary_workspace).create()
 
         for dsi in [self.ds, self.ds2]:
-            actual_ds = self.gf.Dataset(api_id=dsi.api_id).fetch()
+            actual_ds = self.gf.Asset(api_id=dsi.api_id).fetch()
             self.assertEqual(dsi.name, actual_ds.name)
             self.assertEqual(dsi.workspace.api_id, actual_ds.workspace.api_id)
 
-        self.reference_revs = [self.gf.DatasetRevision(dataset=self.ds,
+        self.reference_revs = [self.gf.AssetRevision(asset=self.ds,
                                              data=[
                                                  self.gf.Data(name="test.bin", data=bytes([idx, idx + 1, idx + 2, idx + 3]),
                                                          type=DataType.FILE)]).create()
@@ -1547,7 +1547,7 @@ class TestDatasets(GfTestCase):
 
     def test_find_hash(self):
         for rev in self.reference_revs:
-            hits = self.gf.DatasetRevision.find_by_hash(rev.data[0].calculate_hash())
+            hits = self.gf.AssetRevision.find_by_hash(rev.data[0].calculate_hash())
             self.assertEqual(len(hits), 1)
 
             onehit = hits[0].fetch()
@@ -1556,18 +1556,18 @@ class TestDatasets(GfTestCase):
             self.assertEqual(onehit.data[0].calculate_hash(), rev.data[0].calculate_hash())
             self.assertIsNotNone(onehit.data[0].calculate_hash())
 
-    def test_dataset_creation(self):
+    def test_asset_creation(self):
         gf, ds, ds2, reference_revs = self.gf, self.ds, self.ds2, self.reference_revs
 
         for idx, rev in enumerate(reference_revs):
-            rev2 = gf.DatasetRevision(api_id=rev.api_id).fetch()
+            rev2 = gf.AssetRevision(api_id=rev.api_id).fetch()
             self.assertEqual(rev.asset.api_id, rev2.asset.api_id)
             self.assertEqual(rev.data[0].data, rev2.data[0].data)
 
-        actual_ds = gf.Dataset(api_id=ds.api_id).fetch()
+        actual_ds = gf.Asset(api_id=ds.api_id).fetch()
         actual_ds.fetch()  # fetch new revisions
 
-        actual_ds2 = gf.Dataset(api_id=ds2.api_id).fetch()
+        actual_ds2 = gf.Asset(api_id=ds2.api_id).fetch()
         actual_ds2.fetch()  # fetch new revisions
 
         for idx, rev in enumerate(reference_revs):
@@ -1596,25 +1596,25 @@ class TestDatasets(GfTestCase):
         self.assertIn(ds2.api_id, [x.api_id for x in recents.assets])
 
 
-class DatasetTestCase(MultiUserTestCase):
+class AssetTestCase(MultiUserTestCase):
     def setUp(self):
         super().setUp()
         for gf in self.clients:
             for worx in gf.workspaces:
-                ds1 = gf.Dataset(name="test dataset", workspace=worx).create()
-                ds2 = gf.Dataset(name="test dataset 2", workspace=worx).create()
+                ds1 = gf.Asset(name="test dataset", workspace=worx).create()
+                ds2 = gf.Asset(name="test dataset 2", workspace=worx).create()
 
                 for dsi in [ds1, ds2]:
                     for idx in range(5):
-                        gf.DatasetRevision(dataset=dsi,
-                                           data=[
-                                               gf.Data(name="test.bin",
-                                                       data=bytes([idx, idx + 1, idx + 2, idx + 3]),
-                                                       type=DataType.FILE)]).create()
+                        gf.AssetRevision(asset=dsi,
+                                         data=[
+                                             gf.Data(name="test.bin",
+                                                     data=bytes([idx, idx + 1, idx + 2, idx + 3]),
+                                                     type=DataType.FILE)]).create()
 
 
-class TestDatasetPermissions(DatasetTestCase):
-    def test_dataset_permissions(self):
+class TestAssetPermissions(AssetTestCase):
+    def test_asset_permissions(self):
         for client, other_client in self.client_pairs:
             for worx in client.workspaces:
                 self.assertGreater(len(worx.assets), 0)
@@ -1630,8 +1630,8 @@ class TestDatasetPermissions(DatasetTestCase):
                         self.assertRaises(UnauthorizedError, rev_other.fetch)
 
 
-class TestFigureDatasetAssociations(DatasetTestCase):
-    def test_dataset_associations(self):
+class TestFigureAssetAssociations(AssetTestCase):
+    def test_asset_associations(self):
         for client, other_client in self.client_pairs:
             other_client.primary_workspace.fetch()
             other_ds1 = other_client.primary_workspace.assets[0].fetch()
@@ -1646,12 +1646,12 @@ class TestFigureDatasetAssociations(DatasetTestCase):
                     for fig in ana.figures:
                         fig.fetch()
                         for rev in fig.revisions:
-                            rev.assets = [client.DatasetLinkedToFigure(figure_revision=rev,
-                                                                       dataset_revision=ds1.revisions[0],
-                                                                       use_type="direct"),
-                                          client.DatasetLinkedToFigure(figure_revision=rev,
-                                                                         dataset_revision=ds2.revisions[1],
-                                                                         use_type="indirect")]
+                            rev.assets = [client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=ds1.revisions[0],
+                                                                     use_type="direct"),
+                                          client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=ds2.revisions[1],
+                                                                     use_type="indirect")]
                             rev.save()
 
                             server_rev = client.Revision(api_id=rev.api_id).fetch()
@@ -1665,12 +1665,12 @@ class TestFigureDatasetAssociations(DatasetTestCase):
                             self.assertEqual(server_rev.assets[1].asset_revision.api_id, ds2.revisions[1].api_id)
 
                             # Now create new associations and make sure they completely overwrite the old ones
-                            rev.assets = [client.DatasetLinkedToFigure(figure_revision=rev,
-                                                                       dataset_revision=ds1.revisions[1],
-                                                                       use_type="direct"),
-                                          client.DatasetLinkedToFigure(figure_revision=rev,
-                                                                         dataset_revision=ds2.revisions[0],
-                                                                         use_type="indirect")]
+                            rev.assets = [client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=ds1.revisions[1],
+                                                                     use_type="direct"),
+                                          client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=ds2.revisions[0],
+                                                                     use_type="indirect")]
                             rev.save()
 
                             server_rev = client.Revision(api_id=rev.api_id).fetch()
@@ -1684,10 +1684,10 @@ class TestFigureDatasetAssociations(DatasetTestCase):
                             self.assertEqual(server_rev.assets[1].asset_revision.api_id, ds2.revisions[0].api_id)
 
                             # Test permissions
-                            rev.assets = [client.DatasetLinkedToFigure(figure_revision=rev,
-                                                                       dataset_revision=other_ds1.revisions[1],
-                                                                       use_type="direct"),
-                                          client.DatasetLinkedToFigure(figure_revision=rev,
-                                                                         dataset_revision=ds2.revisions[0],
-                                                                         use_type="indirect")]
+                            rev.assets = [client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=other_ds1.revisions[1],
+                                                                     use_type="direct"),
+                                          client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=ds2.revisions[0],
+                                                                     use_type="indirect")]
                             self.assertRaises(UnauthorizedError, rev.save)
