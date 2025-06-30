@@ -1664,6 +1664,19 @@ class TestFigureAssetAssociations(AssetTestCase):
                             self.assertEqual(server_rev.assets[1].figure_revision.api_id, rev.api_id)
                             self.assertEqual(server_rev.assets[1].asset_revision.api_id, ds2.revisions[1].api_id)
 
+                            # The assets should now include backlinks to the figures
+                            for dsx in [ds1, ds2]:
+                                for drev in dsx.revisions:
+                                    drev.fetch()
+
+                            self.assertEqual(len(ds1.revisions[0].figure_revisions), 1)
+                            self.assertEqual(ds1.revisions[0].figure_revisions[0].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(len(ds1.revisions[1].figure_revisions), 0)
+
+                            self.assertEqual(len(ds2.revisions[1].figure_revisions), 1)
+                            self.assertEqual(ds2.revisions[1].figure_revisions[0].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(len(ds2.revisions[0].figure_revisions), 0)
+
                             # Now create new associations and make sure they completely overwrite the old ones
                             rev.assets = [client.AssetLinkedToFigure(figure_revision=rev,
                                                                      asset_revision=ds1.revisions[1],
@@ -1674,6 +1687,10 @@ class TestFigureAssetAssociations(AssetTestCase):
                             rev.save()
 
                             server_rev = client.Revision(api_id=rev.api_id).fetch()
+                            for dsx in [ds1, ds2]:
+                                for drev in dsx.revisions:
+                                    drev.fetch()
+
                             self.assertEqual(len(server_rev.assets), 2)
                             self.assertEqual(server_rev.assets[0].use_type, "direct")
                             self.assertEqual(server_rev.assets[0].figure_revision.api_id, rev.api_id)
@@ -1683,6 +1700,14 @@ class TestFigureAssetAssociations(AssetTestCase):
                             self.assertEqual(server_rev.assets[1].figure_revision.api_id, rev.api_id)
                             self.assertEqual(server_rev.assets[1].asset_revision.api_id, ds2.revisions[0].api_id)
 
+                            self.assertEqual(len(ds1.revisions[1].figure_revisions), 1)
+                            self.assertEqual(ds1.revisions[1].figure_revisions[0].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(len(ds1.revisions[0].figure_revisions), 0)
+
+                            self.assertEqual(len(ds2.revisions[0].figure_revisions), 1)
+                            self.assertEqual(ds2.revisions[0].figure_revisions[0].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(len(ds2.revisions[1].figure_revisions), 0)
+
                             # Test permissions
                             rev.assets = [client.AssetLinkedToFigure(figure_revision=rev,
                                                                      asset_revision=other_ds1.revisions[1],
@@ -1691,3 +1716,7 @@ class TestFigureAssetAssociations(AssetTestCase):
                                                                      asset_revision=ds2.revisions[0],
                                                                      use_type="indirect")]
                             self.assertRaises(UnauthorizedError, rev.save)
+
+                            # Clear associations
+                            rev.assets = []
+                            rev.save()

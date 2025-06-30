@@ -1635,6 +1635,8 @@ class gf_AssetRevision(RevisionMixin, ThumbnailMixin):
     fields = ["api_id", "revision_index", "size_bytes",
               JSONField("metadata"),
               LinkedEntityField("asset", lambda gf: gf.Asset, many=False),
+              LinkedEntityField("figure_revisions", lambda gf: gf.AssetLinkedToFigure, many=True, nested=True,
+                                sort_key=lambda ds: ds.use_type),
               DataField("data", lambda gf: gf.Data, many=True),
               ] + TIMESTAMP_FIELDS
 
