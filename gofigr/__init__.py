@@ -548,7 +548,7 @@ class GoFigr:
         else:
             raise ValueError(f"Unsupported query type {query}")
 
-    def find_workspace(self, query):
+    def find_workspace(self, query): # pylint: disable=too-many-return-statements
         """\
         Finds a workspace.
 
