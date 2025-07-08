@@ -987,6 +987,9 @@ class gf_Workspace(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
         :param kwargs: if an Analysis needs to be created, parameters of the Analysis object (such as description)
         :return: Analysis instance.
         """
+        if self.analyses is None:
+            self.fetch()
+
         return self.analyses.find_or_create(name=name,
                                             default_obj=self._gf.Analysis(name=name, **kwargs) if create else None)
 

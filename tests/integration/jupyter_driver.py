@@ -185,8 +185,8 @@ def main():
                                         " instance.")
     parser.add_argument("service", help="notebook or lab")
     parser.add_argument("notebook_path", help="Path to ipynb notebook")
-    parser.add_argument("--timeout", type=int, default=300,
-                        help="Timeout in seconds (max 300s) for the notebook to finish execution")
+    parser.add_argument("--timeout", type=int, default=600,
+                        help="Timeout in seconds for the notebook to finish execution")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode")
     parser.add_argument("--retries", type=int, default=5, help="Maximum number of execution attempts.")
     args = parser.parse_args()

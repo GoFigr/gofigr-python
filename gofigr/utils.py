@@ -5,13 +5,15 @@ All rights reserved.
 """
 import inspect
 import json
+import logging
 import os
+import uuid
 from base64 import b64encode
 from importlib import resources
 
 import six
 
-import gofigr.databricks
+from gofigr.databricks import get_config as get_databricks_config
 
 
 def read_resource_text(package, resource):
@@ -55,7 +57,8 @@ def from_config_or_env(env_prefix, config_path):
     `<prefix> + <name of function argument in all caps>`, e.g. if prefix is ``MYAPP`` and function argument \
     is called host_name, we'll look for an \
     environment variable named ``MYAPP_HOST_NAME``.
-    :param config_path: path to the JSON config file. Function arguments will be looked up using their verbatim names.
+    :param config_path: path to the JSON config file. If a list, will be checked in order until one is found.
+    Function arguments will be looked up using their verbatim names.
     :return: decorated function
 
     """
@@ -63,7 +66,8 @@ def from_config_or_env(env_prefix, config_path):
         @six.wraps(func)
         def wrapper(*args, **kwargs):
             # Read config file, if it exists
-            if os.path.exists(config_path):
+            if config_path and os.path.exists(config_path):
+                logging.debug("Loading config from %s", config_path)
                 with open(config_path, 'r', encoding='utf-8') as f:
                     try:
                         config_file = json.load(f)
@@ -72,7 +76,7 @@ def from_config_or_env(env_prefix, config_path):
             else:
                 config_file = {}
 
-            dbconfig = gofigr.databricks.get_config() or {}
+            dbconfig = get_databricks_config() or {}
 
             sig = inspect.signature(func)
             param_values = sig.bind_partial(*args, **kwargs).arguments
@@ -92,3 +96,14 @@ def from_config_or_env(env_prefix, config_path):
         return wrapper
 
     return decorator
+
+
+def try_parse_uuid4(text):
+    """Tries to parse a UUID from a string, returning it if successful, or returning None if not."""
+    if text is None:
+        return None
+
+    try:
+        return str(uuid.UUID(text, version=4))
+    except Exception:  # pylint: disable=broad-exception-caught
+        return None

@@ -10,6 +10,7 @@ import io
 import os
 import pickle
 import sys
+import traceback
 from functools import wraps
 from pathlib import Path
 from uuid import UUID
@@ -17,7 +18,8 @@ from uuid import UUID
 import gofigr
 from gofigr import GoFigr, API_URL
 from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME, NOTEBOOK_PATH, IPythonAnnotator
-from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, DEFAULT_BACKENDS, _mark_as_published
+from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, DEFAULT_BACKENDS, _mark_as_published, is_published, \
+    is_suppressed
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
 from gofigr.trap import GfDisplayPublisher, SuppressDisplayTrap
@@ -248,6 +250,7 @@ def _load_ipython_extension(ip):
             print("GoFigr authentication failed. Please manually call configure(api_key=<YOUR API KEY>).",
                   file=sys.stderr)
         else:
+            print(traceback.format_exc(), file=sys.stderr)
             print(f"Could not automatically configure GoFigr. Please call configure() manually. Error: {e}",
                   file=sys.stderr)
 
@@ -292,9 +295,32 @@ class JupyterPublisher(Publisher):
     Adds Jupyter-specific functionality to GoFigr's base Publisher class.
 
     """
+    def __init__(self, *args, clear=True, **kwargs):
+        super().__init__(*args, clear=clear, **kwargs)
+
     @property
     def _non_ipython_annotators(self):
         return [ann for ann in self.annotators if not isinstance(ann, IPythonAnnotator)]
+
+    def auto_publish_hook(self, extension, data, suppress_display=None):
+        """\
+        Hook for automatically publishing figures without an explicit call to publish().
+
+        :param extension: GoFigrExtension instance
+        :param data: data being published. This will usually be a dictionary of mime formats.
+        :param suppress_display: if used in an auto-publish hook, this will contain a callable which will
+        suppress the display of this figure using the native IPython backend.
+
+        :return: None
+        """
+        for backend in self.backends:
+            compatible_figures = list(backend.find_figures(extension.shell, data))
+            for fig in compatible_figures:
+                if not is_published(fig) and not is_suppressed(fig):
+                    self.publish(fig=fig, backend=backend, suppress_display=suppress_display)
+
+            if len(compatible_figures) > 0:
+                break
 
     def publish(self, *args, **kwargs):
         with SuppressDisplayTrap():
@@ -309,7 +335,7 @@ class JupyterPublisher(Publisher):
 
 
 # pylint: disable=too-many-arguments, too-many-locals
-@from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
+@from_config_or_env("GF_", gofigr.find_config())
 def configure(username=None,
               password=None,
               api_key=None,

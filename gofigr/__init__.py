@@ -17,7 +17,7 @@ from requests import Session
 
 from gofigr.exceptions import UnauthorizedError, MethodNotAllowedError
 from gofigr.models import *
-from gofigr.utils import from_config_or_env
+from gofigr.utils import from_config_or_env, try_parse_uuid4
 from gofigr.widget import AssetWidget
 
 LOGGER = logging.getLogger(__name__)
@@ -131,6 +131,38 @@ class UserInfo:
         return str(self) == str(other)
 
 
+def find_config(current_dir=None, filename=".gofigr"):
+    """\
+    Recursively searches for the GoFigr configuration file starting in current_dir, then walking up
+    the directory hierarchy. If one is not found, we then check the user's home directory.
+
+    :param current_dir: start directory. Defaults to current directory.
+    :param filename: filename to look for. Defaults to .gofigr.
+    :return: path if found, or None
+
+    """
+    if current_dir is None:
+        current_dir = os.getcwd()
+
+    while True:
+        file_path = os.path.join(current_dir, filename)
+        if os.path.exists(file_path):
+            return os.path.abspath(file_path)
+
+        # Move to the parent directory
+        parent_dir = os.path.dirname(current_dir)
+
+        # If we've reached the root directory and haven't found the file, stop
+        if parent_dir == current_dir:
+            break
+
+        current_dir = parent_dir
+
+    # If we still haven't found the file, use the default
+    default_path = os.path.join(os.environ['HOME'], filename)
+    return default_path if os.path.exists(default_path) else None
+
+
 # pylint: disable=too-many-instance-attributes
 class GoFigr:
     """\
@@ -139,7 +171,7 @@ class GoFigr:
 
     """
 
-    @from_config_or_env("GF_", os.path.join(os.environ['HOME'], '.gofigr'))
+    @from_config_or_env("GF_", find_config())
     def __init__(self,
                  username=None,
                  password=None,
@@ -459,8 +491,10 @@ class GoFigr:
         :return: gf.Analysis object
 
         """
+        api_id = try_parse_uuid4(query)
+
         if query is None:
-            raise ValueError("Please specify a query")
+            raise ValueError("Please specify an analysis")
         elif workspace is None:
             raise ValueError("Please specify a workspace")
         elif isinstance(query, gf_Analysis):
@@ -468,7 +502,10 @@ class GoFigr:
         elif isinstance(query, NotebookName):
             return query  # will be set by the Jupyter extension
         elif isinstance(query, str):
-            return self.Analysis(api_id=query)
+            if api_id is not None:
+                return self.Analysis(api_id=api_id)
+            else:
+                return workspace.get_analysis(name=query, description="", create=True)
         elif isinstance(query, ApiId):
             return self.Analysis(api_id=query.api_id)
         elif isinstance(query, FindByName):
@@ -488,6 +525,8 @@ class GoFigr:
         :return: gf.Figure object
 
         """
+        api_id = try_parse_uuid4(query)
+
         if query is None:
             raise ValueError("Please specify a query")
         elif analysis is None:
@@ -495,7 +534,10 @@ class GoFigr:
         elif isinstance(query, gf_Figure):
             return query
         elif isinstance(query, str):
-            return self.Figure(api_id=query)
+            if api_id is not None:
+                return self.Figure(api_id=api_id)
+            else:
+                return analysis.get_figure(name=query, description="", create=True)
         elif isinstance(query, ApiId):
             return self.Figure(api_id=query.api_id)
         elif isinstance(query, FindByName):
@@ -514,6 +556,8 @@ class GoFigr:
         :return: gf.Workspace object
 
         """
+        api_id = try_parse_uuid4(query)
+
         if query is None:
             # Use default workspace
             if self.primary_workspace is not None:
@@ -525,7 +569,10 @@ class GoFigr:
         elif isinstance(query, gf_Workspace):
             return query
         elif isinstance(query, str):
-            return self.Workspace(api_id=query)
+            if api_id is not None:
+                return self.Workspace(api_id=query)
+            else:
+                return self._find_workspace_by_name(query, create=True)
         elif isinstance(query, ApiId):
             return self.Workspace(api_id=query.api_id)
         elif isinstance(query, FindByName):

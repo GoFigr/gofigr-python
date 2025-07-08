@@ -16,7 +16,7 @@ from IPython.core.display_functions import display
 from gofigr import GoFigr, MeasureExecution, NotebookName
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
     PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator, \
-    GitAnnotator, Annotator
+    GitAnnotator, Annotator, ScriptAnnotator
 from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
@@ -42,7 +42,7 @@ except ModuleNotFoundError:
 
 DEFAULT_ANNOTATORS = (NotebookMetadataAnnotator, EnvironmentAnnotator, CellIdAnnotator, CellCodeAnnotator,
                       SystemAnnotator, PipFreezeAnnotator, BackendAnnotator, HistoryAnnotator,
-                      GitAnnotator)
+                      GitAnnotator, ScriptAnnotator)
 DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
 if PY3DMOL_PRESENT:
     # pylint: disable=possibly-used-before-assignment
@@ -70,7 +70,7 @@ def is_suppressed(fig):
     return getattr(fig, "_gf_is_suppressed", False)
 
 
-def _is_published(fig):
+def is_published(fig):
     """Returns True iff the figure has already been published"""
     return getattr(fig, "_gf_is_published", False)
 
@@ -92,7 +92,7 @@ class Publisher:
                  image_formats=("png", "eps", "svg"),
                  interactive=True,
                  default_metadata=None,
-                 clear=True,
+                 clear=False,
                  save_pickle=True,
                  widget_class=DetailedWidget):
         """
@@ -105,8 +105,7 @@ class Publisher:
         False to always display the unmodified figure. Default True.
         :param image_formats: image formats to save by default
         :param interactive: whether to publish figure HTML if available
-        :param clear: whether to close the original figures after publication. If False, Jupyter will display
-        both the input figure and the watermarked output. Default behavior is to close figures.
+        :param clear: whether to close the original figures after publication
         :param save_pickle: if True, will save the figure in pickle format in addition to any of the image formats
         :param widget_class: Widget type to show, e.g. DetailedWidget or CompactWidget. It will appear below the
         published figure
@@ -124,28 +123,8 @@ class Publisher:
         self.save_pickle = save_pickle
         self.widget_class = widget_class
 
-        self.workspace = gf.find_workspace(workspace).fetch()
-        self.analysis = gf.find_analysis(self.workspace, analysis)
-
-    def auto_publish_hook(self, extension, data, suppress_display=None):
-        """\
-        Hook for automatically publishing figures without an explicit call to publish().
-
-        :param extension: GoFigrExtension instance
-        :param data: data being published. This will usually be a dictionary of mime formats.
-        :param suppress_display: if used in an auto-publish hook, this will contain a callable which will
-        suppress the display of this figure using the native IPython backend.
-
-        :return: None
-        """
-        for backend in self.backends:
-            compatible_figures = list(backend.find_figures(extension.shell, data))
-            for fig in compatible_figures:
-                if not _is_published(fig) and not is_suppressed(fig):
-                    self.publish(fig=fig, backend=backend, suppress_display=suppress_display)
-
-            if len(compatible_figures) > 0:
-                break
+        self.workspace = self.gf.find_workspace(workspace).fetch()
+        self.analysis = self.gf.find_analysis(self.workspace, analysis)
 
     def _check_analysis(self):
         if self.analysis is None:
@@ -334,7 +313,6 @@ class Publisher:
         or a FindByName instance.
         :param dataframes: dictionary of dataframes to associate & publish with the figure
         :param metadata: metadata (JSON) to attach to this revision
-        usage this will cause Jupyter to print the whole object which we don't want.
         :param backend: backend to use, e.g. MatplotlibBackend. If None it will be inferred automatically based on \
         figure type
         :param image_options: backend-specific params passed to backend.figure_to_bytes

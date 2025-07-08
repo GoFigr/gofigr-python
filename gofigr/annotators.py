@@ -136,6 +136,22 @@ class PipFreezeAnnotator(Annotator):
         return revision
 
 
+class ScriptAnnotator(Annotator):
+    """Annotates revisions with the code of the running script"""
+    def annotate(self, revision):
+        if get_ipython() is not None:  # skip if running interactively
+            return revision
+
+        if os.path.exists(sys.argv[0]):
+            revision.data.append(revision.client.FileData.read(sys.argv[0]))
+
+        if revision.metadata is None:
+            revision.metadata = {}
+
+        revision.metadata['argv'] = list(sys.argv)
+        return revision
+
+
 class GitAnnotator(Annotator):
     """Annotates revisions with Git information"""
 
@@ -334,7 +350,7 @@ class NotebookMetadataAnnotator(IPythonAnnotator):
 
             full_path = revision.metadata.get(NOTEBOOK_PATH)
             if full_path and os.path.exists(full_path):
-                revision.data += [revision.client.FileData.read(full_path)]
+                revision.client.sync.sync(full_path)
 
         except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"GoFigr could not automatically obtain the name of the currently"
