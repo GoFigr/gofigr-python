@@ -4,6 +4,7 @@ All rights reserved.
 
 """
 import json
+import logging
 import os
 import re
 import subprocess
@@ -11,8 +12,10 @@ import sys
 from abc import ABC
 from urllib.parse import unquote, urlparse
 
-from gofigr import CodeLanguage
-from gofigr.context import RevisionContext
+import git
+from IPython import get_ipython
+
+from gofigr.models import CodeLanguage
 from gofigr.databricks import get_dbutils
 
 PATH_WARNING = "To fix this warning, you can manually specify the notebook name & path in the call to configure(). " \
@@ -25,8 +28,33 @@ class Annotator(ABC):
     Annotates figure revisions with pertinent information, such as cell code, variable values, etc.
 
     """
-    def __init__(self, extension):
-        self.extension = extension
+    def annotate(self, revision):
+        """\
+        Annotates a figure revision in-place.
+
+        :param revision: revision to annotate
+        :return: annotated revision (same object as input).
+
+        """
+        raise NotImplementedError("Must be implemented in subclass")
+
+
+class IPythonAnnotator(Annotator):
+    """\
+    Annotates figures within the IPython/Jupyter environment.
+
+    """
+    def get_ip_extension(self):
+        """\
+        :return: IPython extension if available, None otherwise.
+
+        """
+        from gofigr.jupyter import get_extension  # pylint: disable=import-outside-toplevel
+        try:
+            return get_extension()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logging.debug(f"IPython extension could not be found: {e}")
+            return None
 
     def annotate(self, revision):
         """
@@ -36,18 +64,33 @@ class Annotator(ABC):
         :return: annotated FigureRevision
 
         """
-        return revision
+        ext = self.get_ip_extension()
+        if ext is None:
+            return revision
+        else:
+            return self.annotate_ip(revision, ext)
+
+    def annotate_ip(self, revision, ext):
+        """\
+        Annotates the figure revision assuming the IPython extension is available.
+
+        :param revision: GoFigr revision
+        :param ext: Jupyter extension
+        :return: annotated revision
+        """
+        raise NotImplementedError("Must be implemented in subclass")
 
 
-class CellIdAnnotator(Annotator):
+class CellIdAnnotator(IPythonAnnotator):
     """Annotates revisions with the ID of the Jupyter cell"""
-    def annotate(self, revision):
+    def annotate_ip(self, revision, ext):
         if revision.metadata is None:
             revision.metadata = {}
 
         try:
-            cell_id = self.extension.cell.cell_id
-        except AttributeError:
+            cell_id = ext.cell.cell_id
+        except AttributeError as e:
+            logging.debug(e)
             cell_id = None
 
         revision.metadata['cell_id'] = cell_id
@@ -55,11 +98,11 @@ class CellIdAnnotator(Annotator):
         return revision
 
 
-class CellCodeAnnotator(Annotator):
-    """"Annotates revisions with cell contents"""
-    def annotate(self, revision):
-        if self.extension.cell is not None:
-            code = self.extension.cell.raw_cell
+class CellCodeAnnotator(IPythonAnnotator):
+    """Annotates revisions with cell contents"""
+    def annotate_ip(self, revision, ext):
+        if ext.cell is not None:
+            code = ext.cell.raw_cell
         else:
             code = "N/A"
 
@@ -71,12 +114,11 @@ class CellCodeAnnotator(Annotator):
 
 class PipFreezeAnnotator(Annotator):
     """Annotates revisions with the output of pip freeze"""
-    def __init__(self, extension, cache=True):
+    def __init__(self, cache=True):
         """\
-        :param extension: the GoFigr Jupyter extension
         :param cache: if True, will only run pip freeze once and cache the output
         """
-        super().__init__(extension)
+        super().__init__()
         self.cache = cache
         self.cached_output = None
 
@@ -91,6 +133,73 @@ class PipFreezeAnnotator(Annotator):
                 output = e.output
 
         revision.data.append(revision.client.TextData(name="pip freeze", contents=output))
+        return revision
+
+
+class ScriptAnnotator(Annotator):
+    """Annotates revisions with the code of the running script"""
+    def annotate(self, revision):
+        if get_ipython() is not None:  # skip if running interactively
+            return revision
+
+        if os.path.exists(sys.argv[0]):
+            revision.data.append(revision.client.FileData.read(sys.argv[0]))
+
+        if revision.metadata is None:
+            revision.metadata = {}
+
+        revision.metadata['argv'] = list(sys.argv)
+        return revision
+
+
+class GitAnnotator(Annotator):
+    """Annotates revisions with Git information"""
+
+    def annotate(self, revision):
+        """
+        Generates a link for the current commit of a local repository.
+        """
+        try:
+            # 1. Initialize the repository object
+            repo = git.Repo(".", search_parent_directories=True)
+
+            try:
+                branch_name = repo.active_branch.name
+            except TypeError:
+                branch_name = "Detached HEAD"
+
+            # 2. Get the current commit hash
+            commit_hash = repo.head.commit.hexsha
+
+            # 3. Get the URL of the 'origin' remote
+            remote_url = repo.remotes.origin.url
+
+            # 4. Clean and reformat the remote URL to a standard HTTPS format
+            #    Handles both SSH (git@github.com:user/repo.git) and HTTPS formats
+            http_url = re.sub(r'\.git$', '', remote_url)  # Remove .git suffix
+            if http_url.startswith('git@'):
+                # Convert SSH URL to HTTPS
+                http_url = http_url.replace(':', '/').replace('git@', 'https://', 1)
+
+            # 5. Construct the final commit link
+            if 'github.com' in http_url.lower():
+                commit_link = f"{http_url}/commit/{commit_hash}"
+            elif 'bitbucket.org' in http_url.lower():
+                commit_link = f"{http_url}/commits/{commit_hash}"
+            else:
+                commit_link = None
+
+            revision.metadata['git'] = {'branch': branch_name,
+                                        'hash': commit_hash,
+                                        'remote_url': remote_url,
+                                        'commit_link': commit_link}
+
+        except git.exc.InvalidGitRepositoryError:
+            logging.debug("Error: Not a valid git repository.")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logging.debug(f"An unexpected error occurred: {e}")
+            return None
+
         return revision
 
 
@@ -126,34 +235,42 @@ def _parse_path_from_tab_title(title):
     return None
 
 
-class NotebookMetadataAnnotator(Annotator):
-    """"Annotates revisions with notebook metadata, including filename & path, as well as the full URL"""
+class NotebookMetadataAnnotator(IPythonAnnotator):
+    """Annotates revisions with notebook metadata, including filename & path, as well as the full URL"""
     def parse_from_databricks(self):
         """Returns notebook path if running in Databricks"""
         try:
             # pylint: disable=undefined-variable
-            context = get_dbutils(self.extension.shell).notebook.entry_point.getDbutils().notebook().getContext()
+            context = get_dbutils(get_ipython()).notebook.entry_point.getDbutils().notebook().getContext()
             nb = context.notebookPath().get()
             return {NOTEBOOK_PATH: nb, NOTEBOOK_NAME: os.path.basename(nb)}
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logging.debug(f"Unable to parse notebook metadata from Databricks: {e}")
             return None
 
     def parse_from_vscode(self):
         """Returns notebook path if running in VSCode"""
-        if self.extension.cell is None or self.extension.cell.cell_id is None:
-            return None
-        elif "vscode-notebook-cell:" not in self.extension.cell.cell_id:
-            return None
-
-        m = re.match(r'^vscode-notebook-cell:(.*)#.*$', unquote(self.extension.cell.cell_id))
-        if m is None:
+        ext = self.get_ip_extension()
+        if ext is None:
             return None
 
-        notebook_path = m.group(1)
-        notebook_name = os.path.basename(notebook_path)
+        try:
+            if ext.cell is None or getattr(ext.cell, "cell_id") is None:
+                return None
+            elif "vscode-notebook-cell:" not in ext.cell.cell_id:
+                return None
 
-        return {NOTEBOOK_PATH: notebook_path,
-                NOTEBOOK_NAME: notebook_name}
+            m = re.match(r'^vscode-notebook-cell:(.*)#.*$', unquote(ext.cell.cell_id))
+            if m is None:
+                return None
+
+            notebook_path = m.group(1)
+            notebook_name = os.path.basename(notebook_path)
+
+            return {NOTEBOOK_PATH: notebook_path,
+                    NOTEBOOK_NAME: notebook_name}
+        except Exception:  # pylint: disable=broad-exception-caught
+            return None
 
     def try_get_metadata(self):
         """Infers the notebook path & name using currently available metadata if possible, returning None otherwise"""
@@ -179,7 +296,7 @@ class NotebookMetadataAnnotator(Annotator):
         if notebook_name is None:
             notebook_name = unquote(urlparse(meta['url']).path.rsplit('/', 1)[-1])
 
-        notebook_dir = self.extension.shell.starting_dir
+        notebook_dir = get_ipython().starting_dir
         full_path = None
 
         for candidate_path in [os.path.join(notebook_dir, notebook_name),
@@ -202,6 +319,7 @@ class NotebookMetadataAnnotator(Annotator):
         """
         Infers the notebook path & name from metadata passed through the WebSocket (if available)
 
+        :param revision: GoFigr Revision instance
         :param error: if True, will raise an error if metadata is not available
         """
         vsc_meta = self.parse_from_vscode()
@@ -213,7 +331,8 @@ class NotebookMetadataAnnotator(Annotator):
             return db_meta
 
         # At this point the metadata needs to come from the JavaScript proxy
-        meta = self.extension.notebook_metadata
+        ext = self.get_ip_extension()
+        meta = ext.notebook_metadata if ext is not None else None
         if meta is None and error:
             raise RuntimeError("No Notebook metadata available")
         elif meta is None:
@@ -231,15 +350,12 @@ class NotebookMetadataAnnotator(Annotator):
 
             full_path = revision.metadata.get(NOTEBOOK_PATH)
             if full_path and os.path.exists(full_path):
-                revision.data += [revision.client.FileData.read(full_path)]
+                revision.client.sync.sync(full_path)
 
         except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"GoFigr could not automatically obtain the name of the currently"
                   f" running notebook. {PATH_WARNING} Details: {e}",
                   file=sys.stderr)
-
-            revision.metadata[NOTEBOOK_NAME] = "N/A"
-            revision.metadata[NOTEBOOK_PATH] = "N/A"
 
         return revision
 
@@ -269,21 +385,19 @@ class BackendAnnotator(Annotator):
         if revision.metadata is None:
             revision.metadata = {}
 
-        context = RevisionContext.get(revision)
-        revision.metadata[BACKEND_NAME] = context.backend.get_backend_name() if context and context.backend else "N/A"
-
+        revision.metadata[BACKEND_NAME] = revision.backend.get_backend_name() if revision.backend is not None else "N/A"
         return revision
 
 
 class HistoryAnnotator(Annotator):
     """Annotates revisions with IPython execution history"""
     def annotate(self, revision):
-        context = RevisionContext.get(revision)
+        ip = get_ipython()
 
-        if not hasattr(context.extension.shell, 'history_manager'):
+        if not hasattr(ip, 'history_manager'):
             return revision
 
-        hist = context.extension.shell.history_manager
+        hist = ip.history_manager
         if hist is None:
             return revision
 

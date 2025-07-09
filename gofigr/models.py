@@ -4,7 +4,7 @@ All rights reserved.
 
 """
 # Many of the properties here are defined dynamically based on Field specifications, so no-member isn't meaningful
-# pylint: disable=no-member
+# pylint: disable=no-member, protected-access
 
 import abc
 import io
@@ -19,7 +19,9 @@ import PIL
 import dateutil.parser
 
 import pandas as pd
+from blake3 import blake3
 
+from gofigr.exceptions import UnauthorizedError
 from gofigr.profile import MeasureExecution
 
 
@@ -196,7 +198,7 @@ class LinkedEntityField(Field):
     # pylint: disable=too-many-arguments
     def __init__(self, name, entity_type, many=False,
                  read_only=False, backlink_property=None, parent=None,
-                 derived=False, sort_key=None):
+                 derived=False, sort_key=None, nested=False):
         """\
 
         :param name: field name
@@ -207,6 +209,7 @@ class LinkedEntityField(Field):
         :param parent: parent object
         :param derived: True if derived (won't be transmitted through the API)
         :param sort_key: sort key (callable) for entities. None if no sort (default).
+        :param nested: True if this field is nested (i.e. it's embedded fully instead of linked by API ID)
 
         """
         super().__init__(name, parent=parent, derived=derived)
@@ -215,22 +218,32 @@ class LinkedEntityField(Field):
         self.read_only = read_only
         self.backlink_property = backlink_property
         self.sort_key = sort_key
+        self.nested = nested
 
     def clone(self):
         return LinkedEntityField(self.name, self.entity_type,
                                  many=self.many, read_only=self.read_only,
                                  backlink_property=self.backlink_property,
                                  parent=self.parent, derived=self.derived,
-                                 sort_key=self.sort_key)
+                                 sort_key=self.sort_key, nested=self.nested)
 
     def to_representation(self, value):
+        def _get_api_id(obj):
+            if self.nested:
+                return obj.to_json()
+
+            if isinstance(obj, str):
+                return obj
+            else:
+                return obj.api_id
+
         if value is None:
             return None
         elif self.many:
             sorted_value = value if self.sort_key is None else sorted(value, key=self.sort_key)
-            return [x.api_id for x in sorted_value]
+            return [_get_api_id(x) for x in sorted_value]
         else:
-            return value.api_id
+            return _get_api_id(value)
 
     def to_internal_value(self, gf, data):
         make_prefetched = lambda obj: self.entity_type(gf)(parse=True, **obj)
@@ -277,41 +290,6 @@ class DataField(LinkedEntityField):
             return value.to_json()
 
 
-class NestedEntityField(Field):
-    """\
-    Represents a nested entity. Nested entities are embedded fully in the parent object's JSON representation
-    and cannot be manipulated on their own.
-    """
-    def __init__(self, name, entity_type, many=False, read_only=False, derived=False, parent=None):
-        super().__init__(name, parent=parent, derived=derived)
-        self.entity_type = entity_type
-        self.many = many
-        self.read_only = read_only
-
-    def clone(self):
-        return NestedEntityField(self.name, self.entity_type,
-                                 many=self.many,
-                                 read_only=self.read_only,
-                                 derived=self.derived,
-                                 parent=self.parent)
-
-    def to_representation(self, value):
-        if value is None:
-            return None
-        elif self.many:
-            return [x.to_json() for x in value]
-        else:
-            return value.to_json()
-
-    def to_internal_value(self, gf, data):
-        make_one = lambda d: self.entity_type(gf).from_json(d)
-        if self.many:
-            coltype = tuple if self.read_only else list
-            return coltype([make_one(d) for d in data])
-        else:
-            return make_one(data)
-
-
 class NestedMixin(abc.ABC):
     """\
     Nested objects: these are not standalone (cannot be manipulated based on API ID), but are directly embedded
@@ -326,11 +304,15 @@ class NestedMixin(abc.ABC):
         """Parses this object from JSON"""
         raise NotImplementedError
 
+    def __eq__(self, other):
+        return self.to_json() == other.to_json()
+
 
 class ModelMixin(abc.ABC):
     """Base class for GoFigr API entities: workspaces, analyses, figures, etc."""
     # pylint: disable=protected-access
     fields = ['api_id', "_shallow"]
+    include_if_none = []
     endpoint = None
     _gf = None  # GoFigr instance. Will be set dynamically.
 
@@ -393,7 +375,7 @@ class ModelMixin(abc.ABC):
                 for fld in self.fields.values()
                 if (not fld.derived or include_derived)}
         if not include_none:
-            data = {k: v for k, v in data.items() if v is not None}
+            data = {k: v for k, v in data.items() if (v is not None) or (k in self.include_if_none)}
 
         return data
 
@@ -504,7 +486,11 @@ class ModelMixin(abc.ABC):
         return self._gf._delete(urljoin(self.endpoint, self.api_id + "/"))
 
     def __repr__(self):
-        return str(self.to_json())
+        str_val = str(self.to_json())
+        if len(str_val) > 2048:
+            return f"{str_val[:2045]}..."
+        else:
+            return str_val
 
 
 class LinkSharingStatus(NestedMixin):
@@ -547,7 +533,7 @@ class SharingUserData(NestedMixin):
         return str(self.to_json())
 
 
-class WorkspaceMember(NestedMixin):
+class MembershipInfo(NestedMixin):
     """Stores information about a member of a workspace"""
     def __init__(self, username, membership_type):
         if username is None:
@@ -558,8 +544,8 @@ class WorkspaceMember(NestedMixin):
 
     @classmethod
     def from_json(cls, data):
-        return WorkspaceMember(username=data.get('username'),
-                               membership_type=data.get('membership_type'))
+        return MembershipInfo(username=data.get('username'),
+                              membership_type=data.get('membership_type'))
 
     def to_json(self):
         return {'username': self.username,
@@ -567,6 +553,26 @@ class WorkspaceMember(NestedMixin):
 
     def __repr__(self):
         return str(self.to_json())
+
+
+class FlexibleStorageInfo(NestedMixin):
+    """Stores information required for flexible storage"""
+    def __init__(self, vendor, params):
+        self.vendor = vendor
+        self.params = params
+
+    @classmethod
+    def from_json(cls, data):
+        return FlexibleStorageInfo(vendor=data.get('vendor'),
+                                   params=data.get('params'))
+
+    def to_json(self):
+        return {'vendor': self.vendor,
+                'params': self.params}
+
+    def __repr__(self):
+        return str(self.to_json())
+
 
 
 class LogItem(NestedMixin):
@@ -763,7 +769,18 @@ class WorkspaceMembership(abc.ABC):
     ALL_LEVELS = [OWNER, ADMIN, CREATOR, VIEWER]
 
 
-Recents = namedtuple("Recents", ["analyses", "figures"])
+class OrganizationMembership(abc.ABC):
+    """Enum for organizational membership"""
+    ORG_ADMIN = "org_admin"
+    WORKSPACE_ADMIN = "workspace_admin"
+    WORKSPACE_CREATOR = "workspace_creator"
+    WORKSPACE_VIEWER = "workspace_viewer"
+
+    ALL_LEVELS = [ORG_ADMIN, WORKSPACE_ADMIN, WORKSPACE_CREATOR, WORKSPACE_VIEWER]
+
+
+
+Recents = namedtuple("Recents", ["analyses", "figures", "assets"])
 
 
 class LogsMixin:
@@ -812,7 +829,137 @@ class ThumbnailMixin:
         return img
 
 
-class gf_Workspace(ModelMixin, LogsMixin):
+class MembersMixin:
+    """Mixin for entities which support the /members/ endpoint."""
+
+    def get_members(self, unauthorized_error=True):
+        """\
+        Gets members of this workspace.
+
+        :param unauthorized_error: whether to raise an exception if unauthorized
+
+        :return: list of WorkspaceMember objects
+        """
+        try:
+            response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/members/'),
+                                     expected_status=HTTPStatus.OK)
+            return [MembershipInfo.from_json(datum) for datum in response.json()]
+        except UnauthorizedError:
+            if unauthorized_error:
+                raise
+            else:
+                return []
+
+    def add_member(self, username, membership_type):
+        """\
+        Adds a member to this workspace.
+
+        :param username: username of the person to add
+        :param membership_type: WorkspaceMembership value, e.g. WorkspaceMembership.CREATOR
+        :return: WorkspaceMember instance
+        """
+        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/add/'),
+                                  json=MembershipInfo(username=username, membership_type=membership_type).to_json(),
+                                  expected_status=HTTPStatus.OK)
+
+        return MembershipInfo.from_json(response.json())
+
+    def change_membership(self, username, membership_type):
+        """\
+        Changes the membership level for a user.
+
+        :param username: username
+        :param membership_type: new membership type, e.g. WorkspaceMembership.CREATOR
+        :return: WorkspaceMember instance
+
+        """
+        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/change/'),
+                                  json=MembershipInfo(username=username, membership_type=membership_type).to_json(),
+                                  expected_status=HTTPStatus.OK)
+
+        return MembershipInfo.from_json(response.json())
+
+    def remove_member(self, username):
+        """\
+        Removes a member from this workspace.
+
+        :param username: username
+        :return: WorkspaceMember instance
+
+        """
+        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/remove/'),
+                                  json=MembershipInfo(username=username, membership_type=None).to_json(),
+                                  expected_status=HTTPStatus.OK)
+
+        return MembershipInfo.from_json(response.json())
+
+
+class FlexibleStorageMixin:
+    """Mixin for getting/setting custom storage parameters if allowed by subscription"""
+    def get_storage_info(self):
+        """\
+        Gets the storage information for this workspace/organization.
+
+        :return: FlexibleStorateInfo instance
+        """
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/storage/'),
+                                 expected_status=HTTPStatus.OK)
+        return FlexibleStorageInfo.from_json(response.json())
+
+    def set_storage_info(self, vendor, params):
+        """\
+        Sets the storage information for this workspace/organization.
+
+        :param vendor: vendor name
+        :param params: vendor-specific storage parameters
+        :return: FlexibleStorageInfo instance returned from the server
+
+        """
+        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/storage/'),
+                                  json=FlexibleStorageInfo(vendor, params).to_json(),
+                                  expected_status=HTTPStatus.OK)
+        return FlexibleStorageInfo.from_json(response.json())
+
+    def test_storage(self, vendor, params):
+        """\
+        Runs a storage test for flexible storage parameters.
+
+        :param vendor: vendor name
+        :param params: vendor-specific storage parameters
+        :return: FlexibleStorageInfo instance returned from the server
+
+        """
+        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/storage/test/'),
+                                  json=FlexibleStorageInfo(vendor, params).to_json(),
+                                  expected_status=HTTPStatus.OK)
+        return FlexibleStorageInfo.from_json(response.json())
+
+
+class gf_Organization(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
+    """Represents a workspace"""
+    # pylint: disable=protected-access
+
+    fields = ["api_id",
+              "name",
+              "email",
+              "description",
+              "allow_per_workspace_storage_settings",
+              LinkedEntityField("workspaces", lambda gf: gf.Workspace, many=True, derived=True,
+                                backlink_property='organization')]
+    endpoint = "organization/"
+
+    def get_invitations(self):
+        """\
+        Gets members of this workspace.
+
+        :return: list of WorkspaceMember objects
+        """
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/invitations/'),
+                                 expected_status=HTTPStatus.OK)
+        return [self._gf.OrganizationInvitation(**datum, parse=True) for datum in response.json()]
+
+
+class gf_Workspace(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
     """Represents a workspace"""
     # pylint: disable=protected-access
 
@@ -822,8 +969,13 @@ class gf_Workspace(ModelMixin, LogsMixin):
               "description",
               "workspace_type",
               "size_bytes",
+              LinkedEntityField("organization", lambda gf: gf.Organization, many=False),
               LinkedEntityField("analyses", lambda gf: gf.Analysis, many=True, derived=True,
-                                backlink_property='workspace')] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+                                backlink_property='workspace'),
+              LinkedEntityField("assets", lambda gf: gf.Asset, many=True, derived=True,
+                                backlink_property='workspace')
+              ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+    include_if_none = ["organization"]
     endpoint = "workspace/"
 
     def get_analysis(self, name, create=True, **kwargs):
@@ -835,6 +987,9 @@ class gf_Workspace(ModelMixin, LogsMixin):
         :param kwargs: if an Analysis needs to be created, parameters of the Analysis object (such as description)
         :return: Analysis instance.
         """
+        if self.analyses is None:
+            self.fetch()
+
         return self.analyses.find_or_create(name=name,
                                             default_obj=self._gf.Analysis(name=name, **kwargs) if create else None)
 
@@ -848,58 +1003,6 @@ class gf_Workspace(ModelMixin, LogsMixin):
                                  expected_status=HTTPStatus.OK)
         return [self._gf.WorkspaceInvitation(**datum, parse=True) for datum in response.json()]
 
-    def get_members(self):
-        """\
-        Gets members of this workspace.
-
-        :return: list of WorkspaceMember objects
-        """
-        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/members/'),
-                                 expected_status=HTTPStatus.OK)
-        return [WorkspaceMember.from_json(datum) for datum in response.json()]
-
-    def add_member(self, username, membership_type):
-        """\
-        Adds a member to this workspace.
-
-        :param username: username of the person to add
-        :param membership_type: WorkspaceMembership value, e.g. WorkspaceMembership.CREATOR
-        :return: WorkspaceMember instance
-        """
-        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/add/'),
-                                  json=WorkspaceMember(username=username, membership_type=membership_type).to_json(),
-                                  expected_status=HTTPStatus.OK)
-
-        return WorkspaceMember.from_json(response.json())
-
-    def change_membership(self, username, membership_type):
-        """\
-        Changes the membership level for a user.
-
-        :param username: username
-        :param membership_type: new membership type, e.g. WorkspaceMembership.CREATOR
-        :return: WorkspaceMember instance
-
-        """
-        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/change/'),
-                                  json=WorkspaceMember(username=username, membership_type=membership_type).to_json(),
-                                  expected_status=HTTPStatus.OK)
-
-        return WorkspaceMember.from_json(response.json())
-
-    def remove_member(self, username):
-        """\
-        Removes a member from this workspace.
-
-        :param username: username
-        :return: WorkspaceMember instance
-
-        """
-        response = self._gf._post(urljoin(self.endpoint, f'{self.api_id}/members/remove/'),
-                                  json=WorkspaceMember(username=username, membership_type=None).to_json(),
-                                  expected_status=HTTPStatus.OK)
-
-        return WorkspaceMember.from_json(response.json())
 
     def get_recents(self, limit=100):
         """\
@@ -913,7 +1016,8 @@ class gf_Workspace(ModelMixin, LogsMixin):
         data = response.json()
         analyses = [self._gf.Analysis(**datum) for datum in data.get("analyses", [])]
         figures = [self._gf.Figure(**datum) for datum in data.get("figures", [])]
-        return Recents(analyses, figures)
+        assets = [self._gf.Asset(**datum) for datum in data.get("assets", [])]
+        return Recents(analyses, figures, assets)
 
 
 class gf_Analysis(ShareableModelMixin, LogsMixin, ThumbnailMixin):
@@ -940,6 +1044,9 @@ class gf_Analysis(ShareableModelMixin, LogsMixin, ThumbnailMixin):
         :return: Figure instance
 
         """
+        if self.figures is None:
+            self.fetch()
+
         return self.figures.find_or_create(name=name,
                                            default_obj=self._gf.Figure(name=name, **kwargs) if create else None)
 
@@ -956,6 +1063,36 @@ class gf_Figure(ShareableModelMixin, ThumbnailMixin):
                                 derived=True, backlink_property='figure')
               ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "figure/"
+
+
+class gf_Asset(ShareableModelMixin, ThumbnailMixin):
+    """Represents an asset, e.g. a file or a dataset"""
+    fields = ["api_id",
+              "name",
+              "description",
+              "size_bytes",
+              LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),
+              LinkedEntityField("revisions", lambda gf: gf.AssetRevision, many=True,
+                                derived=True, backlink_property='asset')
+              ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
+    endpoint = "asset/"
+
+    @classmethod
+    def find_by_name(cls, name):
+        """\
+        Finds an asset by name.
+
+        :param name: name to search for
+        :return: Asset instances, or empty list if not found
+
+        """
+        if name is None:
+            raise ValueError("Name cannot be None")
+
+        response = cls._gf._post(urljoin(cls.endpoint, 'find_by_name/'),
+                                json={'name': name},
+                                expected_status=HTTPStatus.OK)
+        return [cls.from_json(datum) for datum in response.json()]
 
 
 class DataType(abc.ABC):
@@ -1026,6 +1163,8 @@ class gf_Data(ModelMixin):
     fields = ["api_id",
               "name",
               "type",
+              "hash",
+              "size_bytes",
               JSONField("metadata"),
               Base64Field("data")]
 
@@ -1051,6 +1190,24 @@ class gf_Data(ModelMixin):
 
         if self.local_id is None:
             self.local_id = str(uuid4())
+
+    def calculate_hash(self, hash_type="blake3"):
+        """\
+        Calculates the hash of the instance's data.
+
+        :param hash_type: The type of hash algorithm to use. Defaults to "blake3".
+                          Currently, only "blake3" is supported.
+        :type hash_type: str, optional
+        :return: The hexadecimal representation of the hash if data exists, otherwise None.
+        :rtype: str or None
+        :raises ValueError: If an unsupported hash_type is specified.
+        """
+        if not self.data:
+            return None
+        if hash_type == "blake3":
+            return blake3(self.data).hexdigest()  # pylint: disable=not-callable
+        else:
+            raise ValueError(f"Unsupported hash type: {hash_type}")
 
     @property
     def local_id(self):
@@ -1089,7 +1246,18 @@ class gf_Data(ModelMixin):
                                           name=self.name,
                                           type=self.type,
                                           metadata=self.metadata,
-                                          data=self.data)
+                                          data=self.data,
+                                          size_bytes=self.size_bytes)
+
+    def get_storage_info(self):
+        """\
+        Gets the storage information for this workspace/organization.
+
+        :return: FlexibleStorateInfo instance
+        """
+        response = self._gf._get(urljoin(self.endpoint, f'{self.api_id}/storage/'),
+                                 expected_status=HTTPStatus.OK)
+        return response.json()
 
     def __eq__(self, other):
         repr1 = self.to_json()
@@ -1289,16 +1457,8 @@ class gf_TableData(gf_Data):
         """
         self.data = value.to_csv().encode(self.encoding) if value is not None else None
 
-
-class gf_Revision(ShareableModelMixin, ThumbnailMixin):
-    """Represents a figure revision"""
-    fields = ["api_id", "revision_index", "size_bytes",
-              JSONField("metadata"),
-              LinkedEntityField("figure", lambda gf: gf.Figure, many=False),
-              DataField("data", lambda gf: gf.Data, many=True),
-              ] + TIMESTAMP_FIELDS
-
-    endpoint = "revision/"
+class RevisionMixin(ShareableModelMixin):
+    """Base class for revisions, e.g. FigureRevision or AssetRevision"""
 
     def _replace_data_type(self, data_type, value):
         """\
@@ -1391,9 +1551,36 @@ class gf_Revision(ShareableModelMixin, ThumbnailMixin):
         super()._update_properties(props, parse=parse)
         if self.data is None:
             self.data = []
-
-        self.data = [dat.specialize() for dat in self.data]
+        else:
+            self.data = [dat.specialize() for dat in self.data]
         return self
+
+
+class gf_AssetLinkedToFigure(ModelMixin):
+    """Many-to-many relationship between figure and asset revisions"""
+
+    fields = ["use_type",
+              LinkedEntityField("figure_revision", lambda gf: gf.Revision, many=False),
+              LinkedEntityField("asset_revision", lambda gf: gf.AssetRevision, many=False)]
+    endpoint = None
+
+
+class gf_Revision(RevisionMixin, ThumbnailMixin):
+    """Represents a figure revision"""
+    fields = ["api_id", "revision_index", "size_bytes",
+              JSONField("metadata"),
+              LinkedEntityField("figure", lambda gf: gf.Figure, many=False),
+              LinkedEntityField("assets", lambda gf: gf.AssetLinkedToFigure, many=True, nested=True,
+                                sort_key=lambda ds: ds.use_type),
+              DataField("data", lambda gf: gf.Data, many=True),
+              ] + TIMESTAMP_FIELDS
+
+    endpoint = "revision/"
+
+    def __init__(self, *args, **kwargs):
+        self.backend = kwargs.pop('backend', None)
+
+        super().__init__(*args, **kwargs)
 
     @property
     def revision_url(self):
@@ -1446,6 +1633,39 @@ class gf_Revision(ShareableModelMixin, ThumbnailMixin):
         self._replace_data_type(DataType.TEXT, value)
 
 
+class gf_AssetRevision(RevisionMixin, ThumbnailMixin):
+    """Represents a figure revision"""
+    fields = ["api_id", "revision_index", "size_bytes",
+              JSONField("metadata"),
+              LinkedEntityField("asset", lambda gf: gf.Asset, many=False),
+              LinkedEntityField("figure_revisions", lambda gf: gf.AssetLinkedToFigure, many=True, nested=True,
+                                sort_key=lambda ds: ds.use_type),
+              DataField("data", lambda gf: gf.Data, many=True),
+              ] + TIMESTAMP_FIELDS
+
+    endpoint = "asset_revision/"
+
+    @classmethod
+    def find_by_hash(cls, digest, hash_type="blake3"):
+        """\
+        Finds an asset revision by its hash.
+
+        :param digest: digest hash (text)
+        :param hash_type: type of hash (only blake3 supported)
+        :return: list of matching asset revisions, or empty list if not found
+
+        """
+        if digest is None:
+            raise ValueError("Hash cannot be None")
+        elif hash_type is None:
+            raise ValueError("Hash type cannot be None")
+
+        response = cls._gf._post(urljoin(cls.endpoint, 'find_by_hash/'),
+                                 json={'digest': digest, 'hash_type': hash_type},
+                                 expected_status=HTTPStatus.OK)
+        return [cls.from_json(datum) for datum in response.json()]
+
+
 class gf_ApiKey(ModelMixin):
     """\
     Represents an API key. The field 'token' is the actual token used to authenticate, and is always null
@@ -1476,11 +1696,12 @@ class gf_ApiKey(ModelMixin):
         return self
 
 
-class gf_WorkspaceInvitation(ModelMixin):
+class InvitationMixin(ModelMixin):
     """\
-    Represents an invitation to join a workspace.
+        Represents an invitation to join a workspace.
 
-    """
+        """
+
     # pylint: disable=protected-access
 
     def _require_token(self):
@@ -1516,9 +1737,25 @@ class gf_WorkspaceInvitation(ModelMixin):
               "status",
               Timestamp("created"),
               Timestamp("expiry"),
-              LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),
               "membership_type"]
+
+
+class gf_WorkspaceInvitation(InvitationMixin):
+    """\
+    Represents an invitation to join a workspace.
+
+    """
+    fields = InvitationMixin.fields + [LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False)]
     endpoint = "invitations/workspace/"
+
+
+class gf_OrganizationInvitation(InvitationMixin):
+    """\
+    Represents an invitation to join an organization.
+
+    """
+    fields = InvitationMixin.fields + [LinkedEntityField("organization", lambda gf: gf.Organization, many=False)]
+    endpoint = "invitations/organization/"
 
 
 class gf_MetadataProxy(ModelMixin):

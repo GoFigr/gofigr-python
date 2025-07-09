@@ -3,7 +3,6 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-import abc
 import os
 import time
 from datetime import datetime, timedelta
@@ -14,7 +13,8 @@ import numpy as np
 import pandas as pd
 import pkg_resources
 from PIL import Image
-from gofigr.models import gf_Revision, gf_Data
+
+from gofigr.models import gf_Data, MembershipInfo, OrganizationMembership, DataType
 
 from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership, \
     ThumbnailMixin, MethodNotAllowedError
@@ -252,7 +252,7 @@ class TestUsers(TestCase):
         info = gf.user_info()
         self.assertEqual(gf.user_info(), gf.user_info(gf.username))
         self.assertEqual(info.username, gf.username)
-        self.assertEqual(info.email, 'testuser@server.com')
+        self.assertIn(info.email, ['testuser@server.com', 'testuser@gofigr.io'])
 
         # Update first and last names
         for first, last in [("a", "b"), ("", ""), ("Test", "User")]:
@@ -269,10 +269,39 @@ class TestUsers(TestCase):
         self.assertRaises(UnauthorizedError, lambda: gf.update_user_info(info, username=gf.username))
         self.assertEqual(gf.user_info().username, gf.username)
 
+        # We should not be able to change to staff
+        info = gf.user_info()
+        info.is_staff = True
+        gf.update_user_info(info)
+        self.assertFalse(gf.user_info().is_staff)
+
         # We should not be able to change info for anyone else
         for other_user in ['testuser2']:
             info.username = other_user
             self.assertRaises(UnauthorizedError, lambda: gf.update_user_info(info))
+
+    def test_user_profile(self):
+        gf = make_gf()
+        info = gf.user_info()
+        info.user_profile = {'ui_data': {}}
+        gf.update_user_info(info)
+
+        info = gf.user_info()
+        self.assertEqual(info.user_profile['ui_data'], {})
+
+        info.user_profile = {'ui_data': {'hello': 'world', 'foo': 'bar', 'baz': [1, 2, 3]}}
+        gf.update_user_info(info)
+        info = gf.user_info()
+        self.assertEqual(info.user_profile['ui_data']['hello'], 'world')
+        self.assertEqual(info.user_profile['ui_data']['foo'], 'bar')
+        self.assertListEqual(info.user_profile['ui_data']['baz'], [1, 2, 3])
+
+        info.user_profile = {'ui_data': {'foo': 'barz', 'baz': [3, 2, 1]}}
+        gf.update_user_info(info)
+        info = gf.user_info()
+        self.assertNotIn('hello', info.user_profile['ui_data'])
+        self.assertEqual(info.user_profile['ui_data']['foo'], 'barz')
+        self.assertListEqual(info.user_profile['ui_data']['baz'], [3, 2, 1])
 
     def test_avatars(self):
         gf = make_gf()
@@ -595,12 +624,22 @@ class GfTestCase(TestCase):
 
     def clean_up(self):
         gf = self.gf
+
+        gf.primary_workspace.organization = None
+        gf.primary_workspace.save()
+
         for ana in gf.primary_workspace.analyses:
             ana.delete(delete=True)
+
+        for ds in gf.primary_workspace.assets:
+            ds.delete(delete=True)
 
         for w in gf.workspaces:
             if w.workspace_type != WorkspaceType.PRIMARY:
                 w.delete(delete=True)
+
+        for org in gf.organizations:
+            org.delete(delete=True)
 
 
 class TestFigures(TestCase):
@@ -791,10 +830,21 @@ class TestFigures(TestCase):
         ana.delete(delete=True)
 
 
-class MultiUserTestCase(TestCase):
+class MultiUserTestCaseBase:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.n_revisions = 2
+
+    def create_test_analysis(self, gf, workspace):
+        ana = workspace.analyses.create(gf.Analysis(name=f"{gf.username}'s test analysis"))
+        fig = ana.figures.create(gf.Figure(name=f"{gf.username}'s test figure"))
+
+        for idx in range(self.n_revisions):
+            rev = gf.Revision(metadata={'index': idx},
+                              data=TestData(gf).load_external_data(nonce=idx))
+            fig.revisions.create(rev)
+
+        return ana
 
     def setUp(self):
         self.gf1 = make_gf(username="testuser")
@@ -810,19 +860,16 @@ class MultiUserTestCase(TestCase):
             test_workspace = gf.Workspace(name=f"{gf.username}'s test workspace").create()
 
             for workspace in [test_workspace, gf.primary_workspace]:
-                ana = workspace.analyses.create(gf.Analysis(name=f"{gf.username}'s test analysis"))
-                fig = ana.figures.create(gf.Figure(name=f"{gf.username}'s test figure"))
-
-                for idx in range(self.n_revisions):
-                    rev = gf.Revision(metadata={'index': idx},
-                                      data=TestData(gf).load_external_data(nonce=idx))
-                    fig.revisions.create(rev)
+                self.create_test_analysis(gf, workspace)
 
     def tearDown(self):
         return self.clean_up()
 
     def clean_up(self):
         for gf in self.clients:
+            gf.primary_workspace.organization = None
+            gf.primary_workspace.save()
+
             for w in gf.workspaces:
                 w.fetch()  # Refresh
                 if w.workspace_type != WorkspaceType.PRIMARY:
@@ -831,29 +878,47 @@ class MultiUserTestCase(TestCase):
                     for ana in w.analyses:
                         ana.delete(delete=True)
 
+                    for ds in w.assets:
+                        ds.delete(delete=True)
+
                     for member in w.get_members():
                         if member.membership_type != "owner":
                             w.remove_member(member.username)
 
+            for org in gf.organizations:
+                org.delete(delete=True)
+
     def get_gf_type(self, obj, client):
         return getattr(client, type(obj)._gofigr_type_name)
 
-    def list_all_objects(self, gf):
-        for workspace in gf.workspaces:
+    def list_data_objects(self, workspace):
+        for obj in self.list_workspace_objects(workspace):
+            if isinstance(obj, gf_Data):
+                yield obj
+
+    def list_workspace_objects(self, workspace, include_self=True):
+        if include_self:
             yield workspace
 
-            for analysis in workspace.analyses:
-                analysis.fetch()
-                yield analysis
+        for analysis in workspace.analyses:
+            analysis.fetch()
+            yield analysis
 
-                for fig in analysis.figures:
-                    fig.fetch()
-                    yield fig
+            for fig in analysis.figures:
+                fig.fetch()
+                yield fig
 
-                    for rev in fig.revisions:
-                        rev.fetch()
-                        yield rev
-                        yield from rev.data
+                for rev in fig.revisions:
+                    rev.fetch()
+                    yield rev
+                    yield from rev.data
+
+    def list_all_objects(self, gf):
+        for org in gf.organizations:
+            yield org
+
+        for workspace in gf.workspaces:
+            yield from self.list_workspace_objects(workspace)
 
 
     def clone_gf_object(self, obj, client, bare=False):
@@ -903,6 +968,10 @@ class MultiUserTestCase(TestCase):
                 # Make sure the properties didn't actually change
                 own_obj2 = self.clone_gf_object(own_obj, client, bare=True).fetch()
                 self.assertEqual(str(own_obj.to_json()), str(own_obj2.to_json()))
+
+
+class MultiUserTestCase(MultiUserTestCaseBase, TestCase):
+    pass
 
 
 class TestPermissions(MultiUserTestCase):
@@ -1260,3 +1329,394 @@ class TestSizeCalculation(GfTestCase):
         ana.delete(delete=True)
         gf.primary_workspace.fetch()
         self.assertEqual(gf.primary_workspace.size_bytes, initial_workspace_size)
+
+
+class TestOrganizations(MultiUserTestCase):
+    def test_creation(self):
+        gf = make_gf()
+
+        # No organizations at beginning
+        self.assertListEqual(gf.organizations, [])
+
+        my_org = gf.Organization(name="test org", description="").create()
+        self.assertListEqual(gf.organizations, [my_org])
+        self.assertEqual(my_org.name, "test org")
+        self.assertEqual(my_org.description, "")
+
+        self.assertListEqual(my_org.get_members(),
+                             [MembershipInfo(gf.username, OrganizationMembership.ORG_ADMIN)])
+
+        # Create a new workspace under this org
+        worx = gf.Workspace(name="worx").create()
+        worx.organization = my_org
+        worx.save()
+
+        # Workspace should now appear under this organization
+        my_org.fetch()
+        self.assertListEqual(list(my_org.workspaces), [worx])
+
+        gf.primary_workspace.organization = my_org
+        gf.primary_workspace.save()
+        my_org.fetch()
+        self.assertListEqual(list(my_org.workspaces), [worx, gf.primary_workspace])
+
+        # Updates
+        my_org.description = "test org description"
+        my_org.save()
+
+        self.assertEqual(my_org.fetch().description, "test org description")
+
+    def test_member_management(self):
+        for client, other_client in self.client_pairs:
+            # Client creates an organization and a workspace under that org
+            my_org = client.Organization(name="test org", description="").create()
+            my_worx = client.Workspace(name="worx", organization=my_org).create()
+            client.primary_workspace.organization = my_org
+            client.primary_workspace.save()
+
+            my_org.fetch()
+            self.assertEqual(my_org.get_storage_info().vendor, "GoFigr.io")
+            self.assertIsNone(my_org.get_storage_info().params)
+
+            # Client should be able to set storage params
+            my_org.set_storage_info("aws", {"bucket": "gofigr-flextest", "key": "data"})
+            self.assertEqual(my_org.get_storage_info().vendor, "aws")
+            self.assertEqual(my_org.get_storage_info().params, {"bucket": "gofigr-flextest", "key": "data"})
+
+            # Other user should not be able to assign their workspaces to my org
+            self.assertRaises(UnauthorizedError, other_client.Workspace(name="other worx", organization=my_org).create)
+
+            self.assertListEqual(my_org.get_members(),
+                                 [MembershipInfo(client.username, OrganizationMembership.ORG_ADMIN)])
+
+            # Client 2 should be unable to access anything in the org
+            my_org2 = self.clone_gf_object(my_org, other_client, bare=True)
+            self.assertRaises(UnauthorizedError, my_org2.fetch)
+            self.assertRaises(UnauthorizedError, my_org2.get_storage_info)
+            self.assertRaises(UnauthorizedError, lambda: my_org2.set_storage_info("aws", {"bucket": "gofigr-flextest",
+                                                                                          "key": "data"}))
+
+            for obj in self.list_all_objects(client):
+                self.assertRaises(UnauthorizedError, self.clone_gf_object(obj, other_client).fetch)
+
+            # Add the other user as a creator
+            my_org.add_member(other_client.username, OrganizationMembership.WORKSPACE_CREATOR)
+            my_org2.fetch()  # this should now work
+
+            # They should now have access to all objects in the org's workspaces
+            for workspace in [my_worx, client.primary_workspace]:
+                for obj in self.list_workspace_objects(workspace):
+                    self.assertEqual(obj, self.clone_gf_object(obj, other_client).fetch())
+
+            # But they still shouldn't have access to the other workspace
+            non_org_workspaces = [w for w in client.workspaces if "test workspace" in w.name]
+            self.assertEqual(len(non_org_workspaces), 1)
+            non_org_worx = non_org_workspaces[0]
+
+            # They shouldn't be able to upgrade their membership level
+            self.assertRaises(UnauthorizedError,
+                              lambda: self.clone_gf_object(my_org, other_client).change_membership(other_client.username,
+                                                                                                   OrganizationMembership.ORG_ADMIN))
+
+            for obj in self.list_workspace_objects(non_org_worx):
+                self.assertRaises(UnauthorizedError, self.clone_gf_object(obj, other_client).fetch)
+
+            # Other user should be able to create workspaces under our org
+            worx2 = other_client.Workspace(name="other worx", organization=my_org).create()
+            my_org.fetch()  # refresh list of workspaces
+
+            self.assertEqual(worx2.fetch().organization.fetch().api_id, my_org.api_id)
+
+            # Same for us under their workspace
+            ana = client.Analysis(name="my analysis", organization=my_org, workspace=self.clone_gf_object(worx2, client)).create()
+            self.assertEqual(ana.workspace.fetch().organization.fetch(), my_org)
+
+            # We shouldn't be able to access anything in other user's non-org workspaces
+            for worx in other_client.workspaces:
+                if worx.api_id in [w.api_id for w in my_org.workspaces]:
+                    continue
+
+                for obj in self.list_workspace_objects(worx):
+                    self.assertRaises(UnauthorizedError, lambda: self.clone_gf_object(obj, client).fetch())
+                    self.assertRaises((UnauthorizedError, MethodNotAllowedError),
+                                      lambda: self.clone_gf_object(obj, client).delete(delete=True))
+
+            # Remove user from org
+            my_org.remove_member(other_client.username)
+
+            # Allow authorization cache to expire
+            time.sleep(2.0)
+
+            # They should no longer have access
+            for workspace in [my_worx, client.primary_workspace]:
+                for obj in self.list_workspace_objects(workspace):
+                    self.assertRaises(UnauthorizedError, self.clone_gf_object(obj, other_client).fetch)
+
+            # They should still have access to the workspace they themselves created.
+            self.assertEqual(worx2.fetch().name, "other worx")
+
+
+class TestFlexStorage(MultiUserTestCase):
+    def _check_data(self, client, worx, prefix="s3://gofigr-flextest/", create=True):
+        if create:
+            self.create_test_analysis(client, worx)
+
+        for data in self.list_data_objects(worx):
+            info = data.get_storage_info()
+            self.assertEqual(info['vendor'], "AWS")
+            self.assertTrue(info['path'].startswith(prefix))
+
+            self.assertGreater(data.size_bytes, 0)
+            self.assertEqual(data.size_bytes, len(data.fetch().data))
+
+    def test_flex_workspace(self):
+        # By default, the vendor should be GoFigr
+        for client in self.clients:
+            for obj in self.list_data_objects(client.primary_workspace):
+                self.assertEqual(obj.get_storage_info()['vendor'], "GoFigr.io")
+                self.assertIsNone(obj.get_storage_info().get('path'))
+
+            # Switch to flex storage
+            worx = client.Workspace(name="worx").create()
+
+            # Check the testing endpoint
+            self.assertRaises(RuntimeError, lambda: worx.test_storage("aws", {"bucket": "gofigr-badbucket", "key": "data"}))
+            self.assertEqual(worx.test_storage("aws", {"bucket": "gofigr-flextest", "key": "data"}).vendor, 'aws')
+            self.assertEqual(worx.test_storage("aws", {"bucket": "gofigr-flextest2", "key": "data"}).vendor, 'aws')
+
+            # The actual storage settings shouldn't have changed
+            self.assertEqual(worx.get_storage_info().vendor, "GoFigr.io")
+
+            # Switch storage
+            self.assertRaises(RuntimeError, lambda: worx.set_storage_info("aws", {"bucket": "gofigr-badbucket", "key": "data"}))
+            worx.set_storage_info("aws", {"bucket": "gofigr-flextest", "key": "data"})
+            self.assertEqual(worx.get_storage_info().vendor, "aws")
+
+            # Check
+            self._check_data(client, worx)
+
+    def test_flex_organizations(self):
+        for client in self.clients:
+            org = client.Organization(name="test org").create()
+            worx = client.Workspace(name="org worx", organization=org).create()
+
+            # Should fail because the org doesn't allow custom storage
+            self.assertRaises(RuntimeError,
+                              lambda: worx.set_storage_info("aws", {"bucket": "gofigr-flextest2", "key": "data"}))
+
+            # Set flex storage through the organization
+            org.set_storage_info("aws", {"bucket": "gofigr-flextest", "key": "data"})
+            self.assertEqual(org.get_storage_info().vendor, "aws")
+            self.assertEqual(worx.get_storage_info().vendor, "GoFigr.io")  # no flex at the workspace level
+            self._check_data(client, worx, "s3://gofigr-flextest/")
+
+            # Set to allow flex storage per workspace
+            org.allow_per_workspace_storage_settings = True
+            org.save()
+            worx2 = client.Workspace(name="other worx", organization=org).create()
+            worx2.set_storage_info("aws", {"bucket": "gofigr-flextest2", "key": "data"})
+            self._check_data(client, worx2, "s3://gofigr-flextest2/")
+
+            # New workspaces should still default to org's storage settings
+            worx3 = client.Workspace(name="org worx 3", organization=org).create()
+            self._check_data(client, worx3, "s3://gofigr-flextest/")
+
+            # ... without impact on previously created workspaces
+            self._check_data(client, worx2, "s3://gofigr-flextest2/", create=False)
+            self._check_data(client, worx, "s3://gofigr-flextest/", create=False)
+
+
+class TestAssets(GfTestCase):
+    def setUp(self):
+        self.gf = make_gf()
+        self.initial_worx_size = self.gf.primary_workspace.fetch().size_bytes
+
+        self.ds = self.gf.Asset(name="test dataset", workspace=self.gf.primary_workspace).create()
+        self.ds2 = self.gf.Asset(name="test dataset 2", workspace=self.gf.primary_workspace).create()
+
+        for dsi in [self.ds, self.ds2]:
+            actual_ds = self.gf.Asset(api_id=dsi.api_id).fetch()
+            self.assertEqual(dsi.name, actual_ds.name)
+            self.assertEqual(dsi.workspace.api_id, actual_ds.workspace.api_id)
+
+        self.reference_revs = [self.gf.AssetRevision(asset=self.ds,
+                                             data=[
+                                                 self.gf.Data(name="test.bin", data=bytes([idx, idx + 1, idx + 2, idx + 3]),
+                                                         type=DataType.FILE)]).create()
+                          for idx in range(5)]
+
+    def test_find_hash(self):
+        for rev in self.reference_revs:
+            hits = self.gf.AssetRevision.find_by_hash(rev.data[0].calculate_hash())
+            self.assertEqual(len(hits), 1)
+
+            onehit = hits[0].fetch()
+            self.assertEqual(onehit.api_id, rev.api_id)
+            self.assertIsNotNone(onehit.api_id)
+            self.assertEqual(onehit.data[0].calculate_hash(), rev.data[0].calculate_hash())
+            self.assertIsNotNone(onehit.data[0].calculate_hash())
+
+    def test_asset_creation(self):
+        gf, ds, ds2, reference_revs = self.gf, self.ds, self.ds2, self.reference_revs
+
+        for idx, rev in enumerate(reference_revs):
+            rev2 = gf.AssetRevision(api_id=rev.api_id).fetch()
+            self.assertEqual(rev.asset.api_id, rev2.asset.api_id)
+            self.assertEqual(rev.data[0].data, rev2.data[0].data)
+
+        actual_ds = gf.Asset(api_id=ds.api_id).fetch()
+        actual_ds.fetch()  # fetch new revisions
+
+        actual_ds2 = gf.Asset(api_id=ds2.api_id).fetch()
+        actual_ds2.fetch()  # fetch new revisions
+
+        for idx, rev in enumerate(reference_revs):
+            rev2 = actual_ds.revisions[idx].fetch()
+            self.assertEqual(rev.asset.api_id, rev2.asset.api_id)
+            self.assertEqual(rev.data[0].data, rev2.data[0].data)
+            self.assertEqual(rev2.data[0].data, bytes([idx, idx+1, idx+2, idx+3]))
+            self.assertEqual(rev2.size_bytes, 4)
+
+        self.assertEqual(actual_ds.size_bytes, 20)
+        self.assertEqual(gf.primary_workspace.fetch().size_bytes, self.initial_worx_size + 20)
+
+        # Delete a revision
+        reference_revs[0].delete(delete=True)
+        actual_ds.fetch()  # fetch new revisions
+        actual_ds2.fetch()  # fetch new revisions
+        self.assertEqual(len(actual_ds.revisions), 4)
+        self.assertEqual(actual_ds.size_bytes, 16)
+        self.assertEqual(len(actual_ds2.revisions), 0)
+        self.assertEqual(actual_ds2.size_bytes, 0)
+        self.assertEqual(gf.primary_workspace.fetch().size_bytes, self.initial_worx_size + 16)
+
+        # Make sure the new dataset appears in recents
+        recents = gf.primary_workspace.get_recents()
+        self.assertIn(ds.api_id, [x.api_id for x in recents.assets])
+        self.assertIn(ds2.api_id, [x.api_id for x in recents.assets])
+
+
+class AssetTestCase(MultiUserTestCase):
+    def setUp(self):
+        super().setUp()
+        for gf in self.clients:
+            for worx in gf.workspaces:
+                ds1 = gf.Asset(name="test dataset", workspace=worx).create()
+                ds2 = gf.Asset(name="test dataset 2", workspace=worx).create()
+
+                for dsi in [ds1, ds2]:
+                    for idx in range(5):
+                        gf.AssetRevision(asset=dsi,
+                                         data=[
+                                             gf.Data(name="test.bin",
+                                                     data=bytes([idx, idx + 1, idx + 2, idx + 3]),
+                                                     type=DataType.FILE)]).create()
+
+
+class TestAssetPermissions(AssetTestCase):
+    def test_asset_permissions(self):
+        for client, other_client in self.client_pairs:
+            for worx in client.workspaces:
+                self.assertGreater(len(worx.assets), 0)
+
+                for ds in worx.assets:
+                    ds.fetch()  # should work fine
+                    ds_other = self.clone_gf_object(ds, other_client)
+                    self.assertRaises(UnauthorizedError, ds_other.fetch)
+
+                    for rev in ds.revisions:
+                        rev.fetch()  # should work fine
+                        rev_other = self.clone_gf_object(rev, other_client)
+                        self.assertRaises(UnauthorizedError, rev_other.fetch)
+
+
+class TestFigureAssetAssociations(AssetTestCase):
+    def test_asset_associations(self):
+        for client, other_client in self.client_pairs:
+            other_client.primary_workspace.fetch()
+            other_ds1 = other_client.primary_workspace.assets[0].fetch()
+
+            for worx in client.workspaces:
+                worx.fetch()
+                ds1 = worx.assets[0].fetch()
+                ds2 = worx.assets[1].fetch()
+
+                for ana in worx.analyses:
+                    ana.fetch()
+                    for fig in ana.figures:
+                        fig.fetch()
+                        for rev in fig.revisions:
+                            rev.assets = [client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=ds1.revisions[0],
+                                                                     use_type="direct"),
+                                          client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=ds2.revisions[1],
+                                                                     use_type="indirect")]
+                            rev.save()
+
+                            server_rev = client.Revision(api_id=rev.api_id).fetch()
+                            self.assertEqual(len(server_rev.assets), 2)
+                            self.assertEqual(server_rev.assets[0].use_type, "direct")
+                            self.assertEqual(server_rev.assets[0].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(server_rev.assets[0].asset_revision.api_id, ds1.revisions[0].api_id)
+
+                            self.assertEqual(server_rev.assets[1].use_type, "indirect")
+                            self.assertEqual(server_rev.assets[1].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(server_rev.assets[1].asset_revision.api_id, ds2.revisions[1].api_id)
+
+                            # The assets should now include backlinks to the figures
+                            for dsx in [ds1, ds2]:
+                                for drev in dsx.revisions:
+                                    drev.fetch()
+
+                            self.assertEqual(len(ds1.revisions[0].figure_revisions), 1)
+                            self.assertEqual(ds1.revisions[0].figure_revisions[0].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(len(ds1.revisions[1].figure_revisions), 0)
+
+                            self.assertEqual(len(ds2.revisions[1].figure_revisions), 1)
+                            self.assertEqual(ds2.revisions[1].figure_revisions[0].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(len(ds2.revisions[0].figure_revisions), 0)
+
+                            # Now create new associations and make sure they completely overwrite the old ones
+                            rev.assets = [client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=ds1.revisions[1],
+                                                                     use_type="direct"),
+                                          client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=ds2.revisions[0],
+                                                                     use_type="indirect")]
+                            rev.save()
+
+                            server_rev = client.Revision(api_id=rev.api_id).fetch()
+                            for dsx in [ds1, ds2]:
+                                for drev in dsx.revisions:
+                                    drev.fetch()
+
+                            self.assertEqual(len(server_rev.assets), 2)
+                            self.assertEqual(server_rev.assets[0].use_type, "direct")
+                            self.assertEqual(server_rev.assets[0].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(server_rev.assets[0].asset_revision.api_id, ds1.revisions[1].api_id)
+
+                            self.assertEqual(server_rev.assets[1].use_type, "indirect")
+                            self.assertEqual(server_rev.assets[1].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(server_rev.assets[1].asset_revision.api_id, ds2.revisions[0].api_id)
+
+                            self.assertEqual(len(ds1.revisions[1].figure_revisions), 1)
+                            self.assertEqual(ds1.revisions[1].figure_revisions[0].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(len(ds1.revisions[0].figure_revisions), 0)
+
+                            self.assertEqual(len(ds2.revisions[0].figure_revisions), 1)
+                            self.assertEqual(ds2.revisions[0].figure_revisions[0].figure_revision.api_id, rev.api_id)
+                            self.assertEqual(len(ds2.revisions[1].figure_revisions), 0)
+
+                            # Test permissions
+                            rev.assets = [client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=other_ds1.revisions[1],
+                                                                     use_type="direct"),
+                                          client.AssetLinkedToFigure(figure_revision=rev,
+                                                                     asset_revision=ds2.revisions[0],
+                                                                     use_type="indirect")]
+                            self.assertRaises(UnauthorizedError, rev.save)
+
+                            # Clear associations
+                            rev.assets = []
+                            rev.save()

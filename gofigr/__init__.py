@@ -3,15 +3,22 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+# pylint: disable=no-member
+
+import contextlib
 import inspect
-from json import dumps as json_dumps
 import logging
+import warnings
+from json import dumps as json_dumps
 
 import requests
-from requests import Session
 from PIL import Image
+from requests import Session
 
+from gofigr.exceptions import UnauthorizedError, MethodNotAllowedError
 from gofigr.models import *
+from gofigr.utils import from_config_or_env, try_parse_uuid4
+from gofigr.widget import AssetWidget
 
 LOGGER = logging.getLogger(__name__)
 
@@ -19,6 +26,10 @@ API_URL = "https://api.gofigr.io"
 API_VERSION = "v1.2"
 
 APP_URL = "https://app.gofigr.io"
+
+PANDAS_READERS = ["read_csv", "read_excel", "read_json", "read_html", "read_parquet", "read_feather",
+                  "read_hdf", "read_pickle", "read_sas"]
+REVISION_ATTR = "_gofigr_revision"
 
 
 def assert_one(elements, error_none=None, error_many=None):
@@ -39,26 +50,13 @@ def assert_one(elements, error_none=None, error_many=None):
         return elements[0]
 
 
-class UnauthorizedError(RuntimeError):
-    """\
-    Thrown if user doesn't have permissions to perform an action.
-    """
-    pass
-
-
-class MethodNotAllowedError(RuntimeError):
-    """\
-    Thrown if a given REST action is not supported/allowed.
-    """
-    pass
-
-
 class UserInfo:
     """\
     Stores basic information about a user: username, email, etc.
 
     """
-    def __init__(self, username, first_name, last_name, email, date_joined, is_active, avatar):
+    def __init__(self, username, first_name, last_name, email, date_joined, is_active, avatar,
+                 is_staff, user_profile):
         """\
 
         :param username:
@@ -68,6 +66,7 @@ class UserInfo:
         :param date_joined:
         :param is_active:
         :param avatar: avatar as a PIL.Image instance
+        :param is_staff: whether the user is staff or not
         """
         self.username = username
         self.first_name, self.last_name = first_name, last_name
@@ -75,6 +74,8 @@ class UserInfo:
         self.date_joined = date_joined
         self.is_active = is_active
         self.avatar = avatar
+        self.is_staff = is_staff
+        self.user_profile = user_profile
 
     @staticmethod
     def _avatar_to_b64(img):
@@ -107,6 +108,8 @@ class UserInfo:
                         email=obj.get('email'),
                         date_joined=dateutil.parser.parse(date_joined) if date_joined is not None else None,
                         is_active=obj.get('is_active'),
+                        is_staff=obj.get('is_staff'),
+                        user_profile=obj.get('user_profile', {}),
                         avatar=UserInfo._avatar_from_b64(obj.get('avatar')))
 
     def to_json(self):
@@ -117,6 +120,8 @@ class UserInfo:
                 'email': self.email,
                 'date_joined': str(self.date_joined) if self.date_joined else None,
                 'is_active': self.is_active,
+                'is_staff': self.is_staff,
+                'user_profile': self.user_profile,
                 'avatar': UserInfo._avatar_to_b64(self.avatar)}
 
     def __str__(self):
@@ -126,19 +131,56 @@ class UserInfo:
         return str(self) == str(other)
 
 
+def find_config(current_dir=None, filename=".gofigr"):
+    """\
+    Recursively searches for the GoFigr configuration file starting in current_dir, then walking up
+    the directory hierarchy. If one is not found, we then check the user's home directory.
+
+    :param current_dir: start directory. Defaults to current directory.
+    :param filename: filename to look for. Defaults to .gofigr.
+    :return: path if found, or None
+
+    """
+    if current_dir is None:
+        current_dir = os.getcwd()
+
+    while True:
+        file_path = os.path.join(current_dir, filename)
+        if os.path.exists(file_path):
+            return os.path.abspath(file_path)
+
+        # Move to the parent directory
+        parent_dir = os.path.dirname(current_dir)
+
+        # If we've reached the root directory and haven't found the file, stop
+        if parent_dir == current_dir:
+            break
+
+        current_dir = parent_dir
+
+    # If we still haven't found the file, use the default
+    default_path = os.path.join(os.environ['HOME'], filename)
+    return default_path if os.path.exists(default_path) else None
+
+
+# pylint: disable=too-many-instance-attributes
 class GoFigr:
     """\
     The GoFigr client. Handles all communication with the API: authentication, figure creation and manipulation,
     sharing, retrieval of user information, etc.
 
     """
+
+    @from_config_or_env("GF_", find_config())
     def __init__(self,
                  username=None,
                  password=None,
                  api_key=None,
                  url=API_URL,
                  authenticate=True,
-                 anonymous=False):
+                 workspace_id=None,
+                 anonymous=False,
+                 asset_log=None):
         """\
 
         :param username: username to connect with
@@ -147,7 +189,9 @@ class GoFigr:
         :param url: API URL
         :param authenticate: whether to authenticate right away. If False, authentication will happen during
         the first request.
+        :param workspace_id: workspace ID to use for data syncing. Defaults to primary workspace.
         :param anonymous: True for anonymous access. Default False.
+        :param asset_log: log of assets referenced by this instance
 
         """
         self.service_url = url
@@ -155,7 +199,8 @@ class GoFigr:
         self.password = password
         self.api_key = api_key
         self.anonymous = anonymous
-
+        self.workspace_id = workspace_id
+        self.asset_log = asset_log if asset_log is not None else {}
         self._primary_workspace = None
 
         # Tokens for JWT authentication
@@ -166,11 +211,26 @@ class GoFigr:
             self.authenticate()
 
         self._bind_models()
+        self._bind_readers()
+
+        self._sync = None
+
+    @property
+    def sync(self):
+        """Returns the default AssetSync object"""
+        if not self._sync:
+            self._sync = AssetSync(self, asset_log=self.asset_log)
+
+        return self._sync
+
+    def open(self, *args, **kwargs):
+        """Opens a file using the default DataSync object"""
+        return self.sync.open(*args, **kwargs)
 
     @property
     def app_url(self):
         """Returns the URL to the GoFigr app"""
-        return self.service_url.replace("api", "app").replace(":8000", ":3000")
+        return self.service_url.replace("api", "app").replace(":8000", ":5173")
 
     def _bind_models(self):
         """\
@@ -185,8 +245,10 @@ class GoFigr:
                 class _Bound(obj):
                     _gf = self
 
-                _Bound.__qualname__ = f"GoFigr.{name}"
-                _Bound._gofigr_type_name = name.replace("gf_", "")
+                clean_name = name.replace("gf_", "")
+                _Bound.__name__ = f"GoFigr.{clean_name}"
+                _Bound.__qualname__ = f"GoFigr.{clean_name}"
+                _Bound._gofigr_type_name = clean_name
 
                 setattr(self, name.replace("gf_", ""), _Bound)
             elif inspect.isclass(obj) and issubclass(obj, NestedMixin):
@@ -395,6 +457,130 @@ class GoFigr:
         else:
             return self._authenticate_jwt()
 
+    def _find_workspace_by_name(self, name, create, description=None):
+        """\
+        Finds a workspace by name.
+
+        :param name: name of the workspace
+        :param create: whether to create a new workspace or raise an exception if one doesn't exist
+        :param description: optional description of the workspace
+        :return: Workspace object
+
+        """
+        matches = [wx for wx in self.workspaces if wx.name == name]
+        if len(matches) == 0:
+            if create:
+                wx = self.Workspace(name=name, description=description)
+                wx.create()
+                print(f"Created a new workspace: {wx.api_id}")
+                return wx
+            else:
+                raise RuntimeError(f'Could not find workspace named "{name}"')
+        elif len(matches) > 1:
+            raise RuntimeError(f'Multiple (n={len(matches)}) workspaces match name "{name}". '
+                               f'Please use an API ID instead.')
+        else:
+            return matches[0]
+
+    def find_analysis(self, workspace, query):
+        """\
+        Finds an analysis within a workspace
+
+        :param workspace: parent workspace (a gf.Workspace object)
+        :param query: gf.Analysis, UUID string, ApiId, or FindByName
+        :return: gf.Analysis object
+
+        """
+        api_id = try_parse_uuid4(query)
+
+        if query is None:
+            raise ValueError("Please specify an analysis")
+        elif workspace is None:
+            raise ValueError("Please specify a workspace")
+        elif isinstance(query, gf_Analysis):
+            return query
+        elif isinstance(query, NotebookName):
+            return query  # will be set by the Jupyter extension
+        elif isinstance(query, str):
+            if api_id is not None:
+                return self.Analysis(api_id=api_id)
+            else:
+                return workspace.get_analysis(name=query, description="", create=True)
+        elif isinstance(query, ApiId):
+            return self.Analysis(api_id=query.api_id)
+        elif isinstance(query, FindByName):
+            if workspace.analyses is None:
+                workspace.fetch()
+
+            return workspace.get_analysis(name=query.name, description=query.description, create=query.create)
+        else:
+            raise ValueError(f"Unsupported query type {query}")
+
+    def find_figure(self, analysis, query):
+        """\
+        Finds a figure within an analysis
+
+        :param analysis: parent analysis (a gf.Analysis object)
+        :param query: gf.Figure, UUID string, ApiId, or FindByName
+        :return: gf.Figure object
+
+        """
+        api_id = try_parse_uuid4(query)
+
+        if query is None:
+            raise ValueError("Please specify a query")
+        elif analysis is None:
+            raise ValueError("Please specify an analysis")
+        elif isinstance(query, gf_Figure):
+            return query
+        elif isinstance(query, str):
+            if api_id is not None:
+                return self.Figure(api_id=api_id)
+            else:
+                return analysis.get_figure(name=query, description="", create=True)
+        elif isinstance(query, ApiId):
+            return self.Figure(api_id=query.api_id)
+        elif isinstance(query, FindByName):
+            if analysis.figures is None:
+                analysis.fetch()
+
+            return analysis.get_figure(name=query.name, description=query.description, create=query.create)
+        else:
+            raise ValueError(f"Unsupported query type {query}")
+
+    def find_workspace(self, query): # pylint: disable=too-many-return-statements
+        """\
+        Finds a workspace.
+
+        :param query: gf.Workspace, UUID string, ApiId, or FindByName
+        :return: gf.Workspace object
+
+        """
+        api_id = try_parse_uuid4(query)
+
+        if query is None:
+            # Use default workspace
+            if self.primary_workspace is not None:
+                return self.primary_workspace
+            elif len(self.workspaces) == 1:  # this will happen if we're using a scoped API token
+                return self.workspaces[0]
+            else:
+                raise ValueError("Please specify a workspace")
+        elif isinstance(query, gf_Workspace):
+            return query
+        elif isinstance(query, str):
+            if api_id is not None:
+                return self.Workspace(api_id=query)
+            else:
+                return self._find_workspace_by_name(query, create=True)
+        elif isinstance(query, ApiId):
+            return self.Workspace(api_id=query.api_id)
+        elif isinstance(query, FindByName):
+            return self._find_workspace_by_name(query.name, query.create, description=query.description)
+        else:
+            raise ValueError(f"Unsupported query type {query}")
+
+
     def user_info(self, username=None):
         """\
         Retrieves information about a user.
@@ -428,6 +614,12 @@ class GoFigr:
         return self.Workspace.list()
 
     @property
+    def organizations(self):
+        """Returns a list of all organizations that the current user is a member of."""
+        # pylint: disable=no-member
+        return self.Organization.list()
+
+    @property
     def primary_workspace(self):
         """\
         Returns the primary workspace for this user.
@@ -441,7 +633,7 @@ class GoFigr:
         primaries = [w for w in self.workspaces if w.workspace_type == "primary"]
         primaries = [w for w in primaries if any(wm.username == self.username \
                                                  and wm.membership_type == WorkspaceMembership.OWNER
-                                                 for wm in w.get_members())]
+                                                 for wm in w.get_members(unauthorized_error=False))]
 
         if self.api_key is not None and len(primaries) == 0:
             self._primary_workspace = None
@@ -453,6 +645,14 @@ class GoFigr:
 
         self._primary_workspace = pw
         return self._primary_workspace
+
+    def _bind_readers(self):
+        def _bind_one(name):
+            # pylint: disable=unnecessary-lambda
+            setattr(self, name, lambda *args, **kwargs: getattr(self.sync, name)(*args, **kwargs))
+
+        for name in PANDAS_READERS:
+            _bind_one(name)
 
 
 def load_ipython_extension(ip):
@@ -467,3 +667,200 @@ def load_ipython_extension(ip):
     # pylint: disable=import-outside-toplevel
     from gofigr.jupyter import _load_ipython_extension
     return _load_ipython_extension(ip)
+
+
+class AssetSync:
+    """Provides drop-in replacements for open, read_xlsx, read_csv which version the data with the GoFigr service."""
+
+    def __init__(self, gf, workspace_id=None, asset_log=None):
+        """\
+
+        :param gf: GoFigr instance
+        :param workspace_id: workspace to sync under
+        :param asset_log: dictionary of data revision IDs -> data revision objects
+        """
+        self.gf = gf
+        self.workspace_id = workspace_id or self.gf.primary_workspace.api_id
+        self.asset_log = asset_log if asset_log is not None else {}
+        self._bind_readers()
+
+        logging.debug(f"Using workspace ID {self.workspace_id}")
+
+    @property
+    def revisions(self):
+        """\
+        Returns all revisions in the log.
+        """
+        return self.asset_log.values()
+
+    def clear_revisions(self):
+        """\
+        Clears the revision log
+        """
+        self.asset_log.clear()
+
+    def _new_asset(self, pathlike):
+        """\
+        Creates a new asset from the given pathlike object.
+
+        :param pathlike: local path to the asset e.g. ~/test.txt
+        :return: Asset instance
+
+        """
+        logging.debug(f"Creating new asset for {pathlike}")
+        ds = self.gf.Asset(name=os.path.basename(pathlike), workspace=self.gf.Workspace(api_id=self.workspace_id))
+        ds.create()
+        logging.debug(f"Created asset {ds.api_id}")
+        return ds
+
+    def _new_revision(self, pathlike):
+        """\
+        Creates a new revision from the given pathlike object. The revision will be created under an
+        existing Asset if one with the same basename already eixsts. Otherwise, a new asset will be created.
+
+        """
+        logging.debug("New revision detected. Syncing...")
+        assets = self.gf.Asset.find_by_name(os.path.basename(pathlike))
+        logging.debug(f"Found assets: {assets}")
+
+        # First, figure out which asset we're syncing to
+        if len(assets) == 0:
+            ds = self._new_asset(pathlike)
+        elif len(assets) == 1:
+            ds = assets[0]
+        else:
+            warnings.warn(f"Multiple assets with the same name found. Defaulting to first: "
+                          f"{[d.api_id for d in assets]}")
+            ds = assets[0]
+
+        logging.debug(f"Creating a new revision for asset {ds.api_id} with path {pathlike}")
+
+        # Now create the revision under the asset
+        rev = self.gf.AssetRevision(asset=ds,
+                                    data=[self.gf.FileData.read(pathlike)]).create()
+        return rev
+
+    def _log(self, revision, is_new_revision=False):
+        """\
+        Stores a revision in the log.
+
+        """
+        revision.is_new_revision = is_new_revision
+        self.asset_log[revision.api_id] = revision
+        logging.debug(f"Logged revision {revision.api_id} for asset {revision.asset.api_id}")
+        logging.debug(f"Current revision cache: {self.asset_log.keys()}")
+        return revision
+
+    def sync(self, pathlike):
+        """\
+        Syncs an asset: calculates the checksum for the file and either uploads it to GoFigr (if checksum isn't found)
+        or returns the existing revision.
+
+        :param pathlike: path to the file
+        :return: AssetRevision instance
+
+        """
+        # Grab the checksum
+        logging.debug(f"Syncing {pathlike}")
+
+        checksum = self._calc_checksum(pathlike)
+        if checksum is None:
+            warnings.warn(f"Unable to calculate checksum for {pathlike}. Skipping sync.")
+            return None
+
+        logging.debug(f"Calculated checksum for {pathlike}: {checksum}")
+
+        # Check if we already have this asset
+        revisions = self.gf.AssetRevision.find_by_hash(checksum, "blake3")
+
+        if len(revisions) == 0:
+            return self._log(self._new_revision(pathlike), is_new_revision=True)
+        elif len(revisions) == 1:
+            logging.debug(f"Found existing revision {revisions[0].api_id}")
+            return self._log(revisions[0])
+        else:
+            logging.debug(f"Found existing revisions: {[rev.api_id for rev in revisions]}")
+            warnings.warn(f"Multiple assets with the same checksum found. Defaulting to first: "
+                          f"{[d.api_id for d in revisions]}")
+            return self._log(revisions[0])
+
+
+    @contextlib.contextmanager
+    def open_and_get_revision(self, pathlike, *args, **kwargs):
+        """Syncs the data at pathlike with GoFigr and returns a tuple of file handle, AssetRevision instance."""
+        f = None
+        try:
+            rev = self.sync(pathlike)
+            if rev:
+                logging.info(f"Asset synced: {rev.app_url}")
+                AssetWidget(rev).show()
+
+            f = open(pathlike, *args, **kwargs)  # pylint: disable=unspecified-encoding
+            yield f, rev
+        finally:
+            if f is not None and not f.closed:
+                f.close()
+
+    @contextlib.contextmanager
+    def open(self, pathlike, *args, **kwargs):
+        """Syncs the data at pathlike with GoFigr and returns an open file handle. Drop-in replacement for open()."""
+        with self.open_and_get_revision(pathlike, *args, **kwargs) as (f, _):
+            yield f
+
+    def _wrap_reader(self, func):
+        """Wraps a pandas reader function (e.g. read_csv) to provide data versioning and sync."""
+        def wrapper(pathlike, *args, **kwargs):
+            logging.debug(f"Calling {func.__name__} for {pathlike}")
+            with self.open_and_get_revision(pathlike, 'rb') as (f, rev):
+                frame = func(f, *args, **kwargs)
+                frame.attrs = {REVISION_ATTR: rev.api_id}
+                return frame
+        return wrapper
+
+    def _calc_checksum(self, pathlike):
+        """Calculates a checksum for a file"""
+        try:
+            path = os.fspath(pathlike)
+            if os.path.exists(path):
+                file_hasher = blake3(max_threads=blake3.AUTO)  # pylint: disable=not-callable
+                file_hasher.update_mmap(path)
+                return file_hasher.hexdigest()
+            else:
+                warnings.warn(
+                    "Non-local paths aren't supported yet. Please consider submitting an issue here: "
+                    "https://github.com/GoFigr/gofigr-python/issues")
+                return None
+        except TypeError:
+            warnings.warn(
+                "This type of input isn't supported yet. Please consider submitting an issue here: "
+                "https://github.com/GoFigr/gofigr-python/issues")
+            return None
+
+    def _bind_readers(self):
+        """Binds all supported pandas reader functions."""
+        for name in PANDAS_READERS:
+            setattr(self, name, self._wrap_reader(getattr(pd, name)))
+
+
+
+class NotebookName:
+    """\
+    Used as argument to configure() to specify that we want the analysis name to default to the name of the notebook
+    """
+    def __repr__(self):
+        return "NotebookName"
+
+ApiId = namedtuple("ApiId", ["api_id"])
+
+class FindByName:
+    """\
+    Used as argument to configure() to specify that we want to find an analysis/workspace by name instead
+    of using an API ID
+    """
+    def __init__(self, name, description=None, create=False):
+        self.name = name
+        self.description = description
+        self.create = create
+
+    def __repr__(self):
+        return f"FindByName(name={self.name}, description={self.description}, create={self.create})"
