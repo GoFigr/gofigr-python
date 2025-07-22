@@ -746,7 +746,7 @@ class AssetSync:
 
         """
         revision.is_new_revision = is_new_revision
-        self.asset_log[revision.api_id] = revision
+        self.asset_log[revision.asset.api_id] = revision  # only keep the latest revision for each asset
         logging.debug(f"Logged revision {revision.api_id} for asset {revision.asset.api_id}")
         logging.debug(f"Current revision cache: {self.asset_log.keys()}")
         return revision
