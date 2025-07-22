@@ -1,7 +1,7 @@
 [
     {
-    "name": "python3.10-lab",
-    "python":  "python3.10",
+    "name": "python3.9-lab",
+    "python":  "python3.9",
     "service": "lab",
     "dependencies": "jupyterlab seaborn"
   },
