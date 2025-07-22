@@ -188,7 +188,7 @@ def main():
     parser.add_argument("--timeout", type=int, default=600,
                         help="Timeout in seconds for the notebook to finish execution")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode")
-    parser.add_argument("--retries", type=int, default=5, help="Maximum number of execution attempts.")
+    parser.add_argument("--retries", type=int, default=2, help="Maximum number of execution attempts.")
     args = parser.parse_args()
 
     working_dir = os.path.dirname(args.notebook_path)

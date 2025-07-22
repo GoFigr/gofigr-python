@@ -11,7 +11,10 @@ import pickle
 import sys
 
 import PIL
-from IPython.core.display_functions import display
+try:
+    from IPython.core.display_functions import display
+except ModuleNotFoundError:
+    from IPython.core.display import display
 
 from gofigr import GoFigr, MeasureExecution, NotebookName
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
