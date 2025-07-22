@@ -751,7 +751,7 @@ class AssetSync:
         logging.debug(f"Current revision cache: {self.asset_log.keys()}")
         return revision
 
-    def sync(self, pathlike):
+    def sync_revision(self, pathlike):
         """\
         Syncs an asset: calculates the checksum for the file and either uploads it to GoFigr (if checksum isn't found)
         or returns the existing revision.
@@ -784,13 +784,28 @@ class AssetSync:
                           f"{[d.api_id for d in revisions]}")
             return self._log(revisions[0])
 
+    def sync(self, pathlike):
+        """\
+        Syncs an asset: calculates the checksum for the file and either uploads it to GoFigr (if checksum isn't found)
+        or returns the existing revision.
+
+       :param pathlike: path to the file
+       :return: pathlike
+
+        """
+        rev = self.sync_revision(pathlike)
+        if rev:
+            logging.info(f"Asset synced: {rev.app_url}")
+            AssetWidget(rev).show()
+        return pathlike
+
 
     @contextlib.contextmanager
     def open_and_get_revision(self, pathlike, *args, **kwargs):
         """Syncs the data at pathlike with GoFigr and returns a tuple of file handle, AssetRevision instance."""
         f = None
         try:
-            rev = self.sync(pathlike)
+            rev = self.sync_revision(pathlike)
             if rev:
                 logging.info(f"Asset synced: {rev.app_url}")
                 AssetWidget(rev).show()
