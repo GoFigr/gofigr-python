@@ -219,7 +219,7 @@ class GoFigr:
     def sync(self):
         """Returns the default AssetSync object"""
         if not self._sync:
-            self._sync = AssetSync(self, asset_log=self.asset_log)
+            self._sync = AssetSync(self, workspace_id=self.workspace_id, asset_log=self.asset_log)
 
         return self._sync
 

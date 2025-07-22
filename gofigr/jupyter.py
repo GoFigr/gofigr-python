@@ -395,6 +395,7 @@ def configure(username=None,
         analysis = gofigr.NotebookName()
 
     worx = gf.find_workspace(workspace)
+    gf.workspace_id = worx.api_id
     publisher = JupyterPublisher(gf,
                                  workspace=worx,
                                  analysis=gf.find_analysis(worx, analysis),

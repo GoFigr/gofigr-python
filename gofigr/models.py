@@ -1270,9 +1270,8 @@ class gf_Data(ModelMixin):
                        if not isinstance(self.fields[k], Timestamp) and k != "api_id")
 
     def __repr__(self):
-        dat = self.to_json()
-        dat['data'] = f"<{len(self.data)} bytes>" if self.data else None
-        return str(dat)
+        data_str = f"<{len(self.data)} bytes>" if self.data else None
+        return f"Data object ID={self.api_id}, data={data_str}"
 
 
 class gf_ImageData(gf_Data):
