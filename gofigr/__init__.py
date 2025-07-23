@@ -784,19 +784,27 @@ class AssetSync:
                           f"{[d.api_id for d in revisions]}")
             return self._log(revisions[0])
 
-    def sync(self, pathlike):
+    def __call__(self, *args, **kwargs):
+        """Same as AssetSync.sync()"""
+        return self.sync(*args, **kwargs)
+
+
+    def sync(self, pathlike, quiet=False):
         """\
         Syncs an asset: calculates the checksum for the file and either uploads it to GoFigr (if checksum isn't found)
         or returns the existing revision.
 
        :param pathlike: path to the file
+       :param quiet: suppress Jupyter widget output
        :return: pathlike
 
         """
         rev = self.sync_revision(pathlike)
         if rev:
             logging.info(f"Asset synced: {rev.app_url}")
-            AssetWidget(rev).show()
+
+            if not quiet:
+                AssetWidget(rev).show()
         return pathlike
 
 

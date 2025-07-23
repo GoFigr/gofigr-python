@@ -350,7 +350,7 @@ class NotebookMetadataAnnotator(IPythonAnnotator):
 
             full_path = revision.metadata.get(NOTEBOOK_PATH)
             if full_path and os.path.exists(full_path):
-                revision.client.sync.sync(full_path)
+                revision.client.sync.sync(full_path, quiet=True)
 
         except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"GoFigr could not automatically obtain the name of the currently"

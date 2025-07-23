@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -e
+set -o pipefail
 
 WORKING_DIR=$1
 OUTPUT_FILE=$2
 PYTHON_VERSION=$3
 SERVICE=$4
 DEPENDENCIES=$5
+DRIVER_ARGS=$6
 
 do_run() {
   GF_DIR=$( readlink -f $( dirname "$0" )/../../ )
@@ -24,6 +26,7 @@ do_run() {
   uv pip install -e .[dev]
 
   cd "$WORKING_DIR"
+  cp -r "$GF_DIR"/tests/integration/environments .
   uv pip install $DEPENDENCIES
   uv pip install tqdm nbconvert selenium webdriver-manager
 
@@ -32,7 +35,7 @@ do_run() {
 
   cp "$GF_DIR"/tests/integration/integration_tests.ipynb .
   #jupyter nbconvert --execute ./integration_tests.ipynb --to notebook --output "$WORKING_DIR/output.ipynb"
-  python "$GF_DIR"/tests/integration/jupyter_driver.py --headless "$SERVICE" integration_tests.ipynb
+  python "$GF_DIR"/tests/integration/jupyter_driver.py $DRIVER_ARGS "$SERVICE" integration_tests.ipynb
 
   python "$GF_DIR"/tests/integration/report.py "$( pwd )" report.xlsx detailed_report.xlsx --single
 }

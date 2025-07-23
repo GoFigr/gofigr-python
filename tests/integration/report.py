@@ -93,7 +93,11 @@ TEST_COLUMNS = ['number_of_revisions',
                 'image_eps',
                 'image_svg',
                 'image_html',
-                'image_pickle',
+                'file_pickle',
+                'num_assets',
+                'asset_figure',
+                'asset_rev_not_null',
+                'asset_name',
                 'text',
                 'cell_code',
                 'backend',
@@ -159,7 +163,7 @@ def summarize_results(df):
                     # Because figures aren't cleared between re-attempts of the same config, Anonymous fig can end up
                     # with more than one revision. This needs to be fixed, but here's a temporary workaround.
                     pass
-                elif is_plotnine and col in ['image_pickle'] and parse_version(row['plotnine']) < (0, 14, 0):
+                elif is_plotnine and col in ['file_pickle'] and parse_version(row['plotnine']) < (0, 14, 0):
                     pass
                 elif is_plotly and col in ["image_eps"]:  # plotly doesn't support EPS, so this failure is expected
                     pass
