@@ -147,7 +147,7 @@ def test_wrapper(messages, config, args, idx, all_configurations):
     except Exception as e:  # pylint: disable=broad-exception-caught
         messages.testFailed(test_name, message=str(e), flowId=test_name)
     finally:
-        if analysis is not None:
+        if analysis is not None and not args.no_cleanup:
             clean_up(analysis=analysis)
 
 
@@ -159,6 +159,7 @@ def main():
     parser.add_argument("--force", action="store_true", help="Force re-run even if directory already exists")
     parser.add_argument("--threads", action="store", type=int, help="Number of threads to use", default=10)
     parser.add_argument("--subset", action="store", nargs="+", help="Specify names of configurations to run")
+    parser.add_argument("--no-cleanup", action="store_true", help="Do not clean up after running")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -180,7 +181,8 @@ def main():
         for idx, config in enumerate(all_configurations):
             executor.submit(test_wrapper, messages, config, args, idx, all_configurations)
 
-    clean_up(analysis=None, clean_assets=True)
+    if not args.no_cleanup:
+        clean_up(analysis=None, clean_assets=True)
 
     messages.testSuiteFinished("Compatibility checks")
 
