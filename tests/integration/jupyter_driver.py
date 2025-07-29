@@ -17,11 +17,12 @@ import selenium
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support import wait, expected_conditions
+from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 
-
-def find_element_with_alternatives(driver, by, possible_values, delay_seconds=0.1, max_wait_seconds=5):
+def find_element_with_alternatives(driver, by, possible_values, delay_seconds=0.5, max_wait_seconds=30):
     """Calls driver.find_element using alternative names until the element is found, or raises an exception"""
     print(f"Looking for {possible_values}")
 
@@ -51,6 +52,9 @@ def run_notebook(driver, jupyter_url):
 
     driver.get(nav_url)
     print(f"Navigating to {nav_url}...")
+
+    WebDriverWait(driver, 120).until(expected_conditions.visibility_of_element_located((By.ID,
+                                             "Integration-tests-for-the-GoFigr-Python-client")))
 
     try:
         # For Jupyter Notebook 6.x
@@ -83,6 +87,9 @@ def run_notebook(driver, jupyter_url):
 
 def run_lab(driver, jupyter_url):
     driver.get(jupyter_url.replace("/lab?token=", "/lab/tree/integration_tests.ipynb?token="))
+
+    WebDriverWait(driver, 120).until(expected_conditions.visibility_of_element_located((By.ID,
+                                             "Integration-tests-for-the-GoFigr-Python-client")))
 
     # Restart and run all button
     find_element_with_alternatives(driver, by=By.CSS_SELECTOR, possible_values=[
@@ -136,6 +143,7 @@ def run_attempt(args, working_dir, reader, writer, attempt):
 
         print("Starting Chrome...")
         opts = Options()
+        opts.add_argument('--window-size=1920,10000')
         if args.headless:
             opts.add_argument('--headless=new')
 
@@ -185,10 +193,10 @@ def main():
                                         " instance.")
     parser.add_argument("service", help="notebook or lab")
     parser.add_argument("notebook_path", help="Path to ipynb notebook")
-    parser.add_argument("--timeout", type=int, default=600,
+    parser.add_argument("--timeout", type=int, default=60*15,
                         help="Timeout in seconds for the notebook to finish execution")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode")
-    parser.add_argument("--retries", type=int, default=5, help="Maximum number of execution attempts.")
+    parser.add_argument("--retries", type=int, default=2, help="Maximum number of execution attempts.")
     args = parser.parse_args()
 
     working_dir = os.path.dirname(args.notebook_path)
@@ -206,8 +214,7 @@ def main():
     status = "Succeeded" if success else "Failed"
     print(f"{status} after {attempt} attempts.")
 
-    if not success:
-        sys.exit(1)
+    sys.exit(0 if success else 1)
 
 
 if __name__ == "__main__":

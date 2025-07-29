@@ -108,44 +108,58 @@ def run_one_config(args, idx, config, all_configurations, messages):
 
     runner_args = ["bash", run_one, out_dir, os.path.join(out_dir, "driver.log"),
                    config["python"], config["service"], config["dependencies"]]
+    if not args.no_headless:
+        runner_args.append("--headless")
+
     print(f"  => Running {format_cmd(runner_args)}")
-    cp = subprocess.run(runner_args)
+    cp = subprocess.run(runner_args, check=False)
+    print(f"Exit code: {cp.returncode}")
     if cp.returncode != 0:
         print(f"  => Process failed with code {cp.returncode}")
 
         with open(os.path.join(out_dir, "errors.json"), 'w') as ef:
             json.dump({"error": None if cp.stderr is None else cp.stderr.decode('ascii', errors='ignore')}, ef)
 
-        return False, ana
-
+        return {'success': False, 'analysis': ana, 'log_path': os.path.join(out_dir, "driver.log")}
     else:
         print("  => Complete")
-        return True, ana
+        return {'success': True, 'analysis': ana}
+
+
 
 
 def test_wrapper(messages, config, args, idx, all_configurations):
+    test_name = config["name"].replace(".", "_")
+    
     start_time = datetime.datetime.now()
     analysis = None
     try:
-        messages.testStarted(config["name"], flowId=config["name"])
-        success, ana = run_one_config(args, idx, config, all_configurations, messages)
-        analysis = ana
-        if not success:
-            messages.testFailed(config["name"], flowId=config["name"])
+        messages.testStarted(test_name, flowId=test_name)
+        res = run_one_config(args, idx, config, all_configurations, messages)
+
+        analysis = res['analysis']
+        if not res['success']:
+            with open(res['log_path'], 'r') as f:
+                messages.testFailed(test_name, flowId=test_name, message="Test failed", details=f.read())
+        else:
+            messages.testFinished(test_name, testDuration=datetime.datetime.now() - start_time,
+                                  flowId=test_name)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        messages.testFailed(config["name"], message=str(e), flowId=config["name"])
+        messages.testFailed(test_name, message=str(e), flowId=test_name)
     finally:
-        if analysis is not None:
+        if analysis is not None and not args.no_cleanup:
             clean_up(analysis=analysis)
-        messages.testFinished(config["name"], testDuration=datetime.datetime.now() - start_time, flowId=config["name"])
 
 
 def main():
     parser = ArgumentParser(description="Runs integration tests based on a config file")
     parser.add_argument("config", help="config file (JSON)")
     parser.add_argument("output", help="output directory")
+    parser.add_argument("--no-headless", action="store_true", help="Whether to NOT run in headless mode. Default is true.")
     parser.add_argument("--force", action="store_true", help="Force re-run even if directory already exists")
     parser.add_argument("--threads", action="store", type=int, help="Number of threads to use", default=10)
+    parser.add_argument("--subset", action="store", nargs="+", help="Specify names of configurations to run")
+    parser.add_argument("--no-cleanup", action="store_true", help="Do not clean up after running")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -153,6 +167,9 @@ def main():
 
         if isinstance(all_configurations, dict):
             all_configurations = [all_configurations]
+
+    if args.subset and len(args.subset) > 0:
+        all_configurations = [conf for conf in all_configurations if conf["name"] in args.subset]
 
     messages = TeamcityServiceMessages()
     messages.testSuiteStarted("Compatibility checks")
@@ -164,7 +181,8 @@ def main():
         for idx, config in enumerate(all_configurations):
             executor.submit(test_wrapper, messages, config, args, idx, all_configurations)
 
-    clean_up(analysis=None, clean_assets=True)
+    if not args.no_cleanup:
+        clean_up(analysis=None, clean_assets=True)
 
     messages.testSuiteFinished("Compatibility checks")
 

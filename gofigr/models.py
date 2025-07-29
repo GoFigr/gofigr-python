@@ -455,7 +455,7 @@ class ModelMixin(abc.ABC):
         Creates this object on the server.
 
         :param update: if True and the object already exists, its properties will be updated on the server. Otherwise
-        trying to create an object which already exists will throw an exception.
+               trying to create an object which already exists will throw an exception.
 
         :return: self
         """
@@ -1270,9 +1270,8 @@ class gf_Data(ModelMixin):
                        if not isinstance(self.fields[k], Timestamp) and k != "api_id")
 
     def __repr__(self):
-        dat = self.to_json()
-        dat['data'] = f"<{len(self.data)} bytes>" if self.data else None
-        return str(dat)
+        data_str = f"<{len(self.data)} bytes>" if self.data else None
+        return f"Data object ID={self.api_id}, data={data_str}"
 
 
 class gf_ImageData(gf_Data):

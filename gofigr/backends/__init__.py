@@ -8,7 +8,7 @@ from abc import ABC
 
 
 def get_all_function_arguments(frame):
-    """Iterates over all function arguments, including *args and **kwargs"""
+    """Iterates over all function arguments, including ``*args`` and ``**kwargs``"""
     arg_values = inspect.getargvalues(frame[0])
 
     # Positional arguments

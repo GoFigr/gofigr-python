@@ -309,7 +309,7 @@ class JupyterPublisher(Publisher):
         :param extension: GoFigrExtension instance
         :param data: data being published. This will usually be a dictionary of mime formats.
         :param suppress_display: if used in an auto-publish hook, this will contain a callable which will
-        suppress the display of this figure using the native IPython backend.
+               suppress the display of this figure using the native IPython backend.
 
         :return: None
         """
@@ -395,6 +395,7 @@ def configure(username=None,
         analysis = gofigr.NotebookName()
 
     worx = gf.find_workspace(workspace)
+    gf.workspace_id = worx.api_id
     publisher = JupyterPublisher(gf,
                                  workspace=worx,
                                  analysis=gf.find_analysis(worx, analysis),

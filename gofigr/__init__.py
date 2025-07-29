@@ -219,7 +219,7 @@ class GoFigr:
     def sync(self):
         """Returns the default AssetSync object"""
         if not self._sync:
-            self._sync = AssetSync(self, asset_log=self.asset_log)
+            self._sync = AssetSync(self, workspace_id=self.workspace_id, asset_log=self.asset_log)
 
         return self._sync
 
@@ -293,7 +293,7 @@ class GoFigr:
         :param name: name of the key to create
         :param expiry: expiration date. If None, the key will not expire.
         :param workspace: workspace for which the key is to be valid. If None, key will have access to the same
-        workspaces as the user.
+               workspaces as the user.
         :return: ApiKey instance
 
         """
@@ -331,7 +331,7 @@ class GoFigr:
         :param throw_exception: whether to check response status against expected_status and throw an exception
         :param expected_status: list of acceptable response status codes
         :param absolute_url: if False (default), interpret the endpoint relative to the API URL. Otherwise assume
-        it's fully qualified.
+                             it's fully qualified.
         :param kwargs: extra params passed verbatim to method(...)
         :return: Response
 
@@ -746,12 +746,12 @@ class AssetSync:
 
         """
         revision.is_new_revision = is_new_revision
-        self.asset_log[revision.api_id] = revision
+        self.asset_log[revision.asset.api_id] = revision  # only keep the latest revision for each asset
         logging.debug(f"Logged revision {revision.api_id} for asset {revision.asset.api_id}")
         logging.debug(f"Current revision cache: {self.asset_log.keys()}")
         return revision
 
-    def sync(self, pathlike):
+    def sync_revision(self, pathlike):
         """\
         Syncs an asset: calculates the checksum for the file and either uploads it to GoFigr (if checksum isn't found)
         or returns the existing revision.
@@ -784,13 +784,36 @@ class AssetSync:
                           f"{[d.api_id for d in revisions]}")
             return self._log(revisions[0])
 
+    def __call__(self, *args, **kwargs):
+        """Same as AssetSync.sync()"""
+        return self.sync(*args, **kwargs)
+
+
+    def sync(self, pathlike, quiet=False):
+        """\
+        Syncs an asset: calculates the checksum for the file and either uploads it to GoFigr (if checksum isn't found)
+        or returns the existing revision.
+
+       :param pathlike: path to the file
+       :param quiet: suppress Jupyter widget output
+       :return: pathlike
+
+        """
+        rev = self.sync_revision(pathlike)
+        if rev:
+            logging.info(f"Asset synced: {rev.app_url}")
+
+            if not quiet:
+                AssetWidget(rev).show()
+        return pathlike
+
 
     @contextlib.contextmanager
     def open_and_get_revision(self, pathlike, *args, **kwargs):
         """Syncs the data at pathlike with GoFigr and returns a tuple of file handle, AssetRevision instance."""
         f = None
         try:
-            rev = self.sync(pathlike)
+            rev = self.sync_revision(pathlike)
             if rev:
                 logging.info(f"Asset synced: {rev.app_url}")
                 AssetWidget(rev).show()
