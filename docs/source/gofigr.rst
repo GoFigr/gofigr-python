@@ -63,7 +63,7 @@ gofigr.backends module
    :show-inheritance:
 
 gofigr.backends.matplotlib module
-------------------------
+----------------------------------
 
 .. automodule:: gofigr.backends.matplotlib
    :members:
@@ -71,7 +71,7 @@ gofigr.backends.matplotlib module
    :show-inheritance:
 
 gofigr.backends.plotly module
-------------------------
+---------------------------------
 
 .. automodule:: gofigr.backends.plotly
    :members:
@@ -79,7 +79,7 @@ gofigr.backends.plotly module
    :show-inheritance:
 
 gofigr.backends.plotnine module
-------------------------
+---------------------------------
 
 .. automodule:: gofigr.backends.plotnine
    :members:
@@ -87,7 +87,7 @@ gofigr.backends.plotnine module
    :show-inheritance:
 
 gofigr.backends.py3dmol module
-------------------------
+-------------------------------
 
 .. automodule:: gofigr.backends.py3dmol
    :members:

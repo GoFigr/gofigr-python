@@ -293,7 +293,7 @@ class GoFigr:
         :param name: name of the key to create
         :param expiry: expiration date. If None, the key will not expire.
         :param workspace: workspace for which the key is to be valid. If None, key will have access to the same
-        workspaces as the user.
+               workspaces as the user.
         :return: ApiKey instance
 
         """
@@ -331,7 +331,7 @@ class GoFigr:
         :param throw_exception: whether to check response status against expected_status and throw an exception
         :param expected_status: list of acceptable response status codes
         :param absolute_url: if False (default), interpret the endpoint relative to the API URL. Otherwise assume
-        it's fully qualified.
+                             it's fully qualified.
         :param kwargs: extra params passed verbatim to method(...)
         :return: Response
 

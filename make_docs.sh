@@ -1,6 +1,7 @@
 #!/bin/env bash
 source venv/bin/activate
 cd docs/
+rm -rf build
 mkdir -p build
 make html
 

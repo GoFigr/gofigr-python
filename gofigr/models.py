@@ -455,7 +455,7 @@ class ModelMixin(abc.ABC):
         Creates this object on the server.
 
         :param update: if True and the object already exists, its properties will be updated on the server. Otherwise
-        trying to create an object which already exists will throw an exception.
+               trying to create an object which already exists will throw an exception.
 
         :return: self
         """

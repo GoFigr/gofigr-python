@@ -44,6 +44,103 @@ username and password, and a default workspace.
 ``gfconfig`` only configures the defaults. You will be able to customize
 any of the options on a per-notebook basis.
 
+.. _jupyter_setup:
+
+Jupyter setup
+*************
+GoFigr works with both Jupyter Notebook and Jupyter Lab. To use it, simply
+load the extension:
+
+.. code:: python
+
+    %load_ext gofigr
+
+That's it! If you need to override any of the defaults, use
+:func:`gofigr.jupyter.configure`:
+
+.. code:: python
+
+    configure(analysis=FindByName("My Analysis", create=True))
+
+You can also specify a custom workspace, override ``auto_publish``, or supply
+default revision metadata:
+
+.. code:: python
+
+    %load_ext gofigr
+
+    configure(auto_publish=False,
+              workspace=FindByName("Primary Workspace", create=False),
+              analysis=FindByName("My Analysis", create=True),
+              default_metadata={'requested_by': "Alyssa",
+                                'study': 'Pivotal Trial 1'})
+
+.. _specifying_names:
+
+Publishing your first figure
+*****************************
+
+Once you load the extension, your figures will be published automatically.
+
+If `auto_publish` if off, you can publish figures manually by calling `publish`:
+
+.. code:: python
+
+   publish(plt.gcf())
+
+
+You will get a barcoded image with a QR code and a unique revision ID:
+
+.. image:: images/scatter_example.png
+  :alt: Example published figure
+
+You can now scan the barcode or manually navigate to the figure in the Web App
+at https://app.gofigr.io .
+
+.. image:: images/webapp.png
+  :alt: Figure displayed in the Web App
+
+Publishing new revisions
+-------------------------
+
+Feel free to run your code multiple times. GoFigr will automatically capture the different revisions:
+
+.. image:: images/revisions_example.png
+  :alt: Figure revisions in the Web App
+
+
+Advanced use
+**********************
+
+Specifying names & IDs
+-----------------------
+Instead of using ``FindByName``, you can avoid ambiguity and specify API IDs directly. You
+can find the API IDs for workspaces and analyses in the web app. Mixing and matching
+is supported as well:
+
+.. code:: python
+
+    %load_ext gofigr
+
+    configure(workspace=ApiId("59da9bdb-2095-47a9-b414-c029f8a00e0e"),
+              analysis=FindByName("My Analysis", create=True))
+
+
+Environment variables
+----------------------
+By default, GoFigr reads configuration from the file ``.gofigr`` in the user's home directory. However, you
+can also use environment variables:
+
+* `GF_USERNAME`
+* `GF_PASSWORD`
+* `GF_API_KEY`
+* `GF_WORKSPACE`: must be an API ID (look it up in the Web App)
+* `GF_ANALYSIS`: must be an API ID (look it up in the Web App)
+* `GF_URL`: API URL
+* `GF_AUTO_PUBLISH`: true or false
+
+
+
 Advanced configuration
 ----------------------
 
@@ -77,119 +174,3 @@ Default revision metadata:
     Selection [1]: 1
 
     Configuration saved to /Users/maciej/.gofigr. Happy analysis!
-
-
-Environment variables
-----------------------
-By default, GoFigr reads configuration from the file ``.gofigr`` in the user's home directory. However, you
-can also use environment variables:
-
-* `GF_USERNAME`
-* `GF_PASSWORD`
-* `GF_API_KEY`
-* `GF_WORKSPACE`: must be an API ID (look it up in the Web App)
-* `GF_ANALYSIS`: must be an API ID (look it up in the Web App)
-* `GF_URL`: API URL
-* `GF_AUTO_PUBLISH`: true or false
-
-.. _jupyter_setup:
-
-Jupyter setup
-*************
-GoFigr works with both Jupyter Notebook and Jupyter Lab. To use it, simply
-load the extension and call :func:`gofigr.jupyter.configure`:
-
-.. code:: python
-
-    %load_ext gofigr
-
-    from gofigr.jupyter import *
-
-    configure(analysis=FindByName("My Analysis", create=True))
-
-This will set your current analysis to ``My Analysis`` under the default workspace (selected through ``gfconfig``),
-creating it if it doesn't already exist.
-
-You can also specify a custom workspace, override ``auto_publish``, or supply
-default revision metadata:
-
-.. code:: python
-
-    %load_ext gofigr
-
-    from gofigr.jupyter import *
-
-    configure(auto_publish=False,
-              workspace=FindByName("Primary Workspace", create=False),
-              analysis=FindByName("My Analysis", create=True),
-              default_metadata={'requested_by': "Alyssa",
-                                'study': 'Pivotal Trial 1'})
-
-.. _specifying_names:
-
-Specifying names & IDs
------------------------
-Instead of using ``FindByName``, you can avoid ambiguity and specify API IDs directly. You
-can find the API IDs for workspaces and analyses in the web app. Mixing and matching
-is supported as well:
-
-.. code:: python
-
-    %load_ext gofigr
-
-    from gofigr.jupyter import *
-
-    configure(workspace=ApiId("59da9bdb-2095-47a9-b414-c029f8a00e0e"),
-              analysis=FindByName("My Analysis", create=True))
-
-Publishing your first figure
-*****************************
-
-To publish your first figure, simply call ``publish`` (if you have auto-publish turned on,
-the figure will be published automatically without this call). For example, here we publish
-a scatter plot:
-
-.. code:: python
-
-    from datetime import datetime
-    def test_figure(figsize=(7, 7)):
-        df = pd.DataFrame(
-             {"x1": npr.normal(size=100),
-              "y1": npr.normal(size=100),
-
-              "x2": npr.normal(size=100) + 2,
-              "y2": npr.normal(size=100) + 3,
-
-              "x3": npr.normal(size=100) + 3,
-              "y3": npr.normal(size=100) - 2})
-
-        fig = plt.figure(figsize=figsize)
-        plt.scatter(x=df['x1'], y=df['y1'])
-        plt.scatter(x=df['x2'], y=df['y2'])
-        plt.scatter(x=df['x3'], y=df['y3'])
-
-        plt.title(f"Example scatter\n{datetime.now()}")
-        return plt.gcf(), df
-
-    _ = test_figure()
-
-    publish(fig=plt.gcf(), target=FindByName("My first figure!", create=True))
-
-You will get a barcoded image with a QR code and a unique revision ID:
-
-.. image:: images/scatter_example.png
-  :alt: Example published figure
-
-You can now scan the barcode or manually navigate to the figure in the Web App
-at https://app.gofigr.io .
-
-.. image:: images/webapp.png
-  :alt: Figure displayed in the Web App
-
-Publishing new revisions
--------------------------
-
-Feel free to run the above code multiple times. GoFigr will automatically capture the different revisions:
-
-.. image:: images/revisions_example.png
-  :alt: Figure revisions in the Web App

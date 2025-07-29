@@ -105,13 +105,13 @@ class Publisher:
         :param backends: figure backends, e.g. MatplotlibBackend
         :param watermark: watermark generator, e.g. QRWatermark()
         :param show_watermark: True to show watermarked figures instead of original.
-        False to always display the unmodified figure. Default True.
+               False to always display the unmodified figure. Default True.
         :param image_formats: image formats to save by default
         :param interactive: whether to publish figure HTML if available
         :param clear: whether to close the original figures after publication
         :param save_pickle: if True, will save the figure in pickle format in addition to any of the image formats
         :param widget_class: Widget type to show, e.g. DetailedWidget or CompactWidget. It will appear below the
-        published figure
+               published figure
 
         """
         self.gf = gf or GoFigr()
@@ -313,14 +313,14 @@ class Publisher:
 
         :param fig: figure to publish. If None, we'll use plt.gcf()
         :param target: Target figure to publish this revision under. Can be a gf.Figure instance, an API ID, \
-        or a FindByName instance.
+               or a FindByName instance.
         :param dataframes: dictionary of dataframes to associate & publish with the figure
         :param metadata: metadata (JSON) to attach to this revision
         :param backend: backend to use, e.g. MatplotlibBackend. If None it will be inferred automatically based on \
-        figure type
+               figure type
         :param image_options: backend-specific params passed to backend.figure_to_bytes
         :param suppress_display: if used in an auto-publish hook, this will contain a callable which will
-        suppress the display of this figure using the native IPython backend.
+               suppress the display of this figure using the native IPython backend.
         :param files: either (a) list of file paths or (b) dictionary of name to file path/file obj
         :param annotators: list of annotators to use. Defaults to self.annotators
 
