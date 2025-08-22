@@ -88,8 +88,8 @@ def run_notebook(driver, jupyter_url):
 def run_lab(driver, jupyter_url):
     driver.get(jupyter_url.replace("/lab?token=", "/lab/tree/integration_tests.ipynb?token="))
 
-    WebDriverWait(driver, 120).until(expected_conditions.visibility_of_element_located((By.ID,
-                                             "Integration-tests-for-the-GoFigr-Python-client")))
+    WebDriverWait(driver, 120).until(expected_conditions.visibility_of_element_located((By.CSS_SELECTOR,
+                                             '[data-jupyter-id="Integration-tests-for-the-GoFigr-Python-client"]')))
 
     # Restart and run all button
     find_element_with_alternatives(driver, by=By.CSS_SELECTOR, possible_values=[
