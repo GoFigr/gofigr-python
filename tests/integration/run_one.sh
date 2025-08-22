@@ -15,9 +15,6 @@ do_run() {
   mkdir -p "$WORKING_DIR"
   cd "$WORKING_DIR"
 
-  pip install --upgrade pip
-  pip install uv
-
   rm -rf venv/
   uv venv --python "$PYTHON_VERSION" venv/
   source venv/bin/activate
