@@ -7,6 +7,7 @@ All rights reserved.
 # pylint: disable=too-many-locals
 
 import io
+import logging
 import os
 import pickle
 import sys
@@ -32,6 +33,9 @@ except ModuleNotFoundError:
     from IPython.core.display import display
 
 
+logger = logging.getLogger(__name__)
+
+
 # pylint: disable=too-many-instance-attributes
 class _GoFigrExtension:
     """\
@@ -43,7 +47,8 @@ class _GoFigrExtension:
                  notebook_metadata=None,
                  configured=False,
                  loader_shown=False,
-                 asset_log=None):
+                 asset_log=None,
+                 offline=False):
         """\
 
         :param ip: iPython shell instance
@@ -51,9 +56,11 @@ class _GoFigrExtension:
         :param pre_run_hook: function to use as a pre-run hook
         :param post_execute_hook: function to use as a post-execute hook
         :param notebook_metadata: information about the running notebook, as a key-value dictionary
+        :param offline: if True, will provide watermarking but will not publish to GoFigr.io.
 
         """
         self.shell = ip
+        self.offline = offline
         self.auto_publish = auto_publish
         self.cell = None
         self.proxy = None
@@ -74,7 +81,7 @@ class _GoFigrExtension:
     @property
     def is_ready(self):
         """True if the extension has been configured and ready for use."""
-        return self.configured and self.notebook_metadata is not None
+        return self.offline or (self.configured and self.notebook_metadata is not None)
 
     def resolve_analysis(self):
         """Gets the current analysis"""
@@ -95,6 +102,10 @@ class _GoFigrExtension:
         :return: None
 
         """
+        if self.publisher is None:
+            logger.warning("No publisher configured.")
+            return
+
         if self.auto_publish:
             self.publisher.auto_publish_hook(self, data, suppress_display)
 

@@ -304,6 +304,32 @@ class StartupWidget(WidgetBase):
                     </div>"""))
 
 
+class LiteStartupWidget(WidgetBase):
+    """Generates a GoFigr startup widget"""
+
+    def __init__(self, extension):
+        super().__init__()
+        self.extension = extension
+    def show(self):
+        """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
+        logo_b64 = self.get_logo_b64()
+        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+            style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>"""
+
+        return display(HTML(f"""
+                    <div style="{WIDGET_STYLE}">
+                        <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
+                            <!-- Logo -->
+                            {logo_html}      
+
+                            <div style="margin-top: auto; margin-bottom: auto;">
+                                <span style="font-weight: bold">GoFigr Lite active</span>. 
+                            </div>
+                        </div>
+
+                    </div>"""))
+
+
 class AssetWidget(WidgetBase):
     """Generates a GoFigr startup widget"""
     def __init__(self, rev):
