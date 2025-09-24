@@ -140,6 +140,48 @@ class DefaultWatermark:
         self.font = font if font is not None else _default_font()
         self.show_qr_code = show_qr_code
 
+    def draw_table(self, pairs, padding_x=10, padding_y=10, border_width=1):
+        """Draws key-value pairs as a table, returning it as a PIL image."""
+
+        # Calculate column widths and row height
+        key_col_width = 0
+        val_col_width = 0
+        row_height = 0
+
+        for key, value in pairs:
+            # Get bounding boxes for text
+            key_bbox = self.font.getbbox(key)
+            val_bbox = self.font.getbbox(value)
+
+            key_col_width = max(key_col_width, key_bbox[2] - key_bbox[0])
+            val_col_width = max(val_col_width, val_bbox[2] - val_bbox[0])
+            row_height = max(row_height, key_bbox[3] - key_bbox[1], val_bbox[3] - val_bbox[1])
+
+        # Add padding and border space
+        total_width = key_col_width + val_col_width + 3 * padding_x + border_width
+        total_height = (row_height + padding_y) * len(pairs) + border_width
+
+        # Create the new image
+        img = Image.new(mode="RGBA", size=(total_width, total_height))
+        draw = ImageDraw.Draw(img)
+
+        # Draw the text and horizontal lines
+        y_pos = border_width
+        for idx, (key, value) in enumerate(pairs):
+            draw.text((padding_x, y_pos), key, fill="black", font=self.font)
+            draw.text((key_col_width + 2 * padding_x, y_pos), value, fill="black", font=self.font)
+            y_pos += row_height + padding_y
+
+            # Draw horizontal lines
+            if idx < len(pairs) - 1:
+                draw.line([(0, y_pos - padding_y / 2), (total_width, y_pos - padding_y / 2)], fill="black", width=border_width)
+
+        # Draw the vertical line separating columns
+        draw.line([(key_col_width + padding_x, 0), (key_col_width + padding_x, total_height)], fill="black",
+                  width=border_width)
+
+        return img
+
     def draw_identifier(self, text):
         """Draws the GoFigr identifier text, returning it as a PIL image"""
         left, top, right, bottom = self.font.getbbox(text)

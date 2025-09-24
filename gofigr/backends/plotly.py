@@ -7,6 +7,7 @@ import inspect
 import sys
 
 import plotly.graph_objects as go
+
 from gofigr.backends import GoFigrBackend, get_all_function_arguments
 
 
@@ -76,12 +77,18 @@ class PlotlyBackend(GoFigrBackend):
         wfig.update_layout(margin=dict(l=0, r=0, t=margin, b=margin))
         wfig.update_layout(height=new_height)
 
+        try:
+            rev_url = rev.revision_url
+        except AttributeError as e:
+            print("Error generating watermark: ", e, file=sys.stderr)
+            rev_url = None
+
         wfig.add_annotation(dict(font=dict(color='black', size=15),
                                  x=0,
                                  y=0,
                                  yshift=-margin,
                                  showarrow=False,
-                                 text=f"<a href='{rev.revision_url}'>{rev.revision_url}</a>",
+                                 text=f"<a href='{rev_url}'>{rev_url}</a>" if rev_url else "GoFigr link unavailable",
                                  textangle=0,
                                  xanchor='left',
                                  xref="paper",
@@ -94,3 +101,4 @@ class PlotlyBackend(GoFigrBackend):
 
     def get_supported_image_formats(self):
         return ["png", "jpeg", "jpg", "svg", "pdf", "tiff"]
+

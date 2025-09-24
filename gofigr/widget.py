@@ -11,6 +11,10 @@ from uuid import uuid4
 
 import humanize
 from IPython.core.display import HTML
+from ipywidgets import widgets, register
+from traitlets import Unicode
+
+from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME
 
 try:
     from IPython.core.display_functions import display
@@ -58,6 +62,18 @@ Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://f
 19.8-29.6V32c0-17.7-14.3-32-32-32H352zM80 32C35.8 32 0 67.8 0 112V432c0 44.2 35.8 80 80 80H400c44.2 0 80-35.8 
 80-80V320c0-17.7-14.3-32-32-32s-32 14.3-32 32V432c0 8.8-7.2 16-16 16H80c-8.8 0-16-7.2-16-16V112c0-8.8 7.2-16 
 16-16H192c17.7 0 32-14.3 32-32s-14.3-32-32-32H80z"/></svg>"""
+
+FA_FEATHER = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640">
+<!--!Font Awesome Free v7.0.1 by @fontawesome - https://fontawesome.com License - 
+https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.-->
+<path d="M416 64C457 64 496.3 80.3 525.2 109.2L530.7 114.7C559.7 143.7 576 183 576 223.9C576 248 570.3 
+271.5 559.8 292.7C557.9 296.4 554.5 299.2 550.5 300.4L438.5 334C434.6 335.2 432 338.7 432 342.8C432 347.9 436.1 352 
+441.2 352L473.4 352C487.7 352 494.8 369.2 484.7 379.3L462.3 401.7C460.4 403.6 458.1 404.9 455.6 405.7L374.6 430C370.7 
+431.2 368.1 434.7 368.1 438.8C368.1 443.9 372.2 448 377.3 448C390.5 448 396.2 463.7 385.1 470.9C344 497.5 295.8 512 
+246.1 512L160.1 512L112.1 560C103.3 568.8 88.9 568.8 80.1 560C71.3 551.2 71.3 536.8 80.1 528L320 288C328.8 279.2 
+328.8 264.8 320 256C311.2 247.2 296.8 247.2 288 256L143.5 400.5C137.8 406.2 128 402.2 128 394.1C128 326.2 155
+ 261.1 203 213.1L306.8 109.2C335.7 80.3 375 64 416 64z"/></svg>
+"""
 
 FA_COPY = """<svg xmlns="http://www.w3.org/2000/svg" height="1rem" width="0.85rem" viewBox="0 0 448 512"><!--!Font 
 Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 
@@ -310,11 +326,18 @@ class LiteStartupWidget(WidgetBase):
     def __init__(self, extension):
         super().__init__()
         self.extension = extension
+
     def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
         logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
             style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>"""
+
+        meta = NotebookMetadataAnnotator().parse_metadata(error=False)
+        if meta is None:
+            notebook_name = "N/A"
+        else:
+            notebook_name = meta.get(NOTEBOOK_NAME, "N/A")
 
         return display(HTML(f"""
                     <div style="{WIDGET_STYLE}">
@@ -323,7 +346,8 @@ class LiteStartupWidget(WidgetBase):
                             {logo_html}      
 
                             <div style="margin-top: auto; margin-bottom: auto;">
-                                <span style="font-weight: bold">GoFigr Lite active</span>. 
+                                <span style="font-weight: bold">GoFigr Lite active. Notebook: </span>
+                                <code>{notebook_name}</code>. 
                             </div>
                         </div>
 
@@ -361,3 +385,4 @@ class AssetWidget(WidgetBase):
                         </div>
 
                     </div>"""))
+

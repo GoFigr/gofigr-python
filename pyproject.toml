@@ -1,7 +1,7 @@
 # pyproject.toml
 
 [build-system]
-requires      = ["setuptools>=61.0.0", "wheel"]
+requires      = ["setuptools>=61.0.0", "wheel", "jupyter-packaging"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -45,6 +45,14 @@ commit_message = "Bump version {old_version} -> {new_version}"
 commit = true
 tag = true
 push = false
+
+[tool.jupyter-packaging]
+source-dir = "jupyter-src"
+output-dir = "gofigr/labextension"
+
+[tool.jupyter-packaging.extension-config]
+# The name of your extension. Must match the value in package.json
+"gofigr/labextension" = { "src_dir" = "gofigr/labextension", "dest" = "." }
 
 [tool.bumpver.file_patterns]
 "pyproject.toml" = [

@@ -1,31 +1,68 @@
+import asyncio
 import io
+import logging
+import os
+import uuid
+from datetime import timedelta, datetime
+
+import time
 
 import PIL
-from ipykernel.comm import Comm
+import nest_asyncio
+from ipywidgets import widgets
+from ipywidgets.comm import create_comm
 
-from gofigr.annotators import GitAnnotator
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+from gofigr.annotators import GitAnnotator, NotebookMetadataAnnotator, NOTEBOOK_NAME
+from gofigr.backends import get_backend
+from gofigr.backends.matplotlib import MatplotlibBackend
+from gofigr.backends.plotly import PlotlyBackend
+from gofigr.backends.plotnine import PlotnineBackend
 
 try:
     from IPython.core.display_functions import display
 except ModuleNotFoundError:
     from IPython.core.display import display
 
-from IPython.display import Javascript
 
-from gofigr import MeasureExecution, gf_Revision, GoFigr
-from gofigr.backends import get_backend
+from gofigr import GoFigr, NotebookName
 from gofigr.jupyter import _GoFigrExtension
-from gofigr.publisher import _make_annotator, DEFAULT_ANNOTATORS, _make_backend, DEFAULT_BACKENDS, _mark_as_published, \
-    is_published, is_suppressed
-from gofigr.watermarks import DefaultWatermark, _qr_to_image, add_margins, stack_horizontally
+from gofigr.publisher import _make_backend, DEFAULT_BACKENDS, _mark_as_published, \
+    is_published, is_suppressed, PLOTNINE_PRESENT
+from gofigr.watermarks import DefaultWatermark, _qr_to_image, add_margins, stack_horizontally, stack_vertically
 from gofigr.widget import LiteStartupWidget
 
 _GF_EXTENSION = None
 
-
 def get_extension():
     """Returns the GoFigr Jupyter extension instance"""
     return _GF_EXTENSION
+
+
+class _LiteGoFigrExtension(_GoFigrExtension):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, auto_publish=True, **kwargs)
+        self.comm_data = None
+        self.startup_widget = widgets.Output()
+        self.publisher = LitePublisher()
+
+    def is_ready(self):
+        return True
+
+
+def gofigr_comm_handler(msg):
+    ext = get_extension()
+    first_data = ext.comm_data is None
+    ext.comm_data = msg['content']['data']
+    if first_data:
+        with ext.startup_widget:
+            LiteStartupWidget(get_extension()).show()
+
+def _requeue(ip, digest, item):
+    ip.kernel.session.digest_history = [x for x in ip.kernel.session.digest_history if x.decode('ascii') != digest.decode('ascii')]
+    ip.kernel.msg_queue.put(item)
 
 
 def load_ipython_extension(ip):
@@ -38,19 +75,65 @@ def load_ipython_extension(ip):
     :return: None
 
     """
+    nest_asyncio.apply()
+
     global _GF_EXTENSION
     if _GF_EXTENSION is not None:
         _GF_EXTENSION.unregister()
 
-    _GF_EXTENSION = _GoFigrExtension(ip, offline=True, auto_publish=True)
-    _GF_EXTENSION.publisher = LitePublisher()
-    _GF_EXTENSION.register_hooks()
+    ext = _LiteGoFigrExtension(ip)
+    ext.register_hooks()
+    _GF_EXTENSION = ext
 
     ip.user_ns["get_extension"] = get_extension
     ip.user_ns["publish"] = publish
 
-    if get_extension().is_ready:
-        LiteStartupWidget(get_extension()).show()
+    display(ext.startup_widget)
+
+    args = dict(target_name='gofigr',
+                data={'state': "open"},
+                metadata={})
+
+    my_comm = create_comm(**args)
+    my_comm.on_msg(gofigr_comm_handler)
+
+    # load_ipython_extension is running within the same event queue as Comms,
+    # so the comm will not be processed until much later (in some cases this can be after the whole
+    # notebook has finished executing (!)).
+    #
+    # That's too late to be useful, so we manually process the event queue message here.
+    logging.debug("Waiting for comm message...")
+
+    start_time = datetime.now()
+    seen_ids = set()
+    while datetime.now() - start_time < timedelta(seconds=5):
+        try:
+            item = asyncio.run(ip.kernel.msg_queue.get(timeout=timedelta(seconds=1)))
+
+            _, _, args = item
+            idents, msg = ip.kernel.session.feed_identities(*args, copy=False)
+            digest = msg[0].bytes
+
+            msg = ip.kernel.session.deserialize(msg, content=True, copy=False)
+
+            if digest in seen_ids:
+                logging.debug("Already seen digest %s, re-queuing and waiting", digest)
+                _requeue(ip, digest, item)
+                asyncio.run(asyncio.sleep(0.5))
+                continue
+
+            seen_ids.add(digest)
+
+            if msg['msg_type'] == 'comm_msg' and msg['content']['comm_id'] == my_comm.comm_id:
+                gofigr_comm_handler(msg)
+                break
+            else:
+                # Re-queuing the same message will throw an exception due to a duplicate digest, so we modify it slightly
+                _requeue(ip, digest, item)
+
+        except TimeoutError:
+            logging.debug("Timeout. Waiting...")
+            asyncio.run(asyncio.sleep(0.5))
 
 
 class LiteClient(GoFigr):
@@ -68,7 +151,85 @@ class LiteClient(GoFigr):
         raise ValueError("GoFigr Lite is local-only. Asset sync is not supported.")
 
 
+class LitePlotlyBackend(PlotlyBackend):
+    """Plotly backend for GoFigr"""
+    def get_backend_name(self):
+        return "plotly_lite"
+
+    def add_interactive_watermark(self, fig, rev, watermark):
+        # Create subplots with 1 row and 2 columns,
+        # and define the specs for a graph and a table
+        if not isinstance(watermark, LiteWatermark):
+            return fig
+
+        orig_height = getattr(fig.layout, "height")
+        if orig_height is None:
+            orig_height = 450  # Plotly default
+
+        key_value_pairs = watermark.get_table(rev)
+
+        table_height = 50 * len(key_value_pairs)
+        total_height = orig_height + table_height
+
+        # Define the subplot types: 'xy' for the graph, 'table' for the table
+        specs = [[{'type': 'xy'}], [{'type': 'table'}]]
+
+        # Create the new figure with subplots, explicitly setting the subplot types
+        new_fig = make_subplots(
+            rows=2,
+            cols=1,
+            shared_xaxes=False,
+            vertical_spacing=0.1,
+            row_heights=[orig_height / total_height, 1.0 - orig_height / total_height],
+            specs=specs
+        )
+
+        # Add all traces from the original figure to the first subplot
+        for trace in fig.data:
+            new_fig.add_trace(trace, row=1, col=1)
+
+        # Create the table object
+        header_values = ['', '']
+        cell_values = [
+            list(key_value_pairs.keys()),
+            list(key_value_pairs.values())
+        ]
+
+        table = go.Table(
+            header=dict(values=header_values, align='left', height = 0),
+            cells=dict(values=cell_values, align='left')
+        )
+
+        # Add the table to the second subplot
+        new_fig.add_trace(table, row=2, col=1)
+
+        # Update the layout for the new figure, including height and title
+        new_fig.update_layout(
+            title=fig.layout.title,
+            height=orig_height + table_height
+        )
+
+        return new_fig
+
+
+
 class LiteWatermark(DefaultWatermark):
+    def get_table(self, revision):
+        GitAnnotator().annotate(revision)
+        NotebookMetadataAnnotator().annotate(revision, sync=False)
+
+        git_link = revision.metadata.get('git', {}).get('commit_link', None)
+        git_hash = revision.metadata.get('git', {}).get('hash', None)
+        git_link = git_link or "No git link available"
+
+        notebook_name = revision.metadata.get(NOTEBOOK_NAME, "N/A")
+
+        return{"User": str(os.getlogin()),
+               "Notebook": notebook_name,
+               "Commit": git_hash,
+               "Date": str(datetime.now()),
+               "Git Link": git_link}
+
     def get_watermark(self, revision):
         """\
         Generates just the watermark for a revision.
@@ -77,21 +238,27 @@ class LiteWatermark(DefaultWatermark):
         :return: PIL.Image
 
         """
-        GitAnnotator().annotate(revision)
+        data =  self.get_table(revision)
+        table = [(f'{k}: ', v) for k, v in data.items() if k != "Git Link"]
 
-        git_link = revision.metadata.get('git', {}).get('commit_link', None)
-
-        identifier_text = git_link or 'No git link available'
-        identifier_img = self.draw_identifier(identifier_text)
+        identifier_img = self.draw_table(table)
+        git_link = data.get("Git Link", None)
 
         qr_img = None
         if self.show_qr_code and git_link:
-            qr_img = _qr_to_image(identifier_text, scale=self.qr_scale,
+            qr_img = _qr_to_image(git_link, scale=self.qr_scale,
                                   module_color=self.qr_foreground,
                                   background=self.qr_background)
             qr_img = add_margins(qr_img, self.margin_px)
 
         return stack_horizontally(identifier_img, qr_img)
+
+
+DEFAULT_LITE_BACKENDS = (MatplotlibBackend, LitePlotlyBackend)
+
+if PLOTNINE_PRESENT:
+    # pylint: disable=possibly-used-before-assignment
+    DEFAULT_LITE_BACKENDS = (PlotnineBackend,) + DEFAULT_LITE_BACKENDS
 
 
 class LitePublisher:
@@ -109,7 +276,7 @@ class LitePublisher:
         self.gf = LiteClient()
         self.watermark = watermark or LiteWatermark()
         self.show_watermark = show_watermark
-        self.backends = [_make_backend(bck) for bck in (backends or DEFAULT_BACKENDS)]
+        self.backends = [_make_backend(bck) for bck in (backends or DEFAULT_LITE_BACKENDS)]
         self.clear = clear
         self.widget_class = widget_class
         self.default_metadata = default_metadata or {}

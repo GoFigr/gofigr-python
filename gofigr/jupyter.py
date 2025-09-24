@@ -47,8 +47,7 @@ class _GoFigrExtension:
                  notebook_metadata=None,
                  configured=False,
                  loader_shown=False,
-                 asset_log=None,
-                 offline=False):
+                 asset_log=None):
         """\
 
         :param ip: iPython shell instance
@@ -60,7 +59,6 @@ class _GoFigrExtension:
 
         """
         self.shell = ip
-        self.offline = offline
         self.auto_publish = auto_publish
         self.cell = None
         self.proxy = None
