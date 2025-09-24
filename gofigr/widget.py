@@ -346,7 +346,14 @@ class LiteStartupWidget(WidgetBase):
                             <div style="margin-top: auto; margin-bottom: auto;">
                                 <span style="font-weight: bold">GoFigr Lite active. Notebook: </span>
                                 <code>{notebook_name}</code>. 
-                            </div>
+                            </div>                            
+                        </div>                        
+                        
+                        <div style="{ROW_STYLE + "margin-bottom: 0.0rem; margin-top: 1.0rem"}">
+                            <span>GoFigr Lite adds annotation to your figures but does not publish them to our servers. To experience 
+                            full functionality, consider using the full GoFigr extension. See 
+                            <a href="https://gofigr.io/gofigr-lite/">this page</a> for details.
+                            </span>                
                         </div>
 
                     </div>"""))
