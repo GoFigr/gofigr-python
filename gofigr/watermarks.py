@@ -142,6 +142,7 @@ class DefaultWatermark:
 
     def draw_table(self, pairs, padding_x=10, padding_y=10, border_width=1):
         """Draws key-value pairs as a table, returning it as a PIL image."""
+        # pylint: disable=too-many-locals
 
         # Calculate column widths and row height
         key_col_width = 0
@@ -174,7 +175,8 @@ class DefaultWatermark:
 
             # Draw horizontal lines
             if idx < len(pairs) - 1:
-                draw.line([(0, y_pos - padding_y / 2), (total_width, y_pos - padding_y / 2)], fill="black", width=border_width)
+                draw.line([(0, y_pos - padding_y / 2), (total_width, y_pos - padding_y / 2)],
+                          fill="black", width=border_width)
 
         # Draw the vertical line separating columns
         draw.line([(key_col_width + padding_x, 0), (key_col_width + padding_x, total_height)], fill="black",

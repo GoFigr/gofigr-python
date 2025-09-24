@@ -4,15 +4,13 @@ All rights reserved.
 
 """
 from abc import ABC
-# pylint: disable=trailing-whitespace
+# pylint: disable=trailing-whitespace, ungrouped-imports
 
 from base64 import b64encode
 from uuid import uuid4
 
 import humanize
 from IPython.core.display import HTML
-from ipywidgets import widgets, register
-from traitlets import Unicode
 
 from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME
 
@@ -385,4 +383,3 @@ class AssetWidget(WidgetBase):
                         </div>
 
                     </div>"""))
-

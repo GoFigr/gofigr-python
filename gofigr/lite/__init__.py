@@ -1,11 +1,18 @@
+"""\
+Implements a limited fully-offline mode for GoFigr.
+
+Copyright (c) 2023-2025, Flagstaff Solutions, LLC
+All rights reserved.
+
+"""
+# pylint: disable=use-dict-literal
+
 import asyncio
 import io
 import logging
 import os
-import uuid
+import sys
 from datetime import timedelta, datetime
-
-import time
 
 import PIL
 import nest_asyncio
@@ -15,12 +22,19 @@ from ipywidgets.comm import create_comm
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from gofigr import GoFigr
 from gofigr.annotators import GitAnnotator, NotebookMetadataAnnotator, NOTEBOOK_NAME
 from gofigr.backends import get_backend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
 from gofigr.backends.plotnine import PlotnineBackend
+from gofigr.trap import SuppressDisplayTrap
 from gofigr.utils import read_resource_b64, read_resource_binary
+from gofigr.jupyter import _GoFigrExtension
+from gofigr.publisher import _make_backend, _mark_as_published, \
+    is_published, is_suppressed, PLOTNINE_PRESENT, suppress
+from gofigr.watermarks import DefaultWatermark, _qr_to_image, add_margins, stack_horizontally
+from gofigr.widget import LiteStartupWidget
 
 try:
     from IPython.core.display_functions import display
@@ -28,14 +42,10 @@ except ModuleNotFoundError:
     from IPython.core.display import display
 
 
-from gofigr import GoFigr, NotebookName
-from gofigr.jupyter import _GoFigrExtension
-from gofigr.publisher import _make_backend, DEFAULT_BACKENDS, _mark_as_published, \
-    is_published, is_suppressed, PLOTNINE_PRESENT
-from gofigr.watermarks import DefaultWatermark, _qr_to_image, add_margins, stack_horizontally, stack_vertically
-from gofigr.widget import LiteStartupWidget
-
 _GF_EXTENSION = None
+
+logger = logging.getLogger(__name__)
+
 
 def get_extension():
     """Returns the GoFigr Jupyter extension instance"""
@@ -43,12 +53,15 @@ def get_extension():
 
 
 class _LiteGoFigrExtension(_GoFigrExtension):
+    """Implementation of the GoFigr Jupyter extension for the "lite" (offline) backend."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, auto_publish=True, **kwargs)
         self.comm_data = None
         self.startup_widget = widgets.Output()
         self.publisher = LitePublisher()
 
+    @property
     def is_ready(self):
         return True
 
@@ -56,7 +69,7 @@ class _LiteGoFigrExtension(_GoFigrExtension):
         self.cell = result.info
 
 
-def gofigr_comm_handler(msg):
+def _gofigr_comm_handler(msg):
     ext = get_extension()
     first_data = ext.comm_data is None
     ext.comm_data = msg['content']['data']
@@ -64,8 +77,10 @@ def gofigr_comm_handler(msg):
         with ext.startup_widget:
             LiteStartupWidget(get_extension()).show()
 
+
 def _requeue(ip, digest, item):
-    ip.kernel.session.digest_history = [x for x in ip.kernel.session.digest_history if x.decode('ascii') != digest.decode('ascii')]
+    ip.kernel.session.digest_history = [x for x in ip.kernel.session.digest_history
+                                        if x.decode('ascii') != digest.decode('ascii')]
     ip.kernel.msg_queue.put(item)
 
 
@@ -81,7 +96,7 @@ def load_ipython_extension(ip):
     """
     nest_asyncio.apply()
 
-    global _GF_EXTENSION
+    global _GF_EXTENSION  # pylint: disable=global-statement
     if _GF_EXTENSION is not None:
         _GF_EXTENSION.unregister()
 
@@ -91,63 +106,77 @@ def load_ipython_extension(ip):
 
     ip.user_ns["get_extension"] = get_extension
     ip.user_ns["publish"] = publish
+    ip.user_ns["suppress"] = suppress
 
     display(ext.startup_widget)
 
-    args = dict(target_name='gofigr',
-                data={'state': "open"},
-                metadata={})
-
-    my_comm = create_comm(**args)
-    my_comm.on_msg(gofigr_comm_handler)
+    my_comm = create_comm(target_name='gofigr', data={'state': "open"}, metadata={})
+    my_comm.on_msg(_gofigr_comm_handler)
 
     # load_ipython_extension is running within the same event queue as Comms,
     # so the comm will not be processed until much later (in some cases this can be after the whole
     # notebook has finished executing (!)).
     #
     # That's too late to be useful, so we manually process the event queue message here.
-    logging.debug("Waiting for comm message...")
+    logger.debug("Waiting for comm message...")
 
     start_time = datetime.now()
-    seen_ids = set()
-    while datetime.now() - start_time < timedelta(seconds=5):
+    queue_copy = []
+    comm_received = False
+    while not comm_received and datetime.now() - start_time < timedelta(seconds=5):
         try:
             item = asyncio.run(ip.kernel.msg_queue.get(timeout=timedelta(seconds=1)))
 
             _, _, args = item
-            idents, msg = ip.kernel.session.feed_identities(*args, copy=False)
+            _, msg = ip.kernel.session.feed_identities(*args, copy=False)
             digest = msg[0].bytes
 
             msg = ip.kernel.session.deserialize(msg, content=True, copy=False)
 
-            if digest in seen_ids:
-                logging.debug("Already seen digest %s, re-queuing and waiting", digest)
-                _requeue(ip, digest, item)
-                asyncio.run(asyncio.sleep(0.5))
-                continue
-
-            seen_ids.add(digest)
-
             if msg['msg_type'] == 'comm_msg' and msg['content']['comm_id'] == my_comm.comm_id:
-                gofigr_comm_handler(msg)
-                break
-            else:
-                # Re-queuing the same message will throw an exception due to a duplicate digest, so we modify it slightly
-                _requeue(ip, digest, item)
+                # This is our message!
+                _gofigr_comm_handler(msg)
+                comm_received = True
+
+                # It's important to keep going until we exhaust all messages. Otherwise the previous messages
+                # will be appended out-of-order.
+
+            queue_copy.append((digest, item))
 
         except TimeoutError:
-            logging.debug("Timeout. Waiting...")
-            asyncio.run(asyncio.sleep(0.5))
+            if comm_received:  # no more messages and comm-received: we're done
+                break
+            else:
+                logger.debug("Timeout. Waiting...")  # no more messages and still no comm. Wait.
+                asyncio.run(asyncio.sleep(0.5))
+
+    # Restore the queue
+    for digest, item in queue_copy:
+        _requeue(ip, digest, item)
 
 
 class LiteClient(GoFigr):
+    """
+    A specialized implementation of the GoFigr class designed for local-only usage.
+
+    LiteClient is a restricted version of the GoFigr client. It is intended for environments
+    where local-only functionality is required, eliminating any backend interaction or
+    synchronization capabilities. This class disables remote requests and syncing, ensuring
+    that all functionality remains self-contained and isolated.
+
+    :param url: Always set to None as LiteClient does not interact with a remote server.
+    :param authenticate: Always set to False since authentication is not required
+        for local-only operation.
+
+    """
+
     def __init__(self, *args, **kwargs):
         super().__init__(url=None, authenticate=False, *args, **kwargs)
 
     def _unsupported(self):
         raise ValueError("GoFigr Lite is local-only.")
 
-    def _request(self, *args, **kwargs):
+    def _request(self, *args, **kwargs):  # pylint: disable=unused-argument
         self._unsupported()
 
     @property
@@ -161,9 +190,10 @@ class LitePlotlyBackend(PlotlyBackend):
         return "plotly_lite"
 
     def add_interactive_watermark(self, fig, rev, watermark):
-        # Create subplots with 1 row and 2 columns,
-        # and define the specs for a graph and a table
-        if not isinstance(watermark, LiteWatermark):
+        # isinstance doesn't work if the extension is reloaded because it re-loads class definitions.
+        # So we rely on duck typing as a workaround.
+        if not hasattr(watermark, "get_table"):
+            logger.debug(f"Skipping watermarking because it's not a LiteWatermark instance: {watermark}")
             return fig
 
         orig_height = getattr(fig.layout, "height")
@@ -240,9 +270,47 @@ class LitePlotlyBackend(PlotlyBackend):
         return new_fig
 
 
-
 class LiteWatermark(DefaultWatermark):
+    """
+    Represents a specialized watermark generator extending DefaultWatermark.
+
+    This class is designed to create lightweight watermarks for notebook figures
+    with associated Git metadata and other contextual details. It provides custom
+    methods to generate tables and optional QR codes with Git commit information.
+    The generated watermark includes the user, notebook name, commit hash, and
+    current date.
+
+    :ivar show_qr_code: Flag indicating whether QR code generation is enabled.
+    :type show_qr_code: bool
+    :ivar qr_scale: Scale factor for QR code size.
+    :type qr_scale: int
+    :ivar qr_foreground: Foreground color of the QR code.
+    :type qr_foreground: str
+    :ivar qr_background: Background color of the QR code.
+    :type qr_background: str
+    :ivar margin_px: Pixel margin around the QR code.
+    :type margin_px: int
+    """
+
     def get_table(self, revision):
+        """
+        Retrieve a dictionary representing metadata information about a notebook revision.
+
+        The method applies a series of annotators to enrich the given revision with
+        additional metadata and then constructs a dictionary containing details such as
+        the logged-in user, notebook name, commit details, and a timestamp of the operation.
+        If certain metadata fields are not available, fallback default values are used.
+
+        :param revision: The revision object whose metadata is to be processed.
+            Must be annotated with `GitAnnotator` and `NotebookMetadataAnnotator`
+            before metadata extraction.
+        :type revision: Revision
+        :return: A dictionary containing metadata details including user, notebook name,
+            commit hash, timestamp, and a link to the Git commit. Defaults to placeholder
+            values if the data is unavailable in the revision.
+        :rtype: dict
+
+        """
         GitAnnotator().annotate(revision)
         NotebookMetadataAnnotator().annotate(revision, sync=False)
 
@@ -306,7 +374,7 @@ class LitePublisher:
                  backends=None,
                  watermark=None,
                  show_watermark=True,
-                 clear=False,
+                 clear=True,
                  widget_class=None,
                  default_metadata=None):
         self.gf = LiteClient()
@@ -328,10 +396,15 @@ class LitePublisher:
 
         :return: None
         """
+        logger.debug("Running auto-publish hook")
         for backend in self.backends:
+            logger.debug(f"Trying backend {backend}")
             compatible_figures = list(backend.find_figures(extension.shell, data))
+            logger.debug(f"Found {len(compatible_figures)} figures")
             for fig in compatible_figures:
+                logger.debug(f"Checking figure {fig}. Published: {is_published(fig)}. Suppressed: {is_suppressed(fig)}")
                 if not is_published(fig) and not is_suppressed(fig):
+                    logger.debug("Publishing...")
                     self.publish(fig=fig, backend=backend, suppress_display=suppress_display)
 
             if len(compatible_figures) > 0:
@@ -383,7 +456,8 @@ class LitePublisher:
         return fig, backend
 
     def publish(self, fig=None, metadata=None,
-                backend=None, image_options=None, suppress_display=None):
+                backend=None, image_options=None,
+                suppress_display=None, **kwargs):
         """\
         Publishes a revision to the server.
 
@@ -398,6 +472,9 @@ class LitePublisher:
         :return: FigureRevision instance
 
         """
+        if len(kwargs) > 0:
+            print(f"GoFigr Lite does not support the following arguments: {', '.join(kwargs)}", file=sys.stderr)
+
         # pylint: disable=too-many-branches, too-many-locals
         fig, backend = self._infer_figure_and_backend(fig, backend)
 
@@ -405,12 +482,16 @@ class LitePublisher:
         if metadata is not None:
             combined_meta.update(metadata)
 
-        rev = self.gf.Revision(figure=None, metadata=combined_meta, backend=backend)
+        rev = self.gf.Revision(figure=None, metadata=combined_meta, backend=backend)  # pylint: disable=no-member
 
+        logger.debug("Applying watermark to figure %s", fig)
         image_to_display = self._apply_watermark(fig, rev, backend, image_options)
+        logger.debug("Watermark applied: %s", image_to_display)
 
         if image_to_display is not None:
-            display(image_to_display)
+            with SuppressDisplayTrap():
+                logger.debug("Displaying watermarked figure")
+                display(image_to_display)
 
             if suppress_display is not None:
                 suppress_display()
