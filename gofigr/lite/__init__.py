@@ -20,6 +20,7 @@ from gofigr.backends import get_backend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
 from gofigr.backends.plotnine import PlotnineBackend
+from gofigr.utils import read_resource_b64, read_resource_binary
 
 try:
     from IPython.core.display_functions import display
@@ -50,6 +51,9 @@ class _LiteGoFigrExtension(_GoFigrExtension):
 
     def is_ready(self):
         return True
+
+    def post_run_cell(self, result):
+        self.cell = result.info
 
 
 def gofigr_comm_handler(msg):
@@ -164,31 +168,55 @@ class LitePlotlyBackend(PlotlyBackend):
 
         orig_height = getattr(fig.layout, "height")
         if orig_height is None:
-            orig_height = 450  # Plotly default
+            orig_height = 450
 
         key_value_pairs = watermark.get_table(rev)
-
-        table_height = 50 * len(key_value_pairs)
+        table_height = 40 * len(key_value_pairs)
         total_height = orig_height + table_height
 
-        # Define the subplot types: 'xy' for the graph, 'table' for the table
-        specs = [[{'type': 'xy'}], [{'type': 'table'}]]
+        # Define the subplot grid with three distinct areas
+        specs = [
+            [{'type': 'xy', 'colspan': 2}, None],  # Top row for the main graph
+            [{'type': 'xy'}, {'type': 'table'}]  # Bottom row for the image and table
+        ]
 
-        # Create the new figure with subplots, explicitly setting the subplot types
         new_fig = make_subplots(
             rows=2,
-            cols=1,
+            cols=2,
             shared_xaxes=False,
             vertical_spacing=0.1,
             row_heights=[orig_height / total_height, 1.0 - orig_height / total_height],
+            column_widths=[0.1, 0.9],  # Allocate more space to the table
             specs=specs
         )
 
-        # Add all traces from the original figure to the first subplot
+        # Add all traces from the original figure to the top subplot
         for trace in fig.data:
             new_fig.add_trace(trace, row=1, col=1)
 
-        # Create the table object
+        # Add the GoFigr.io logo using add_layout_image
+        logo_b64 = read_resource_b64("gofigr.resources", "logo_large.png")
+
+        new_fig.add_layout_image(
+            dict(
+                source=f"data:image;base64,{logo_b64}",
+                xref="paper",  # Anchor the image to the second subplot's x-axis
+                yref="paper",  # Anchor the image to the second subplot's y-axis
+                x=0.0,
+                y=0.0,
+                xanchor="left",
+                yanchor="bottom",
+                sizex=0.1,
+                sizey=1.0 - orig_height / total_height,
+                layer="below",
+            )
+        )
+
+        # Make the subplot axes for the image invisible
+        #new_fig.update_xaxes(visible=False, row=2, col=1)
+        #new_fig.update_yaxes(visible=False, row=2, col=1)
+
+        # Create the table
         header_values = ['', '']
         cell_values = [
             list(key_value_pairs.keys()),
@@ -196,14 +224,14 @@ class LitePlotlyBackend(PlotlyBackend):
         ]
 
         table = go.Table(
-            header=dict(values=header_values, align='left', height = 0),
+            header=dict(values=header_values, align='left', height=0),
             cells=dict(values=cell_values, align='left')
         )
 
-        # Add the table to the second subplot
-        new_fig.add_trace(table, row=2, col=1)
+        # Add the table to the bottom-right subplot
+        new_fig.add_trace(table, row=2, col=2)
 
-        # Update the layout for the new figure, including height and title
+        # Update the overall layout
         new_fig.update_layout(
             title=fig.layout.title,
             height=orig_height + table_height
@@ -250,6 +278,14 @@ class LiteWatermark(DefaultWatermark):
                                   module_color=self.qr_foreground,
                                   background=self.qr_background)
             qr_img = add_margins(qr_img, self.margin_px)
+
+        logo = PIL.Image.open(io.BytesIO(read_resource_binary("gofigr.resources", "logo_large.png")))
+        logo_size = identifier_img.size[1]
+        if qr_img and qr_img.size[1] > logo_size:
+            logo_size = qr_img.size[1]
+
+        logo.thumbnail((logo_size, logo_size))
+        identifier_img = stack_horizontally(logo, identifier_img)
 
         return stack_horizontally(identifier_img, qr_img)
 
