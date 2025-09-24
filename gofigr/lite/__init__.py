@@ -24,15 +24,14 @@ from plotly.subplots import make_subplots
 
 from gofigr import GoFigr
 from gofigr.annotators import GitAnnotator, NotebookMetadataAnnotator, NOTEBOOK_NAME
-from gofigr.backends import get_backend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
 from gofigr.backends.plotnine import PlotnineBackend
 from gofigr.trap import SuppressDisplayTrap
 from gofigr.utils import read_resource_b64, read_resource_binary
-from gofigr.jupyter import _GoFigrExtension
+from gofigr.jupyter import _GoFigrExtension, _base_publish
 from gofigr.publisher import _make_backend, _mark_as_published, \
-    is_published, is_suppressed, PLOTNINE_PRESENT, suppress
+    is_published, is_suppressed, PLOTNINE_PRESENT, suppress, infer_figure_and_backend
 from gofigr.watermarks import DefaultWatermark, _qr_to_image, add_margins, stack_horizontally
 from gofigr.widget import LiteStartupWidget
 
@@ -431,30 +430,6 @@ class LitePublisher:
             img.load()
             return self.watermark.apply(img, rev)
 
-    def _infer_figure_and_backend(self, fig, backend):
-        """\
-        Given a figure and a backend where one of the values could be null, returns a complete set
-        of a figure to publish and a matching backend.
-
-        :param fig: figure to publish. None to publish the default for the backend
-        :param backend: backend to use. If None, will infer from figure
-        :return: tuple of figure and backend
-        """
-        if fig is None and backend is None:
-            raise ValueError("You did not specify a figure to publish.")
-        elif fig is not None and backend is not None:
-            return fig, backend
-        elif fig is None and backend is not None:
-            fig = backend.get_default_figure()
-
-            if fig is None:
-                raise ValueError("You did not specify a figure to publish, and the backend does not have "
-                                 "a default.")
-        else:
-            backend = get_backend(fig, self.backends)
-
-        return fig, backend
-
     def publish(self, fig=None, metadata=None,
                 backend=None, image_options=None,
                 suppress_display=None, **kwargs):
@@ -476,7 +451,7 @@ class LitePublisher:
             print(f"GoFigr Lite does not support the following arguments: {', '.join(kwargs)}", file=sys.stderr)
 
         # pylint: disable=too-many-branches, too-many-locals
-        fig, backend = self._infer_figure_and_backend(fig, backend)
+        fig, backend = infer_figure_and_backend(fig, backend, self.backends)
 
         combined_meta = self.default_metadata if self.default_metadata is not None else {}
         if metadata is not None:
@@ -518,15 +493,4 @@ def publish(fig=None, backend=None, **kwargs):
     :return:
 
     """
-    ext = get_extension()
-
-    if fig is None and backend is None:
-        # If no figure and no backend supplied, publish default figures across all available backends
-        for available_backend in ext.publisher.backends:
-            fig = available_backend.get_default_figure(silent=True)
-            if fig is not None:
-                return ext.publisher.publish(fig=fig, backend=available_backend, **kwargs)
-
-        return None
-    else:
-        return ext.publisher.publish(fig=fig, backend=backend, **kwargs)
+    return _base_publish(ext=get_extension(), fig=fig, backend=backend, **kwargs)

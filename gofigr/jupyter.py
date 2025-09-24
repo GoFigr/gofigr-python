@@ -428,6 +428,35 @@ def configure(username=None,
         StartupWidget(get_extension()).show()
 
 
+def _base_publish(ext, fig=None, backend=None, **kwargs):
+    """
+    Publishes a figure using the provided extension and backend. If neither a figure
+    nor a backend is supplied, it publishes default figures across all available
+    backends supported by the extension. The function handles publication based on
+    the provided or determined inputs.
+
+    :param ext: The extension object containing the publisher to handle the publishing process.
+    :param fig: Optional; The figure object to be published. If None, the method attempts
+        to use default figures from the available backends.
+    :param backend: Optional; The backend to be used for publishing. If None, the method
+        attempts to publish using all backends available within the extension's publisher.
+    :param kwargs: Additional keyword arguments to customize the publishing process.
+    :return: None if no figure is provided or publish process fails; otherwise returns
+        the result of the publish process as managed by the extension's publisher.
+
+    """
+    if fig is None and backend is None:
+        # If no figure and no backend supplied, publish default figures across all available backends
+        for available_backend in ext.publisher.backends:
+            fig = available_backend.get_default_figure(silent=True)
+            if fig is not None:
+                return ext.publisher.publish(fig=fig, backend=available_backend, **kwargs)
+
+        return None
+    else:
+        return ext.publisher.publish(fig=fig, backend=backend, **kwargs)
+
+
 @require_configured
 def publish(fig=None, backend=None, **kwargs):
     """\
@@ -440,18 +469,8 @@ def publish(fig=None, backend=None, **kwargs):
     :return:
 
     """
-    ext = get_extension()
+    return _base_publish(ext=get_extension(), fig=fig, backend=backend, **kwargs)
 
-    if fig is None and backend is None:
-        # If no figure and no backend supplied, publish default figures across all available backends
-        for available_backend in ext.publisher.backends:
-            fig = available_backend.get_default_figure(silent=True)
-            if fig is not None:
-                return ext.publisher.publish(fig=fig, backend=available_backend, **kwargs)
-
-        return None
-    else:
-        return ext.publisher.publish(fig=fig, backend=backend, **kwargs)
 
 
 @require_configured
