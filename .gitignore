@@ -8,6 +8,3 @@ docs/build/
 *.egg-info
 __pycache__
 *.xlsx
-*.json
-*.json.*
-

@@ -337,7 +337,7 @@ class Publisher:
             if getattr(target, 'revisions', None) is None:
                 target.fetch()
 
-        combined_meta = self.default_metadata if self.default_metadata is not None else {}
+        combined_meta = dict(self.default_metadata) if self.default_metadata is not None else {}
         if metadata is not None:
             combined_meta.update(metadata)
 
