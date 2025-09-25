@@ -38,7 +38,8 @@ requires-python = ">=3.8"
 [project.optional-dependencies]
 dev = ["pip-tools", "bumpver", "build", "twine", "pylint", "flake8", "sphinx", "sphinx_rtd_theme",
        "sphinxcontrib-jquery", "seaborn", "matplotlib", "tqdm", "selenium", "webdriver-manager", "openpyxl",
-       "py3Dmol", "html2image", "teamcity-messages", "plotnine", "hatchling", "jupyterlab", "hatch-nodejs-version"]
+       "py3Dmol", "html2image", "teamcity-messages", "plotnine", "hatch", "hatchling", "jupyterlab",
+       "hatch-nodejs-version"]
 
 databricks = ["databricks-sdk"]
 
@@ -81,7 +82,7 @@ ensured-targets = [
     "gofigr/labextension/static/style.js",
     "gofigr/labextension/package.json",
 ]
-skip-if-exists = ["gofigr/labextension/static/style.js"]
+#skip-if-exists = ["gofigr/labextension/static/style.js"]
 
 [tool.hatch.build.hooks.jupyter-builder.build-kwargs]
 build_cmd = "build:prod"
