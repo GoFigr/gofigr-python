@@ -32,6 +32,13 @@ PANDAS_READERS = ["read_csv", "read_excel", "read_json", "read_html", "read_parq
 REVISION_ATTR = "_gofigr_revision"
 
 
+def _jupyter_labextension_paths():
+    return [{
+        "src": "labextension",
+        "dest": "gofigr"
+    }]
+
+
 def assert_one(elements, error_none=None, error_many=None):
     """\
     Asserts that a list/tuple contains only a single element (raising an exception if not), and returns

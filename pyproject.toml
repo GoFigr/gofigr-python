@@ -1,8 +1,8 @@
 # pyproject.toml
 
 [build-system]
-requires      = ["setuptools>=61.0.0", "wheel", "jupyter-packaging"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.5.0", "jupyterlab>=4.0.0,<5", "hatch-nodejs-version>=0.3.2"]
+build-backend = "hatchling.build"
 
 [project]
 name = "gofigr"
@@ -13,14 +13,25 @@ authors = [{ name = "Maciej Pacula", email = "maciej@gofigr.io" }]
 license = { file = "LICENSE" }
 classifiers = [
     "License :: OSI Approved :: MIT License",
+    "Framework :: Jupyter",
+    "Framework :: Jupyter :: JupyterLab",
+    "Framework :: Jupyter :: JupyterLab :: 4",
+    "Framework :: Jupyter :: JupyterLab :: Extensions",
+    "Framework :: Jupyter :: JupyterLab :: Extensions :: Prebuilt",
+    "License :: OSI Approved :: BSD License",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 keywords = ["science", "visualization", "version control", "plotting", "data", "reproducibility"]
 dependencies = [
     "numpy", "pandas", "pyqrcode", "pillow", "matplotlib", "dateutils",
     "python-dateutil", "ipython", "requests", "pypng", "plotly", "kaleido",
-    "humanize", "blake3", "GitPython"
+    "humanize", "blake3", "GitPython", "ipywidgets", "nest-asyncio"
 ]
 requires-python = ">=3.8"
 
@@ -46,13 +57,56 @@ commit = true
 tag = true
 push = false
 
-[tool.jupyter-packaging]
-source-dir = "jupyter-src"
-output-dir = "gofigr/labextension"
+[tool.hatch.version]
+source = "nodejs"
 
-[tool.jupyter-packaging.extension-config]
-# The name of your extension. Must match the value in package.json
-"gofigr/labextension" = { "src_dir" = "gofigr/labextension", "dest" = "." }
+[tool.hatch.metadata.hooks.nodejs]
+fields = ["description", "authors", "urls", "keywords"]
+
+[tool.hatch.build.targets.sdist]
+artifacts = ["gofigr/labextension"]
+exclude = [".github", "binder"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"gofigr/labextension" = "share/jupyter/labextensions/gofigr"
+"install.json" = "share/jupyter/labextensions/gofigr/install.json"
+
+[tool.hatch.build.hooks.version]
+path = "gofigr/_version.py"
+
+[tool.hatch.build.hooks.jupyter-builder]
+dependencies = ["hatch-jupyter-builder>=0.5"]
+build-function = "hatch_jupyter_builder.npm_builder"
+ensured-targets = [
+    "gofigr/labextension/static/style.js",
+    "gofigr/labextension/package.json",
+]
+skip-if-exists = ["gofigr/labextension/static/style.js"]
+
+[tool.hatch.build.hooks.jupyter-builder.build-kwargs]
+build_cmd = "build:prod"
+npm = ["jlpm"]
+
+[tool.hatch.build.hooks.jupyter-builder.editable-build-kwargs]
+build_cmd = "install:extension"
+npm = ["jlpm"]
+source_dir = "src"
+build_dir = "gofigr/labextension"
+
+[tool.jupyter-releaser.options]
+version_cmd = "hatch version"
+
+[tool.jupyter-releaser.hooks]
+before-build-npm = [
+    "python -m pip install 'jupyterlab>=4.0.0,<5'",
+    "jlpm",
+    "jlpm build:prod"
+]
+before-build-python = ["jlpm clean:all"]
+
+[tool.check-wheel-contents]
+ignore = ["W002"]
+
 
 [tool.bumpver.file_patterns]
 "pyproject.toml" = [
@@ -62,6 +116,10 @@ output-dir = "gofigr/labextension"
 
 "version.txt" = [
     '{version}'
+]
+
+"package.json" = [
+    '"version": "{version}"'
 ]
 
 "docs/source/conf.py" = [

@@ -43,7 +43,6 @@ function sendGoFigrMessage(panel: NotebookPanel): void {
   const msg = getGoFigrMessage(panel);
 
   if (state && state.comm) {
-    console.log("Sending comm message")
     state.comm.send(msg);
   }
 }
@@ -58,7 +57,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
   autoStart: true,
   requires: [INotebookTracker],
   activate: (app: JupyterFrontEnd, tracker: INotebookTracker) => {
-    console.log('JupyterLab extension my-extension is activated!');
+    console.log('JupyterLab GoFigr extension active');
 
 
     // Function to attach cell execution watcher to a notebook panel
@@ -77,7 +76,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
 
           const newKernel = args.newValue;
           newKernel?.registerCommTarget("gofigr", (comm: any, msg: any) => {
-            console.log("Received comm message: ", msg);
+            console.log("Kernel Comm established. Message: ", msg);
             notebookState.set(panel, {
               comm: comm,
               kernel: newKernel});
@@ -87,7 +86,6 @@ const plugin: JupyterFrontEndPlugin<void> = {
         })
 
       panel.content.stateChanged.connect((sender: Notebook, args: any) => {
-        console.log("Cell status changed.")
         sendGoFigrMessage(panel)
       })
     }
