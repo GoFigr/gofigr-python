@@ -5,7 +5,7 @@ Copyright (c) 2023-2025, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-# pylint: disable=use-dict-literal
+# pylint: disable=use-dict-literal, ungrouped-imports
 
 import asyncio
 import io
@@ -17,6 +17,7 @@ from datetime import timedelta, datetime
 
 import PIL
 import nest_asyncio
+import numpy as np
 from IPython import get_ipython
 from ipywidgets import widgets
 from ipywidgets.comm import create_comm
@@ -192,6 +193,8 @@ class LitePlotlyBackend(PlotlyBackend):
         return "plotly_lite"
 
     def add_interactive_watermark(self, fig, rev, watermark):
+        # pylint: disable=too-many-locals
+
         # isinstance doesn't work if the extension is reloaded because it re-loads class definitions.
         # So we rely on duck typing as a workaround.
         if not hasattr(watermark, "get_table"):
@@ -206,11 +209,7 @@ class LitePlotlyBackend(PlotlyBackend):
         if orig_width is None:
             orig_width = 700
 
-        logo_width = 0.1 * orig_width
-        if logo_width > 200:
-            logo_width = 200
-        if logo_width < 70:
-            logo_width = 70
+        logo_width =  np.clip(0.1 * orig_width, 70, 200)
 
         logo_height = logo_width
 

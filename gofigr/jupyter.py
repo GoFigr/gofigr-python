@@ -4,7 +4,7 @@ All rights reserved.
 
 """
 # pylint: disable=cyclic-import, no-member, global-statement, protected-access
-# pylint: disable=too-many-locals
+# pylint: disable=too-many-locals, ungrouped-imports
 
 import io
 import logging
