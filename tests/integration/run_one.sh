@@ -12,6 +12,10 @@ DRIVER_ARGS=$6
 do_run() {
   GF_DIR=$( readlink -f $( dirname "$0" )/../../ )
 
+  if [ -e "$HOME"/.nvm/nvm.sh ]; then
+    \. "$HOME/.nvm/nvm.sh"
+  fi
+
   mkdir -p "$WORKING_DIR"
   cd "$WORKING_DIR"
 
@@ -30,11 +34,20 @@ do_run() {
   uv pip freeze > "$WORKING_DIR"/pip_freeze.txt
   python --version > "$WORKING_DIR"/python_version.txt
 
-  cp "$GF_DIR"/tests/integration/integration_tests.ipynb .
+  cp "$GF_DIR"/tests/integration/{integration_tests.ipynb,lite_tests.ipynb} .
+
+  mv ./lite_tests.ipynb lite_tests.bak # otherwise Jupyter will open it automatically
+
   #jupyter nbconvert --execute ./integration_tests.ipynb --to notebook --output "$WORKING_DIR/output.ipynb"
   python "$GF_DIR"/tests/integration/jupyter_driver.py $DRIVER_ARGS "$SERVICE" integration_tests.ipynb
 
-  python "$GF_DIR"/tests/integration/report.py "$( pwd )" report.xlsx detailed_report.xlsx --single
+  mv ./integration_tests.ipynb integration_tests.bak # otherwise Jupyter will open it automatically
+  mv ./lite_tests.bak lite_tests.ipynb
+  rm ./*done
+  python "$GF_DIR"/tests/integration/jupyter_driver.py $DRIVER_ARGS "$SERVICE" lite_tests.ipynb
+
+  python "$GF_DIR"/tests/integration/report.py "$( pwd )" report.xlsx detailed_report.xlsx --single --name "integration_test.json"
+  python "$GF_DIR"/tests/integration/report.py "$( pwd )" report_lite.xlsx detailed_report_lite.xlsx --single --name "lite_tests.json"
 }
 
 do_run 2>&1 | tee "$OUTPUT_FILE"

@@ -24,10 +24,10 @@ def find_pkg(name, lines):
         raise ValueError(f'Ambiguous: {name}. Matches: {m}')
 
 
-def parse_results(path):
+def parse_results(path, name):
     """Parses results of a single integration test and returns them as a data frame"""
-    if os.path.exists(os.path.join(path, 'integration_test.json')):
-        with open(os.path.join(path, 'integration_test.json'), 'r') as f:
+    if os.path.exists(os.path.join(path, name)):
+        with open(os.path.join(path, name), 'r') as f:
             results = json.load(f)
     else:
         results = {'platform': 'N/A',
@@ -85,7 +85,7 @@ def one(xs):
         raise ValueError(xs)
 
 
-TEST_COLUMNS = ['number_of_revisions',
+_TEST_COLUMNS = ['number_of_revisions',
                 'notebook_name',
                 'notebook_path',
                 'image_png',
@@ -103,7 +103,16 @@ TEST_COLUMNS = ['number_of_revisions',
                 'backend',
                 'history']
 
-COLUMN_ORDER = ['name',
+_LITE_TEST_COLUMNS = ['notebook_name',
+                     'notebook_path',
+                     'extension_version',
+                     'metadata',
+                     'comm',
+                     'title',
+                     'image_not_null',
+                     'image_type_check']
+
+_COLUMN_ORDER = ['name',
                 'platform',
                 'service',
                 'error',
@@ -121,7 +130,25 @@ COLUMN_ORDER = ['name',
                 'plotly',
                 'test_name',
                 'error',
-                'elapsed_seconds'] + TEST_COLUMNS
+                'elapsed_seconds']
+
+
+def get_columns(test):
+    if test == "full":
+        return _TEST_COLUMNS
+    elif test == "lite":
+        return _LITE_TEST_COLUMNS
+    else:
+        raise ValueError(test)
+
+
+def get_column_order(test):
+    if test == "full":
+        return _COLUMN_ORDER + get_columns(test)
+    elif test == "lite":
+        return _COLUMN_ORDER + get_columns(test)
+    else:
+        raise ValueError(test)
 
 
 def abbreviate(text, max_len=100):
@@ -136,7 +163,7 @@ def parse_version(text):
     return tuple([int(x) for x in text.split(".")])
 
 
-def summarize_results(df):
+def summarize_results(df, test):
     """Summarizes test results"""
     all_tests = []
     passed_tests = []
@@ -152,7 +179,7 @@ def summarize_results(df):
             is_matplotlib = 'mpl' in test_name.lower()
             is_plotnine = "plotnine" in test_name.lower()
 
-            for col in TEST_COLUMNS:
+            for col in get_columns(test):
                 check_name = f"{test_name}>{col}"
                 if row.get(col) is True:  # test passed
                     passed_tests.append(check_name)
@@ -185,27 +212,32 @@ def summarize_results(df):
                          'failed_tests_detail': [abbreviate(", ".join(failed_tests))]})
 
 
-def summarize_all(path, single):
+def summarize_all(path, single, name):
     """Finds all integration tests in a directory, summarizes them, and returns the combined dataframe"""
+    if 'lite' in name:
+        test = "lite"
+    else:
+        test = "full"
+
     frames = []
     summary_frames = []
     if single:
         print(f"{os.path.basename(path)}...")
-        df = parse_results(path)
+        df = parse_results(path, name)
         frames.append(df)
-        summary_frames.append(summarize_results(df))
+        summary_frames.append(summarize_results(df, test))
     else:
         for name in os.listdir(path):
             full = os.path.join(path, name)
             if os.path.isdir(full):
                 print(f"{name}...")
-                df = parse_results(full)
+                df = parse_results(full, name)
                 frames.append(df)
-                summary_frames.append(summarize_results(df))
+                summary_frames.append(summarize_results(df, test))
 
     df = pd.concat(frames, ignore_index=True).sort_values(by=['python_minor_version', 'service'])
-    column_subset = [x for x in COLUMN_ORDER if x in df.columns]
-    test_column_subset = [x for x in TEST_COLUMNS if x in df.columns]
+    column_subset = [x for x in get_column_order(test) if x in df.columns]
+    test_column_subset = [x for x in get_columns(test) if x in df.columns]
     df.loc[:, test_column_subset] = df[test_column_subset].fillna(value='N/A')
 
     df_summary = pd.concat(summary_frames, ignore_index=True)
@@ -219,9 +251,10 @@ def main():
     parser.add_argument("output", help="Where to save the output Excel file")
     parser.add_argument("detailed_output", help="Where to save the detailed Excel file")
     parser.add_argument("--single", help="Processes a single run only", action="store_true")
+    parser.add_argument("--name", help="Name of the results file", default="integration_test.json")
     args = parser.parse_args()
 
-    df_detail, df_summary = summarize_all(args.directory, single=args.single)
+    df_detail, df_summary = summarize_all(args.directory, single=args.single, name=args.name)
     print("\n=== Result summary ===")
     print(df_summary)
     print("\n")

@@ -40,15 +40,15 @@ def find_element_with_alternatives(driver, by, possible_values, delay_seconds=0.
     raise RuntimeError(f"No such element. Tried: " + ", ".join(possible_values))
 
 
-def run_notebook(driver, jupyter_url):
+def run_notebook(driver, jupyter_url, notebook_path):
     """Runs a notebook in the classic notebook UI"""
     print("Running classic notebook...")
 
     if '/tree' in jupyter_url:
         # Running Notebook 7
-        nav_url = jupyter_url.replace("/tree?token=", "/notebooks/integration_tests.ipynb?factory=Notebook&token=")
+        nav_url = jupyter_url.replace("/tree?token=", f"/notebooks/{notebook_path}?factory=Notebook&token=")
     else:
-        nav_url = jupyter_url.replace("?token=", "notebooks/integration_tests.ipynb?token=")
+        nav_url = jupyter_url.replace("?token=", f"notebooks/{notebook_path}?token=")
 
     driver.get(nav_url)
     print(f"Navigating to {nav_url}...")
@@ -85,8 +85,8 @@ def run_notebook(driver, jupyter_url):
     print("UI done. Waiting for execution...")
 
 
-def run_lab(driver, jupyter_url):
-    driver.get(jupyter_url.replace("/lab?token=", "/lab/tree/integration_tests.ipynb?token="))
+def run_lab(driver, jupyter_url, notebook_path):
+    driver.get(jupyter_url.replace("/lab?token=", f"/lab/tree/{notebook_path}?token="))
 
     WebDriverWait(driver, 120).until(expected_conditions.visibility_of_element_located((By.CSS_SELECTOR,
                                              '[data-jupyter-id="Integration-tests-for-the-GoFigr-Python-client"]')))
@@ -153,9 +153,9 @@ def run_attempt(args, working_dir, reader, writer, attempt):
         driver.implicitly_wait(5.0)
 
         if args.service == "notebook":
-            run_notebook(driver, jupyter_url)
+            run_notebook(driver, jupyter_url, args.notebook_path)
         elif args.service == "lab":
-            run_lab(driver, jupyter_url)
+            run_lab(driver, jupyter_url, args.notebook_path)
         else:
             raise ValueError(f"Unsupported service: {args.service}")
 
@@ -196,7 +196,7 @@ def main():
     parser.add_argument("--timeout", type=int, default=60*15,
                         help="Timeout in seconds for the notebook to finish execution")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode")
-    parser.add_argument("--retries", type=int, default=2, help="Maximum number of execution attempts.")
+    parser.add_argument("--retries", type=int, default=5, help="Maximum number of execution attempts.")
     args = parser.parse_args()
 
     working_dir = os.path.dirname(args.notebook_path)

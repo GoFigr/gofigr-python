@@ -11,6 +11,7 @@ import {
 } from '@jupyterlab/notebook';
 import {IComm, IKernelConnection} from "@jupyterlab/services/lib/kernel/kernel";
 
+import * as packageData from '../package.json';
 
 // Declare a WeakMap to store state specific to each NotebookPanel
 interface ICustomNotebookState {
@@ -25,6 +26,7 @@ interface IGofigrMessage extends JSONObject {
   notebook_path: string;
   notebook_local_path: string;
   title: string;
+  extension_version: string;
 }
 
 const notebookState = new WeakMap<NotebookPanel, ICustomNotebookState>();
@@ -34,7 +36,8 @@ function getGoFigrMessage(panel: NotebookPanel): IGofigrMessage {
     url: document.URL,
     notebook_path: panel.context.path,
     notebook_local_path: panel.context.localPath,
-    title: panel.title.label
+    title: panel.title.label,
+    extension_version: packageData.version
   }
 }
 
@@ -52,7 +55,7 @@ function sendGoFigrMessage(panel: NotebookPanel): void {
  * Initialization data for the my-extension extension.
  */
 const plugin: JupyterFrontEndPlugin<void> = {
-  id: 'my-extension:plugin',
+  id: 'gofigr:plugin',
   description: 'A JupyterLab extension that watches for cell execution',
   autoStart: true,
   requires: [INotebookTracker],

@@ -16,6 +16,8 @@ from functools import wraps
 from pathlib import Path
 from uuid import UUID
 
+from IPython import get_ipython
+
 import gofigr
 from gofigr import GoFigr, API_URL
 from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME, NOTEBOOK_PATH, IPythonAnnotator
@@ -35,6 +37,8 @@ except ModuleNotFoundError:
 
 logger = logging.getLogger(__name__)
 
+
+EXTENSION_NAME = "_GF_EXTENSION"
 
 # pylint: disable=too-many-instance-attributes
 class _GoFigrExtension:
@@ -79,7 +83,7 @@ class _GoFigrExtension:
     @property
     def is_ready(self):
         """True if the extension has been configured and ready for use."""
-        return self.offline or (self.configured and self.notebook_metadata is not None)
+        return self.configured and self.notebook_metadata is not None
 
     def resolve_analysis(self):
         """Gets the current analysis"""
@@ -210,9 +214,6 @@ class _GoFigrExtension:
             self.shell.display_pub = GfDisplayPublisher(native_display_publisher, display_trap=self.display_trap)
 
 
-_GF_EXTENSION = None  # GoFigrExtension global
-
-
 def require_configured(func):
     """\
     Decorator which throws an exception if configure() has not been called yet.
@@ -222,10 +223,11 @@ def require_configured(func):
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
-        if _GF_EXTENSION is None:
+        ext = _get_extension_nocheck()
+        if ext is None:
             raise RuntimeError("Please load the extension: %load_ext gofigr")
-        _GF_EXTENSION.check_config()
 
+        ext.check_config()
         return func(*args, **kwargs)
 
     return wrapper
@@ -234,7 +236,13 @@ def require_configured(func):
 @require_configured
 def get_extension():
     """Returns the GoFigr Jupyter extension instance"""
-    return _GF_EXTENSION
+    return get_ipython().user_ns.get(EXTENSION_NAME)
+
+
+def _get_extension_nocheck():
+    """Returns the GoFigr Jupyter extension instance"""
+    return get_ipython().user_ns.get(EXTENSION_NAME)
+
 
 
 def _load_ipython_extension(ip):
@@ -245,12 +253,13 @@ def _load_ipython_extension(ip):
     :return: None
 
     """
-    global _GF_EXTENSION
-    if _GF_EXTENSION is not None:
-        _GF_EXTENSION.unregister()
+    ext = _get_extension_nocheck()
+    if ext is not None:
+        ext.unregister()
 
-    _GF_EXTENSION = _GoFigrExtension(ip)
-    _GF_EXTENSION.register_hooks()
+    ext = _GoFigrExtension(ip)
+    ip.user_ns[EXTENSION_NAME] = ext
+    ext.register_hooks()
 
     try:
         configure()
@@ -382,7 +391,9 @@ def configure(username=None,
     :return: None
 
     """
-    extension = _GF_EXTENSION
+    extension = _get_extension_nocheck()
+    if extension is None:
+        raise RuntimeError("Please load the extension: %load_ext gofigr")
 
     if isinstance(auto_publish, str):
         auto_publish = auto_publish.lower() == "true"  # in case it's coming from an environment variable
@@ -424,8 +435,8 @@ def configure(username=None,
 
     extension.shell.user_ns["gf"] = gf
 
-    if get_extension().is_ready:
-        StartupWidget(get_extension()).show()
+    if extension.is_ready:
+        StartupWidget(extension).show()
 
 
 def _base_publish(ext, fig=None, backend=None, **kwargs):

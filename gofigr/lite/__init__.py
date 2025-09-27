@@ -12,10 +12,12 @@ import io
 import logging
 import os
 import sys
+from collections import namedtuple
 from datetime import timedelta, datetime
 
 import PIL
 import nest_asyncio
+from IPython import get_ipython
 from ipywidgets import widgets
 from ipywidgets.comm import create_comm
 
@@ -41,14 +43,15 @@ except ModuleNotFoundError:
     from IPython.core.display import display
 
 
-_GF_EXTENSION = None
-
 logger = logging.getLogger(__name__)
+
+
+EXTENSION_NAME = "_GF_EXTENSION_LITE"
 
 
 def get_extension():
     """Returns the GoFigr Jupyter extension instance"""
-    return _GF_EXTENSION
+    return get_ipython().user_ns.get(EXTENSION_NAME)
 
 
 class _LiteGoFigrExtension(_GoFigrExtension):
@@ -95,14 +98,14 @@ def load_ipython_extension(ip):
     """
     nest_asyncio.apply()
 
-    global _GF_EXTENSION  # pylint: disable=global-statement
-    if _GF_EXTENSION is not None:
-        _GF_EXTENSION.unregister()
+    ext = get_extension()
+
+    if ext is not None:
+        ext.unregister()
 
     ext = _LiteGoFigrExtension(ip)
     ext.register_hooks()
-    _GF_EXTENSION = ext
-
+    ip.user_ns[EXTENSION_NAME] = ext
     ip.user_ns["get_extension"] = get_extension
     ip.user_ns["publish"] = publish
     ip.user_ns["suppress"] = suppress
@@ -199,8 +202,20 @@ class LitePlotlyBackend(PlotlyBackend):
         if orig_height is None:
             orig_height = 450
 
+        orig_width = getattr(fig.layout, "width")
+        if orig_width is None:
+            orig_width = 700
+
+        logo_width = 0.1 * orig_width
+        if logo_width > 200:
+            logo_width = 200
+        if logo_width < 70:
+            logo_width = 70
+
+        logo_height = logo_width
+
         key_value_pairs = watermark.get_table(rev)
-        table_height = 40 * len(key_value_pairs)
+        table_height = 40 * (len(key_value_pairs) + 1)
         total_height = orig_height + table_height
 
         # Define the subplot grid with three distinct areas
@@ -215,7 +230,7 @@ class LitePlotlyBackend(PlotlyBackend):
             shared_xaxes=False,
             vertical_spacing=0.1,
             row_heights=[orig_height / total_height, 1.0 - orig_height / total_height],
-            column_widths=[0.1, 0.9],  # Allocate more space to the table
+            column_widths=[logo_width / orig_width, 1.0 - logo_width / orig_width],  # Allocate more space to the table
             specs=specs
         )
 
@@ -232,28 +247,29 @@ class LitePlotlyBackend(PlotlyBackend):
                 xref="paper",  # Anchor the image to the second subplot's x-axis
                 yref="paper",  # Anchor the image to the second subplot's y-axis
                 x=0.0,
-                y=0.0,
+                y=0.5 * (table_height - logo_height) / total_height,
                 xanchor="left",
                 yanchor="bottom",
-                sizex=0.1,
-                sizey=1.0 - orig_height / total_height,
+                sizex=logo_width / orig_width,
+                sizey=logo_height / orig_height,
                 layer="below",
             )
         )
 
         # Make the subplot axes for the image invisible
-        #new_fig.update_xaxes(visible=False, row=2, col=1)
-        #new_fig.update_yaxes(visible=False, row=2, col=1)
+        new_fig.update_xaxes(visible=False, row=2, col=1)
+        new_fig.update_yaxes(visible=False, row=2, col=1)
 
         # Create the table
-        header_values = ['', '']
+        header_values = ['Key', 'Value']
         cell_values = [
             list(key_value_pairs.keys()),
             list(key_value_pairs.values())
         ]
 
         table = go.Table(
-            header=dict(values=header_values, align='left', height=0),
+            columnwidth=[100, 400],
+            header=dict(values=header_values, align='left'),
             cells=dict(values=cell_values, align='left')
         )
 
@@ -319,11 +335,12 @@ class LiteWatermark(DefaultWatermark):
 
         notebook_name = revision.metadata.get(NOTEBOOK_NAME, "N/A")
 
-        return{"User": str(os.getlogin()),
+        data = {"User": str(os.getlogin()),
                "Notebook": notebook_name,
                "Commit": git_hash,
                "Date": str(datetime.now()),
                "Git Link": git_link}
+        return {k: v for k, v in data.items() if v is not None}
 
     def get_watermark(self, revision):
         """\
@@ -364,6 +381,10 @@ if PLOTNINE_PRESENT:
     DEFAULT_LITE_BACKENDS = (PlotnineBackend,) + DEFAULT_LITE_BACKENDS
 
 
+_LoggedRevision = namedtuple("_LoggedRevision",
+                             ["revision", "backend", "title", "displayed_image"])
+
+
 class LitePublisher:
     """\
     "Lite" publisher: adds annotations to figures but doesn't publish anything to GoFigr.io.
@@ -375,7 +396,8 @@ class LitePublisher:
                  show_watermark=True,
                  clear=True,
                  widget_class=None,
-                 default_metadata=None):
+                 default_metadata=None,
+                 log_revisions=False):
         self.gf = LiteClient()
         self.watermark = watermark or LiteWatermark()
         self.show_watermark = show_watermark
@@ -383,6 +405,8 @@ class LitePublisher:
         self.clear = clear
         self.widget_class = widget_class
         self.default_metadata = default_metadata or {}
+        self.revision_log = []
+        self.log_revisions = log_revisions
 
     def auto_publish_hook(self, extension, data, suppress_display=None):
         """\
@@ -478,6 +502,9 @@ class LitePublisher:
 
         if self.widget_class is not None:
             self.widget_class(rev).show()
+
+        if self.log_revisions:
+            self.revision_log.append(_LoggedRevision(rev, backend, backend.get_title(fig), image_to_display))
 
         return rev
 
