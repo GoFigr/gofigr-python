@@ -297,6 +297,8 @@ class StartupWidget(WidgetBase):
 
     def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
+        self.extension.startup_widget_shown = True
+
         logo_b64 = self.get_logo_b64()
         logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
             style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>"""

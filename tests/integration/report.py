@@ -24,10 +24,10 @@ def find_pkg(name, lines):
         raise ValueError(f'Ambiguous: {name}. Matches: {m}')
 
 
-def parse_results(path, name):
+def parse_results(path, results_name):
     """Parses results of a single integration test and returns them as a data frame"""
-    if os.path.exists(os.path.join(path, name)):
-        with open(os.path.join(path, name), 'r') as f:
+    if os.path.exists(os.path.join(path, results_name)):
+        with open(os.path.join(path, results_name), 'r') as f:
             results = json.load(f)
     else:
         results = {'platform': 'N/A',
@@ -212,9 +212,9 @@ def summarize_results(df, test):
                          'failed_tests_detail': [abbreviate(", ".join(failed_tests))]})
 
 
-def summarize_all(path, single, name):
+def summarize_all(path, single, results_name):
     """Finds all integration tests in a directory, summarizes them, and returns the combined dataframe"""
-    if 'lite' in name:
+    if 'lite' in results_name:
         test = "lite"
     else:
         test = "full"
@@ -223,15 +223,21 @@ def summarize_all(path, single, name):
     summary_frames = []
     if single:
         print(f"{os.path.basename(path)}...")
-        df = parse_results(path, name)
+        df = parse_results(path, results_name)
         frames.append(df)
         summary_frames.append(summarize_results(df, test))
     else:
         for name in os.listdir(path):
+            if test == 'lite' and 'lite' not in name:
+                continue
+
+            if test == "full" and 'lite' in name:
+                continue
+
             full = os.path.join(path, name)
             if os.path.isdir(full):
                 print(f"{name}...")
-                df = parse_results(full, name)
+                df = parse_results(full, results_name)
                 frames.append(df)
                 summary_frames.append(summarize_results(df, test))
 
@@ -251,10 +257,10 @@ def main():
     parser.add_argument("output", help="Where to save the output Excel file")
     parser.add_argument("detailed_output", help="Where to save the detailed Excel file")
     parser.add_argument("--single", help="Processes a single run only", action="store_true")
-    parser.add_argument("--name", help="Name of the results file", default="integration_test.json")
+    parser.add_argument("--results", help="Name of the results file", default="integration_test.json")
     args = parser.parse_args()
 
-    df_detail, df_summary = summarize_all(args.directory, single=args.single, name=args.name)
+    df_detail, df_summary = summarize_all(args.directory, single=args.single, results_name=args.results)
     print("\n=== Result summary ===")
     print(df_summary)
     print("\n")

@@ -77,6 +77,7 @@ class _GoFigrExtension:
         self.publisher = None  # current Publisher instance
         self.wait_for_metadata = None  # callable which waits for metadata to become available
         self.asset_log = asset_log if asset_log is not None else {}
+        self.startup_widget_shown = False
 
         self.deferred_revisions = []
 
@@ -166,6 +167,10 @@ class _GoFigrExtension:
 
         if self.notebook_metadata is None:
             self._get_metadata_from_proxy(result)
+
+        self.resolve_analysis()
+        if self.is_ready and not self.startup_widget_shown:
+            StartupWidget(get_extension()).show()
 
         while len(self.deferred_revisions) > 0:
             rev = self.deferred_revisions.pop(0)
@@ -302,10 +307,6 @@ def proxy_callback(result):
     """Proxy callback"""
     if result is not None and hasattr(result, 'metadata'):
         get_extension().notebook_metadata = result.metadata
-        get_extension().resolve_analysis()
-
-        if get_extension().is_ready:
-            StartupWidget(get_extension()).show()
 
 
 class JupyterPublisher(Publisher):

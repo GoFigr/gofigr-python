@@ -671,7 +671,6 @@ def load_ipython_extension(ip):
     :return: None
 
     """
-    print("Loading gofigr Jupyter extension...")
     # pylint: disable=import-outside-toplevel
     from gofigr.jupyter import _load_ipython_extension
     return _load_ipython_extension(ip)
