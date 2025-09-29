@@ -77,9 +77,14 @@ def run_one_config(args, idx, config, all_configurations, messages):
 
     clean_up(analysis=ana)
 
+    notebook = config.get('notebook', 'integration_tests.ipynb')
+    results_file = config.get('results_file', 'integration_test.json')
+
     print(f"Running configuration {idx + 1}/{len(all_configurations)}: ")
     print(f'  * Name: {config["name"]}')
     print(f"  * Python: {config['python']}")
+    print(f"  * Notebook: {notebook}")
+    print(f"  * Result file: {results_file}")
     print(f"  * Dependencies: {config['dependencies']}")
     print(f"  * Directory: {out_dir}")
 
@@ -107,7 +112,9 @@ def run_one_config(args, idx, config, all_configurations, messages):
         }, f)
 
     runner_args = ["bash", run_one, out_dir, os.path.join(out_dir, "driver.log"),
-                   config["python"], config["service"], config["dependencies"]]
+                   config["python"], config["service"],
+                   config["dependencies"],
+                   notebook, results_file]
     if not args.no_headless:
         runner_args.append("--headless")
 
