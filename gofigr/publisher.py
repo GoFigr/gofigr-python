@@ -78,6 +78,32 @@ def is_published(fig):
     return getattr(fig, "_gf_is_published", False)
 
 
+def infer_figure_and_backend(fig, backend, enabled_backends):
+    """\
+    Given a figure and a backend where one of the values could be null, returns a complete set
+    of a figure to publish and a matching backend.
+
+    :param fig: figure to publish. None to publish the default for the backend
+    :param backend: backend to use. If None, will infer from figure
+    :param enabled_backends: list of enabled backends to use when inferring the backend
+    :return: tuple of figure and backend
+    """
+    if fig is None and backend is None:
+        raise ValueError("You did not specify a figure to publish.")
+    elif fig is not None and backend is not None:
+        return fig, backend
+    elif fig is None and backend is not None:
+        fig = backend.get_default_figure()
+
+        if fig is None:
+            raise ValueError("You did not specify a figure to publish, and the backend does not have "
+                             "a default.")
+    else:
+        backend = get_backend(fig, enabled_backends)
+
+    return fig, backend
+
+
 # pylint: disable=too-many-instance-attributes
 class Publisher:
     """\
@@ -267,30 +293,6 @@ class Publisher:
                                                   use_type="indirect") for data_rev in self.gf.sync.revisions]
         return rev
 
-    def _infer_figure_and_backend(self, fig, backend):
-        """\
-        Given a figure and a backend where one of the values could be null, returns a complete set
-        of a figure to publish and a matching backend.
-
-        :param fig: figure to publish. None to publish the default for the backend
-        :param backend: backend to use. If None, will infer from figure
-        :return: tuple of figure and backend
-        """
-        if fig is None and backend is None:
-            raise ValueError("You did not specify a figure to publish.")
-        elif fig is not None and backend is not None:
-            return fig, backend
-        elif fig is None and backend is not None:
-            fig = backend.get_default_figure()
-
-            if fig is None:
-                raise ValueError("You did not specify a figure to publish, and the backend does not have "
-                                 "a default.")
-        else:
-            backend = get_backend(fig, self.backends)
-
-        return fig, backend
-
     def _prepare_files(self, gf, files):
         if not isinstance(files, dict):
             files = {os.path.basename(p): p for p in files}
@@ -328,14 +330,14 @@ class Publisher:
 
         """
         # pylint: disable=too-many-branches, too-many-locals
-        fig, backend = self._infer_figure_and_backend(fig, backend)
+        fig, backend = infer_figure_and_backend(fig, backend, self.backends)
 
         with MeasureExecution("Resolve target"):
             target = self._resolve_target(fig, target, backend)
             if getattr(target, 'revisions', None) is None:
                 target.fetch()
 
-        combined_meta = self.default_metadata if self.default_metadata is not None else {}
+        combined_meta = dict(self.default_metadata) if self.default_metadata is not None else {}
         if metadata is not None:
             combined_meta.update(metadata)
 

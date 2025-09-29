@@ -49,9 +49,9 @@ class IPythonAnnotator(Annotator):
         :return: IPython extension if available, None otherwise.
 
         """
-        from gofigr.jupyter import get_extension  # pylint: disable=import-outside-toplevel
         try:
-            return get_extension()
+            get_extension = get_ipython().user_ns.get("get_extension")
+            return get_extension() if get_extension is not None else None
         except Exception as e:  # pylint: disable=broad-exception-caught
             logging.debug(f"IPython extension could not be found: {e}")
             return None
@@ -279,6 +279,14 @@ class NotebookMetadataAnnotator(IPythonAnnotator):
         except Exception:  # pylint: disable=broad-exception-caught
             return None
 
+    def _parse_from_comms(self, comm_data):
+        if comm_data is None:
+            return None
+
+        return {NOTEBOOK_PATH: comm_data.get('notebook_path'),
+                NOTEBOOK_NAME: comm_data.get('title'),
+                NOTEBOOK_URL: comm_data.get('url')}
+
     def _parse_from_proxy(self, meta, error):
         if 'url' not in meta and _ACTIVE_TAB_TITLE not in meta:
             if error:
@@ -332,15 +340,24 @@ class NotebookMetadataAnnotator(IPythonAnnotator):
 
         # At this point the metadata needs to come from the JavaScript proxy
         ext = self.get_ip_extension()
-        meta = ext.notebook_metadata if ext is not None else None
-        if meta is None and error:
-            raise RuntimeError("No Notebook metadata available")
-        elif meta is None:
-            return None
+        if ext is None:
+            if error:
+                raise RuntimeError("No Notebook metadata available")
+            else:
+                return None
 
-        return self._parse_from_proxy(meta, error)
+        if hasattr(ext, "comm_data"):
+            return self._parse_from_comms(ext.comm_data)
+        else:
+            meta = ext.notebook_metadata
+            if meta is None and error:
+                raise RuntimeError("No Notebook metadata available")
+            elif meta is None:
+                return None
 
-    def annotate(self, revision):
+            return self._parse_from_proxy(meta, error)
+
+    def annotate(self, revision, sync=True):
         if revision.metadata is None:
             revision.metadata = {}
 
@@ -349,7 +366,7 @@ class NotebookMetadataAnnotator(IPythonAnnotator):
                 revision.metadata.update(self.parse_metadata())
 
             full_path = revision.metadata.get(NOTEBOOK_PATH)
-            if full_path and os.path.exists(full_path):
+            if sync and full_path and os.path.exists(full_path):
                 revision.client.sync.sync(full_path, quiet=True)
 
         except Exception as e:  # pylint: disable=broad-exception-caught

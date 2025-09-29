@@ -4,9 +4,10 @@ All rights reserved.
 
 """
 # pylint: disable=cyclic-import, no-member, global-statement, protected-access
-# pylint: disable=too-many-locals
+# pylint: disable=too-many-locals, ungrouped-imports
 
 import io
+import logging
 import os
 import pickle
 import sys
@@ -14,6 +15,8 @@ import traceback
 from functools import wraps
 from pathlib import Path
 from uuid import UUID
+
+from IPython import get_ipython
 
 import gofigr
 from gofigr import GoFigr, API_URL
@@ -31,6 +34,11 @@ try:
 except ModuleNotFoundError:
     from IPython.core.display import display
 
+
+logger = logging.getLogger(__name__)
+
+
+EXTENSION_NAME = "_GF_EXTENSION"
 
 # pylint: disable=too-many-instance-attributes
 class _GoFigrExtension:
@@ -51,6 +59,7 @@ class _GoFigrExtension:
         :param pre_run_hook: function to use as a pre-run hook
         :param post_execute_hook: function to use as a post-execute hook
         :param notebook_metadata: information about the running notebook, as a key-value dictionary
+        :param offline: if True, will provide watermarking but will not publish to GoFigr.io.
 
         """
         self.shell = ip
@@ -68,6 +77,7 @@ class _GoFigrExtension:
         self.publisher = None  # current Publisher instance
         self.wait_for_metadata = None  # callable which waits for metadata to become available
         self.asset_log = asset_log if asset_log is not None else {}
+        self.startup_widget_shown = False
 
         self.deferred_revisions = []
 
@@ -95,6 +105,10 @@ class _GoFigrExtension:
         :return: None
 
         """
+        if self.publisher is None:
+            logger.warning("No publisher configured.")
+            return
+
         if self.auto_publish:
             self.publisher.auto_publish_hook(self, data, suppress_display)
 
@@ -154,6 +168,10 @@ class _GoFigrExtension:
         if self.notebook_metadata is None:
             self._get_metadata_from_proxy(result)
 
+        self.resolve_analysis()
+        if self.is_ready and not self.startup_widget_shown:
+            StartupWidget(get_extension()).show()
+
         while len(self.deferred_revisions) > 0:
             rev = self.deferred_revisions.pop(0)
             rev = self.publisher.annotate(rev)
@@ -201,9 +219,6 @@ class _GoFigrExtension:
             self.shell.display_pub = GfDisplayPublisher(native_display_publisher, display_trap=self.display_trap)
 
 
-_GF_EXTENSION = None  # GoFigrExtension global
-
-
 def require_configured(func):
     """\
     Decorator which throws an exception if configure() has not been called yet.
@@ -213,10 +228,11 @@ def require_configured(func):
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
-        if _GF_EXTENSION is None:
+        ext = _get_extension_nocheck()
+        if ext is None:
             raise RuntimeError("Please load the extension: %load_ext gofigr")
-        _GF_EXTENSION.check_config()
 
+        ext.check_config()
         return func(*args, **kwargs)
 
     return wrapper
@@ -225,7 +241,13 @@ def require_configured(func):
 @require_configured
 def get_extension():
     """Returns the GoFigr Jupyter extension instance"""
-    return _GF_EXTENSION
+    return get_ipython().user_ns.get(EXTENSION_NAME)
+
+
+def _get_extension_nocheck():
+    """Returns the GoFigr Jupyter extension instance"""
+    return get_ipython().user_ns.get(EXTENSION_NAME)
+
 
 
 def _load_ipython_extension(ip):
@@ -236,12 +258,13 @@ def _load_ipython_extension(ip):
     :return: None
 
     """
-    global _GF_EXTENSION
-    if _GF_EXTENSION is not None:
-        _GF_EXTENSION.unregister()
+    ext = _get_extension_nocheck()
+    if ext is not None:
+        ext.unregister()
 
-    _GF_EXTENSION = _GoFigrExtension(ip)
-    _GF_EXTENSION.register_hooks()
+    ext = _GoFigrExtension(ip)
+    ip.user_ns[EXTENSION_NAME] = ext
+    ext.register_hooks()
 
     try:
         configure()
@@ -284,10 +307,6 @@ def proxy_callback(result):
     """Proxy callback"""
     if result is not None and hasattr(result, 'metadata'):
         get_extension().notebook_metadata = result.metadata
-        get_extension().resolve_analysis()
-
-        if get_extension().is_ready:
-            StartupWidget(get_extension()).show()
 
 
 class JupyterPublisher(Publisher):
@@ -373,7 +392,9 @@ def configure(username=None,
     :return: None
 
     """
-    extension = _GF_EXTENSION
+    extension = _get_extension_nocheck()
+    if extension is None:
+        raise RuntimeError("Please load the extension: %load_ext gofigr")
 
     if isinstance(auto_publish, str):
         auto_publish = auto_publish.lower() == "true"  # in case it's coming from an environment variable
@@ -415,8 +436,37 @@ def configure(username=None,
 
     extension.shell.user_ns["gf"] = gf
 
-    if get_extension().is_ready:
-        StartupWidget(get_extension()).show()
+    if extension.is_ready:
+        StartupWidget(extension).show()
+
+
+def _base_publish(ext, fig=None, backend=None, **kwargs):
+    """
+    Publishes a figure using the provided extension and backend. If neither a figure
+    nor a backend is supplied, it publishes default figures across all available
+    backends supported by the extension. The function handles publication based on
+    the provided or determined inputs.
+
+    :param ext: The extension object containing the publisher to handle the publishing process.
+    :param fig: Optional; The figure object to be published. If None, the method attempts
+        to use default figures from the available backends.
+    :param backend: Optional; The backend to be used for publishing. If None, the method
+        attempts to publish using all backends available within the extension's publisher.
+    :param kwargs: Additional keyword arguments to customize the publishing process.
+    :return: None if no figure is provided or publish process fails; otherwise returns
+        the result of the publish process as managed by the extension's publisher.
+
+    """
+    if fig is None and backend is None:
+        # If no figure and no backend supplied, publish default figures across all available backends
+        for available_backend in ext.publisher.backends:
+            fig = available_backend.get_default_figure(silent=True)
+            if fig is not None:
+                return ext.publisher.publish(fig=fig, backend=available_backend, **kwargs)
+
+        return None
+    else:
+        return ext.publisher.publish(fig=fig, backend=backend, **kwargs)
 
 
 @require_configured
@@ -431,18 +481,8 @@ def publish(fig=None, backend=None, **kwargs):
     :return:
 
     """
-    ext = get_extension()
+    return _base_publish(ext=get_extension(), fig=fig, backend=backend, **kwargs)
 
-    if fig is None and backend is None:
-        # If no figure and no backend supplied, publish default figures across all available backends
-        for available_backend in ext.publisher.backends:
-            fig = available_backend.get_default_figure(silent=True)
-            if fig is not None:
-                return ext.publisher.publish(fig=fig, backend=available_backend, **kwargs)
-
-        return None
-    else:
-        return ext.publisher.publish(fig=fig, backend=backend, **kwargs)
 
 
 @require_configured

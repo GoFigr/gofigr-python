@@ -12,6 +12,14 @@
     "dependencies": "jupyterlab seaborn"
   },
   {
+    "name": "python3.10-lab-lite",
+    "python":  "python3.10",
+    "service": "lab",
+    "notebook": "lite_tests.ipynb",
+    "results_file": "lite_tests.json",
+    "dependencies": "jupyterlab seaborn"
+  },
+  {
     "name": "python3.10-notebook",
     "python": "python3.10",
     "service": "notebook",
@@ -21,6 +29,14 @@
     "name": "python3.11-lab",
     "python":  "python3.11",
     "service": "lab",
+    "dependencies": "jupyterlab seaborn"
+  },
+  {
+    "name": "python3.11-lab-lite",
+    "python":  "python3.11",
+    "service": "lab",
+    "notebook": "lite_tests.ipynb",
+    "results_file": "lite_tests.json",
     "dependencies": "jupyterlab seaborn"
   },
   {
@@ -36,6 +52,14 @@
     "dependencies": "jupyterlab seaborn"
   },
   {
+    "name": "python3.12-lab-lite",
+    "python":  "python3.12",
+    "service": "lab",
+    "notebook": "lite_tests.ipynb",
+    "results_file": "lite_tests.json",
+    "dependencies": "jupyterlab seaborn"
+  },
+  {
     "name": "python3.12-notebook",
     "python":  "python3.12",
     "service": "notebook",
@@ -45,6 +69,14 @@
     "name": "python3.13-lab",
     "python":  "python3.13",
     "service": "lab",
+    "dependencies": "jupyterlab seaborn"
+  },
+  {
+    "name": "python3.13-lab-lite",
+    "python":  "python3.13",
+    "service": "lab",
+    "notebook": "lite_tests.ipynb",
+    "results_file": "lite_tests.json",
     "dependencies": "jupyterlab seaborn"
   },
   {

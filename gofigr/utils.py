@@ -30,6 +30,20 @@ def read_resource_text(package, resource):
         return f.read()
 
 
+def read_resource_binary(package, resource):
+    """\
+    Reads a resource and returns it as bytes
+
+    :param package: package name
+    :param resource: resource name
+    :return: bytes
+
+    """
+    # pylint: disable=deprecated-method
+    with resources.open_binary(package, resource) as f:
+        return f.read()
+
+
 def read_resource_b64(package, resource):
     """\
     Reads a resource and returns it as a base-64 encoded string.
