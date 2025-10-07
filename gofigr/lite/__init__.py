@@ -29,12 +29,11 @@ from gofigr import GoFigr
 from gofigr.annotators import GitAnnotator, NotebookMetadataAnnotator, NOTEBOOK_NAME
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
-from gofigr.backends.plotnine import PlotnineBackend
 from gofigr.trap import SuppressDisplayTrap
 from gofigr.utils import read_resource_b64, read_resource_binary
 from gofigr.jupyter import _GoFigrExtension, _base_publish
 from gofigr.publisher import _make_backend, _mark_as_published, \
-    is_published, is_suppressed, PLOTNINE_PRESENT, suppress, infer_figure_and_backend
+    is_published, is_suppressed, suppress, infer_figure_and_backend
 from gofigr.watermarks import DefaultWatermark, _qr_to_image, add_margins, stack_horizontally
 from gofigr.widget import LiteStartupWidget
 
@@ -42,6 +41,15 @@ try:
     from IPython.core.display_functions import display
 except ModuleNotFoundError:
     from IPython.core.display import display
+
+
+PLOTNINE_PRESENT = False
+try:
+    import plotnine # pylint: disable=unused-import
+    from gofigr.backends.plotnine import PlotnineBackend
+    PLOTNINE_PRESENT = True
+except ModuleNotFoundError:
+    pass
 
 
 logger = logging.getLogger(__name__)
