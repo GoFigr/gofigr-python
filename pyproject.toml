@@ -58,6 +58,20 @@ commit = true
 tag = true
 push = false
 
+[tool.hatch.build]
+exclude = [
+     "venv",
+    "node_modules",
+    "**/node_modules",
+    "**/venv",
+    "build",
+    ".npm",
+    "package-lock.json",
+    "yarn.lock",
+    ".yarn",
+    "**/.yarn"
+]
+
 [tool.hatch.version]
 source = "nodejs"
 
@@ -66,7 +80,7 @@ fields = ["description", "authors", "urls", "keywords"]
 
 [tool.hatch.build.targets.sdist]
 artifacts = ["gofigr/labextension"]
-exclude = [".github", "binder"]
+exclude = [".github", "binder", "venv", "node_modules", ".yarn"]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "gofigr/labextension" = "share/jupyter/labextensions/gofigr"
