@@ -26,6 +26,14 @@ Jupyter compatibility
 *************
 We support modern Jupyter Lab, including the new Notebook 7+ interface.
 
+If you see cryptic errors about ipywidgets or asyncio, we recommend upgrading to
+latest versions:
+
+.. code:: bash
+
+    pip install --upgrade jupyterlab ipywidgets asyncio nest-asyncio
+
+
 Unfortunately, we do not support the classic Jupyter Notebook (versions 6 or earlier).
 
 Library support
