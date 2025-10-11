@@ -20,7 +20,7 @@ from IPython import get_ipython
 
 import gofigr
 from gofigr import GoFigr, API_URL
-from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME, NOTEBOOK_PATH, IPythonAnnotator
+from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME, NOTEBOOK_PATH
 from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, DEFAULT_BACKENDS, _mark_as_published, is_published, \
     is_suppressed
 from gofigr.proxy import run_proxy_async, get_javascript_loader
@@ -316,10 +316,6 @@ class JupyterPublisher(Publisher):
     """
     def __init__(self, *args, clear=True, **kwargs):
         super().__init__(*args, clear=clear, **kwargs)
-
-    @property
-    def _non_ipython_annotators(self):
-        return [ann for ann in self.annotators if not isinstance(ann, IPythonAnnotator)]
 
     def auto_publish_hook(self, extension, data, suppress_display=None):
         """\

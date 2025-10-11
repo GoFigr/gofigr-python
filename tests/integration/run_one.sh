@@ -40,7 +40,7 @@ do_run() {
 
   python "$GF_DIR"/tests/integration/jupyter_driver.py $DRIVER_ARGS "$SERVICE" "$NOTEBOOK"
 
-  python "$GF_DIR"/tests/integration/report.py "$( pwd )" report.xlsx detailed_report.xlsx --single --name "$RESULT_FILE"
+  python "$GF_DIR"/tests/integration/report.py "$( pwd )" report.xlsx detailed_report.xlsx --single --results "$RESULT_FILE"
 }
 
 do_run 2>&1 | tee "$OUTPUT_FILE"

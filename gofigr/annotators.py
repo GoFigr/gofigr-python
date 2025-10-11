@@ -145,10 +145,16 @@ class ScriptAnnotator(Annotator):
         if os.path.exists(sys.argv[0]):
             revision.data.append(revision.client.FileData.read(sys.argv[0]))
 
+            with open(sys.argv[0], "r", encoding='utf-8') as f:
+                revision.data.append(revision.client.CodeData(name=os.path.basename(sys.argv[0]),
+                                                              language=CodeLanguage.PYTHON,
+                                                              contents=f.read()))
+
         if revision.metadata is None:
             revision.metadata = {}
 
         revision.metadata['argv'] = list(sys.argv)
+        revision.metadata['script'] = sys.argv[0]
         return revision
 
 

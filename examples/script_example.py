@@ -1,22 +1,33 @@
 import seaborn as sns
 import matplotlib.pyplot as plt
+import plotly.express as px
 from gofigr.publisher import Publisher
-
-print(__file__)
 
 # --- Setup GoFigr Publisher ---
 # Initialize the publisher, specifying your workspace and analysis name.
-# clear=True will remove previous figures in the analysis on each run.
-pub = Publisher(workspace="Testz", analysis="Penguin Analysis", clear=True)
+pub = Publisher(workspace="Testz", analysis="Penguin Analysis")
 
 # --- Load Data ---
 # Load the built-in penguins dataset
 penguins = sns.load_dataset("penguins")
 
-# --- 1. Scatter Plot ---
-print("Generating and publishing scatter plot...")
+# ===============================================
+# --- 1. Scatter Plot (Seaborn) ---
+# ===============================================
+print("Generating and publishing Seaborn scatter plot 1...")
 sns.scatterplot(data=penguins, x="flipper_length_mm", y="bill_length_mm", hue="species")
-plt.title("Penguin Bill Length vs. Flipper Length")
+plt.title("Penguin Bill Length vs. Flipper Length (Seaborn)")
 pub.publish(plt.gcf()) # Publish the current figure
-plt.show()
-plt.close() # Close the figure to start fresh for the next one
+
+# ===============================================
+# --- 2. Scatter Plot (Plotly) ---
+# ===============================================
+print("Generating and publishing Plotly scatter plot 1...")
+fig1_px = px.scatter(
+    penguins,
+    x="flipper_length_mm",
+    y="bill_length_mm",
+    color="species",
+    title="Penguin Bill Length vs. Flipper Length (Plotly)" # Plotly sets the title in the function
+)
+pub.publish(fig1_px) # Publish the Plotly figure

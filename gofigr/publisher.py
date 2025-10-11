@@ -11,6 +11,8 @@ import pickle
 import sys
 
 import PIL
+from IPython import get_ipython
+
 try:
     from IPython.core.display_functions import display
 except ModuleNotFoundError:
@@ -19,7 +21,7 @@ except ModuleNotFoundError:
 from gofigr import GoFigr, MeasureExecution, NotebookName
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
     PipFreezeAnnotator, NotebookMetadataAnnotator, EnvironmentAnnotator, BackendAnnotator, HistoryAnnotator, \
-    GitAnnotator, Annotator, ScriptAnnotator
+    GitAnnotator, Annotator, ScriptAnnotator, IPythonAnnotator
 from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
@@ -275,6 +277,13 @@ class Publisher:
 
         return image_data, image_to_display
 
+    @property
+    def _non_ipython_annotators(self):
+        if self.annotators is None:
+            return []
+
+        return [ann for ann in self.annotators if not isinstance(ann, IPythonAnnotator)]
+
     def annotate(self, rev, annotators=None):
         """
         Annotates a FigureRevision using self.annotators.
@@ -283,7 +292,10 @@ class Publisher:
         :return: annotated revision
 
         """
-        for annotator in (annotators or self.annotators):
+        if annotators is None:
+            annotators = self._non_ipython_annotators if get_ipython() is None else self.annotators
+
+        for annotator in annotators:
             with MeasureExecution(annotator.__class__.__name__):
                 annotator.annotate(rev)
 
