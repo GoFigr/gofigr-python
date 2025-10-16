@@ -36,7 +36,7 @@ dependencies = [
 requires-python = ">=3.8"
 
 [project.optional-dependencies]
-dev = ["pip-tools", "bumpver", "build", "twine", "pylint", "flake8", "sphinx", "sphinx_rtd_theme",
+dev = ["pip-tools", "bumpver", "build", "twine", "pylint<4.0.0", "flake8", "sphinx", "sphinx_rtd_theme",
        "sphinxcontrib-jquery", "seaborn", "matplotlib", "tqdm", "selenium", "webdriver-manager", "openpyxl",
        "py3Dmol", "html2image", "teamcity-messages", "plotnine", "hatch", "hatchling", "jupyterlab",
        "hatch-nodejs-version"]
