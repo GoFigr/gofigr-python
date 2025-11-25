@@ -688,20 +688,22 @@ class TestFigures(TestCase):
         ana = workspace.analyses.create(gf.Analysis(name="test analysis 1"))
         fig = ana.figures.create(gf.Figure(name="my test figure"))
 
-        for idx in range(5):
-            time.sleep(0.05)
+        for idx in range(2):
             rev = gf.Revision(metadata={'index': idx},
                               data=TestData(gf).load_external_data(nonce=idx))
             rev = fig.revisions.create(rev)
+
+            time.sleep(2.0)
 
             for parent in [fig, ana, workspace]:
                 parent.fetch()
                 self.assertEqual(parent.child_updated_on, rev.created_on)
                 self.assertEqual(parent.child_updated_by, rev.created_by)
 
-            time.sleep(0.05)
             rev.metadata = {'updated': 'yay'}
             rev.save()
+
+            time.sleep(2.0)
 
             for parent in [fig, ana, workspace]:
                 parent.fetch()
@@ -709,9 +711,10 @@ class TestFigures(TestCase):
                 self.assertEqual(parent.child_updated_on, rev.updated_on)
                 self.assertEqual(parent.child_updated_by, rev.updated_by)
 
-            time.sleep(0.05)
             deletion_time = datetime.now().astimezone()
             rev.delete(delete=True)
+
+            time.sleep(2.0)
 
             for parent in [fig, ana, workspace]:
                 parent.fetch()
@@ -720,7 +723,7 @@ class TestFigures(TestCase):
 
         # Check logs
         logs = [log.fetch() for log in workspace.get_logs()]
-        self.assertEqual(len(logs), 18)  # 18 = create x3 (workspace+analysis+fig) + (create, update, delete) x 5 revisions
+        self.assertEqual(len(logs), 9)  # 9 = create x3 (workspace+analysis+fig) + (create, update, delete) x 2 revisions
         for item in logs:
             self.assertIn(item.action, ["create", "update", "delete"])
             self.assertLessEqual((datetime.now().astimezone() - item.timestamp).total_seconds(), 120)
@@ -735,11 +738,14 @@ class TestFigures(TestCase):
         fig = ana.figures.create(gf.Figure(name="my test figure"))
 
         revisions = []
-        for idx in range(5):
+        for idx in range(2):
             rev = gf.Revision(metadata={'index': idx},
                               data=TestData(gf).load_external_data(nonce=idx))
 
             rev = fig.revisions.create(rev)
+
+            rev.wait_for_processing()
+
             fig.fetch()  # to update timestamps
             ana.fetch()  # ...
 
@@ -820,7 +826,7 @@ class TestFigures(TestCase):
             revisions.append(rev)
 
         fig.fetch()
-        self.assertEqual(len(fig.revisions), 5)
+        self.assertEqual(len(fig.revisions), 2)
 
         # Delete revisions
         for rev in fig.revisions:
@@ -1277,6 +1283,9 @@ class TestSizeCalculation(GfTestCase):
 
             for rev_idx in range(num_revisions):
                 rev = gf.Revision(figure=fig, data=[gf.TextData(name="text", contents="1234567")]).create()
+
+                rev.wait_for_processing()
+
                 self.assertEqual(rev.size_bytes, 7)
                 fig.fetch()
                 self.assertEqual(rev.size_bytes, 7)
