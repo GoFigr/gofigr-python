@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 name = "gofigr"
 version = "1.3.2"
 description = "GoFigr client library"
-readme = "README.rst"
+readme = "README.md"
 authors = [{ name = "Maciej Pacula", email = "maciej@gofigr.io" }]
 license = { file = "LICENSE" }
 classifiers = [
