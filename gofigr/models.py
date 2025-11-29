@@ -1550,12 +1550,12 @@ class RevisionMixin(ShareableModelMixin):
             self.data = [dat.specialize() for dat in self.data]
         return self
 
-    def wait_for_processing(self, timeout=5.0, poll_interval=0.5):
+    def wait_for_processing(self, timeout=60.0, poll_interval=0.5):
         """\
         Waits for the revision to finish processing by polling is_processing every poll_interval seconds
         until it becomes False or the timeout is reached.
 
-        :param timeout: Maximum time to wait in seconds (default: 5.0)
+        :param timeout: Maximum time to wait in seconds (default: 60.0)
         :param poll_interval: Time between checks in seconds (default: 0.5)
         :return: self
         :raises TimeoutError: If processing doesn't complete within the timeout period

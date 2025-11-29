@@ -1290,6 +1290,8 @@ class TestSizeCalculation(GfTestCase):
                 fig.fetch()
                 self.assertEqual(rev.size_bytes, 7)
 
+        time.sleep(2)
+
         self.assertEqual(gf.primary_workspace.fetch().size_bytes,
                          initial_workspace_size + rev_size * num_figures * num_revisions)
         self.assertEqual(ana.fetch().size_bytes, rev_size * num_figures * num_revisions)
@@ -1303,6 +1305,8 @@ class TestSizeCalculation(GfTestCase):
             # Delete a revision
             fig.revisions[0].delete(delete=True)
             deleted_revisions += 1
+
+            time.sleep(2)
 
             # Make sure changes propagated properly
             fig.fetch()
@@ -1569,6 +1573,7 @@ class TestAssets(GfTestCase):
         gf, ds, ds2, reference_revs = self.gf, self.ds, self.ds2, self.reference_revs
 
         for idx, rev in enumerate(reference_revs):
+            rev.wait_for_processing()
             rev2 = gf.AssetRevision(api_id=rev.api_id).fetch()
             self.assertEqual(rev.asset.api_id, rev2.asset.api_id)
             self.assertEqual(rev.data[0].data, rev2.data[0].data)
