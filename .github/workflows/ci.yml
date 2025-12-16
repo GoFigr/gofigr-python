@@ -40,7 +40,7 @@ jobs:
         run: |
           python -m venv venv/
           source venv/bin/activate
-          uv pip install jupyterlab numpy
+          uv pip install jupyterlab numpy pytest
           uv pip install -e .[dev]
           jlpm install
           jlpm build
@@ -50,9 +50,10 @@ jobs:
           GF_TEST_USER: ${{ secrets.GF_TEST_USER }}
           GF_TEST_PASSWORD: ${{ secrets.GF_TEST_PASSWORD }}
           GF_TEST_API_URL: ${{ vars.GF_TEST_API_URL || 'https://api-dev.gofigr.io' }}
+          PYTHONUNBUFFERED: 1
         run: |
           source venv/bin/activate
-          python -m unittest discover -v tests
+          pytest -v --tb=short tests/
 
       - name: Run lints (Step 3)
         run: |
