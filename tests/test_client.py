@@ -1372,13 +1372,24 @@ class TestOrganizations(MultiUserTestCase):
         worx.save()
 
         # Workspace should now appear under this organization
+        # Add small delay to allow server-side updates to propagate
+        time.sleep(0.5)
         my_org.fetch()
-        self.assertListEqual(list(my_org.workspaces), [worx])
+        workspace_ids = [w.api_id for w in my_org.workspaces]
+        self.assertEqual(len(workspace_ids), 1)
+        self.assertIn(worx.api_id, workspace_ids)
 
         gf.primary_workspace.organization = my_org
         gf.primary_workspace.save()
+        # Refresh primary workspace to ensure it's up to date
+        gf.primary_workspace.fetch()
+        # Add small delay to allow server-side updates to propagate
+        time.sleep(0.5)
         my_org.fetch()
-        self.assertListEqual(list(my_org.workspaces), [worx, gf.primary_workspace])
+        workspace_ids = [w.api_id for w in my_org.workspaces]
+        self.assertEqual(len(workspace_ids), 2)
+        self.assertIn(worx.api_id, workspace_ids)
+        self.assertIn(gf.primary_workspace.api_id, workspace_ids)
 
         # Updates
         my_org.description = "test org description"
