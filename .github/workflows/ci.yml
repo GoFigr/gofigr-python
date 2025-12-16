@@ -10,6 +10,11 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    # Ensure only one test job runs at a time across all branches and PRs
+    # to prevent side effects from concurrent test executions
+    concurrency:
+      group: test-job
+      cancel-in-progress: false
     
     steps:
       - name: Checkout code
@@ -35,7 +40,7 @@ jobs:
         run: |
           python -m venv venv/
           source venv/bin/activate
-          uv pip install teamcity-messages jupyterlab numpy
+          uv pip install jupyterlab numpy
           uv pip install -e .[dev]
           jlpm install
           jlpm build
@@ -47,7 +52,7 @@ jobs:
           GF_TEST_API_URL: ${{ vars.GF_TEST_API_URL || 'https://api-dev.gofigr.io' }}
         run: |
           source venv/bin/activate
-          python -m teamcity.unittestpy -v tests/*.py
+          python -m unittest discover -v tests
 
       - name: Run lints (Step 3)
         run: |
