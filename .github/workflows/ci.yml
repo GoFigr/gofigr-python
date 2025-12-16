@@ -41,6 +41,10 @@ jobs:
           jlpm build
 
       - name: Run tests (Step 2)
+        env:
+          GF_TEST_USER: ${{ secrets.GF_TEST_USER }}
+          GF_TEST_PASSWORD: ${{ secrets.GF_TEST_PASSWORD }}
+          GF_TEST_API_URL: ${{ vars.GF_TEST_API_URL || 'https://api-dev.gofigr.io' }}
         run: |
           source venv/bin/activate
           python -m teamcity.unittestpy -v tests/*.py
