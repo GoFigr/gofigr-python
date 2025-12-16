@@ -1373,7 +1373,7 @@ class TestOrganizations(MultiUserTestCase):
 
         # Workspace should now appear under this organization
         # Add small delay to allow server-side updates to propagate
-        time.sleep(0.5)
+        time.sleep(2.0)
         my_org.fetch()
         workspace_ids = [w.api_id for w in my_org.workspaces]
         self.assertEqual(len(workspace_ids), 1)
@@ -1384,7 +1384,7 @@ class TestOrganizations(MultiUserTestCase):
         # Refresh primary workspace to ensure it's up to date
         gf.primary_workspace.fetch()
         # Add small delay to allow server-side updates to propagate
-        time.sleep(0.5)
+        time.sleep(2.0)
         my_org.fetch()
         workspace_ids = [w.api_id for w in my_org.workspaces]
         self.assertEqual(len(workspace_ids), 2)
