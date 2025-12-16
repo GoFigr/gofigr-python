@@ -53,7 +53,7 @@ jobs:
           PYTHONUNBUFFERED: 1
         run: |
           source venv/bin/activate
-          pytest -v --tb=short tests/
+          pytest -v -s --tb=short tests/
 
       - name: Run lints (Step 3)
         run: |
