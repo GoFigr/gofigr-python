@@ -452,6 +452,10 @@ def _test_timestamps(test_case, gf, obj, prop_name, vals, delay_seconds=0.5):
 
         setattr(obj, prop_name, val)
         obj.save()
+        
+        # Wait for async processing to complete if this is a revision
+        if hasattr(obj, 'wait_for_processing') and hasattr(obj, 'is_processing'):
+            obj.wait_for_processing()
 
         server_obj = obj.__class__(api_id=obj.api_id).fetch()
 
@@ -463,7 +467,8 @@ def _test_timestamps(test_case, gf, obj, prop_name, vals, delay_seconds=0.5):
 
         test_case.assertEqual(server_obj.updated_by, gf.username)
         test_case.assertGreaterEqual(server_obj.updated_on - last_update, timedelta(seconds=delay_seconds))
-        test_case.assertLess(server_obj.updated_on - last_update, timedelta(seconds=delay_seconds + 20))
+        # Increased tolerance for async processing - processing can take longer
+        test_case.assertLess(server_obj.updated_on - last_update, timedelta(seconds=delay_seconds + 40))
         last_update = server_obj.updated_on
 
 
@@ -803,6 +808,7 @@ class TestFigures(TestCase):
                                     for code in server_rev.code_data]
 
             server_rev.save()
+            server_rev.wait_for_processing()  # Wait for async processing to complete
             server_rev = gf.Revision(rev.api_id).fetch()
 
             for img in server_rev.image_data:
@@ -848,7 +854,8 @@ class MultiUserTestCaseBase:
         for idx in range(self.n_revisions):
             rev = gf.Revision(metadata={'index': idx},
                               data=TestData(gf).load_external_data(nonce=idx))
-            fig.revisions.create(rev)
+            rev = fig.revisions.create(rev)
+            rev.wait_for_processing()  # Wait for async processing to complete
 
         return ana
 
