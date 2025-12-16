@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies (Step 1)
+        run: |
+          python -m venv venv/
+          source venv/bin/activate
+          uv pip install teamcity-messages jupyterlab numpy
+          uv pip install -e .[dev]
+          jlpm install
+          jlpm build
+
+      - name: Run tests (Step 2)
+        run: |
+          source venv/bin/activate
+          python -m teamcity.unittestpy -v tests/*.py
+
+      - name: Run lints (Step 3)
+        run: |
+          bash run_lints.sh
+
+      - name: Build package (Step 4)
+        run: |
+          bash build.sh
+
+      - name: Build docs (Step 5)
+        run: |
+          bash make_docs.sh
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+      - name: Upload docs artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: docs/gofigr-docs-*.tar.gz
+          retention-days: 7
+
