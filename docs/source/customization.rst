@@ -154,4 +154,3 @@ Minimal
 
 .. figure:: images/minimal_widget.png
   :alt: Minimal Jupyter Widget
-

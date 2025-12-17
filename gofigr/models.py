@@ -9,6 +9,7 @@ All rights reserved.
 import abc
 import io
 import os
+import time
 from base64 import b64encode, b64decode
 from collections import namedtuple
 from http import HTTPStatus
@@ -1481,11 +1482,6 @@ class RevisionMixin(ShareableModelMixin):
         :param data_copy:
         :return:
         """
-        # Fill in API IDs for data objects
-        local_id_to_api_id = {obj.local_id: obj.api_id for obj in self.data}
-        for datum in data_copy:
-            datum.api_id = local_id_to_api_id[datum.local_id]
-
         self.data = data_copy  # pylint: disable=attribute-defined-outside-init
         return self
 
@@ -1554,6 +1550,35 @@ class RevisionMixin(ShareableModelMixin):
             self.data = [dat.specialize() for dat in self.data]
         return self
 
+    def wait_for_processing(self, timeout=60.0, poll_interval=0.5):
+        """\
+        Waits for the revision to finish processing by polling is_processing every poll_interval seconds
+        until it becomes False or the timeout is reached.
+
+        :param timeout: Maximum time to wait in seconds (default: 60.0)
+        :param poll_interval: Time between checks in seconds (default: 0.5)
+        :return: self
+        :raises TimeoutError: If processing doesn't complete within the timeout period
+        """
+        start_time = time.time()
+
+        while True:
+            # Fetch the latest state from the server
+            data_copy = self.data
+            self.fetch(fetch_data=False)
+            self._restore_data(data_copy)
+
+            if not getattr(self, 'is_processing', False):
+                return self
+
+            elapsed = time.time() - start_time
+            if elapsed >= timeout:
+                raise TimeoutError(
+                    f"Revision {self.api_id} did not finish processing within {timeout} seconds"
+                )
+
+            time.sleep(poll_interval)
+
 
 class gf_AssetLinkedToFigure(ModelMixin):
     """Many-to-many relationship between figure and asset revisions"""
@@ -1566,7 +1591,7 @@ class gf_AssetLinkedToFigure(ModelMixin):
 
 class gf_Revision(RevisionMixin, ThumbnailMixin):
     """Represents a figure revision"""
-    fields = ["api_id", "revision_index", "size_bytes",
+    fields = ["api_id", "revision_index", "size_bytes", "is_processing",
               JSONField("metadata"),
               LinkedEntityField("figure", lambda gf: gf.Figure, many=False),
               LinkedEntityField("assets", lambda gf: gf.AssetLinkedToFigure, many=True, nested=True,
@@ -1634,7 +1659,7 @@ class gf_Revision(RevisionMixin, ThumbnailMixin):
 
 class gf_AssetRevision(RevisionMixin, ThumbnailMixin):
     """Represents a figure revision"""
-    fields = ["api_id", "revision_index", "size_bytes",
+    fields = ["api_id", "revision_index", "size_bytes", "is_processing",
               JSONField("metadata"),
               LinkedEntityField("asset", lambda gf: gf.Asset, many=False),
               LinkedEntityField("figure_revisions", lambda gf: gf.AssetLinkedToFigure, many=True, nested=True,

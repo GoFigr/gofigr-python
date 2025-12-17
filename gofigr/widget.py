@@ -10,17 +10,17 @@ from base64 import b64encode
 from uuid import uuid4
 
 import humanize
+from IPython import get_ipython
 from IPython.core.display import HTML
 
 from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME
 
 try:
-    from IPython.core.display_functions import display
+    from IPython.core.display_functions import display as ipython_display
 except ModuleNotFoundError:
-    from IPython.core.display import display
+    from IPython.core.display import display as ipython_display
 
 from gofigr.utils import read_resource_b64, read_resource_text
-
 
 BUTTON_STYLE = "padding-top: 0.25em; padding-bottom: 0.25em; padding-left: 0.5em; padding-right: 0.5em; " + \
                "color: #fff; display: inline-block; font-weight: 400; line-height: 1; " + \
@@ -53,41 +53,49 @@ ROW_STYLE = "width: 100%; display: flex; flex-wrap: wrap;"
 
 BREAK_STYLE = "flex-basis: 100%; height: 0;"
 
-FA_VIEW = """<svg xmlns="http://www.w3.org/2000/svg" height="0.85rem" width="0.85rem" viewBox="0 0 512 512"><!--!Font 
-Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 
-2024 Fonticons, Inc.--><path fill="#ffffff" d="M352 0c-12.9 0-24.6 7.8-29.6 19.8s-2.2 25.7 6.9 34.9L370.7 96 201.4 
-265.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L416 141.3l41.4 41.4c9.2 9.2 22.9 11.9 34.9 6.9s19.8-16.6 
-19.8-29.6V32c0-17.7-14.3-32-32-32H352zM80 32C35.8 32 0 67.8 0 112V432c0 44.2 35.8 80 80 80H400c44.2 0 80-35.8 
-80-80V320c0-17.7-14.3-32-32-32s-32 14.3-32 32V432c0 8.8-7.2 16-16 16H80c-8.8 0-16-7.2-16-16V112c0-8.8 7.2-16 
+FA_VIEW = """<svg xmlns="http://www.w3.org/2000/svg" height="0.85rem" width="0.85rem" viewBox="0 0 512 512"><!--!Font
+Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright
+2024 Fonticons, Inc.--><path fill="#ffffff" d="M352 0c-12.9 0-24.6 7.8-29.6 19.8s-2.2 25.7 6.9 34.9L370.7 96 201.4
+265.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L416 141.3l41.4 41.4c9.2 9.2 22.9 11.9 34.9 6.9s19.8-16.6
+19.8-29.6V32c0-17.7-14.3-32-32-32H352zM80 32C35.8 32 0 67.8 0 112V432c0 44.2 35.8 80 80 80H400c44.2 0 80-35.8
+80-80V320c0-17.7-14.3-32-32-32s-32 14.3-32 32V432c0 8.8-7.2 16-16 16H80c-8.8 0-16-7.2-16-16V112c0-8.8 7.2-16
 16-16H192c17.7 0 32-14.3 32-32s-14.3-32-32-32H80z"/></svg>"""
 
 FA_FEATHER = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640">
-<!--!Font Awesome Free v7.0.1 by @fontawesome - https://fontawesome.com License - 
+<!--!Font Awesome Free v7.0.1 by @fontawesome - https://fontawesome.com License -
 https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.-->
-<path d="M416 64C457 64 496.3 80.3 525.2 109.2L530.7 114.7C559.7 143.7 576 183 576 223.9C576 248 570.3 
-271.5 559.8 292.7C557.9 296.4 554.5 299.2 550.5 300.4L438.5 334C434.6 335.2 432 338.7 432 342.8C432 347.9 436.1 352 
-441.2 352L473.4 352C487.7 352 494.8 369.2 484.7 379.3L462.3 401.7C460.4 403.6 458.1 404.9 455.6 405.7L374.6 430C370.7 
-431.2 368.1 434.7 368.1 438.8C368.1 443.9 372.2 448 377.3 448C390.5 448 396.2 463.7 385.1 470.9C344 497.5 295.8 512 
-246.1 512L160.1 512L112.1 560C103.3 568.8 88.9 568.8 80.1 560C71.3 551.2 71.3 536.8 80.1 528L320 288C328.8 279.2 
+<path d="M416 64C457 64 496.3 80.3 525.2 109.2L530.7 114.7C559.7 143.7 576 183 576 223.9C576 248 570.3
+271.5 559.8 292.7C557.9 296.4 554.5 299.2 550.5 300.4L438.5 334C434.6 335.2 432 338.7 432 342.8C432 347.9 436.1 352
+441.2 352L473.4 352C487.7 352 494.8 369.2 484.7 379.3L462.3 401.7C460.4 403.6 458.1 404.9 455.6 405.7L374.6 430C370.7
+431.2 368.1 434.7 368.1 438.8C368.1 443.9 372.2 448 377.3 448C390.5 448 396.2 463.7 385.1 470.9C344 497.5 295.8 512
+246.1 512L160.1 512L112.1 560C103.3 568.8 88.9 568.8 80.1 560C71.3 551.2 71.3 536.8 80.1 528L320 288C328.8 279.2
 328.8 264.8 320 256C311.2 247.2 296.8 247.2 288 256L143.5 400.5C137.8 406.2 128 402.2 128 394.1C128 326.2 155
  261.1 203 213.1L306.8 109.2C335.7 80.3 375 64 416 64z"/></svg>
 """
 
-FA_COPY = """<svg xmlns="http://www.w3.org/2000/svg" height="1rem" width="0.85rem" viewBox="0 0 448 512"><!--!Font 
-Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 
-2024 Fonticons, Inc.--><path fill="#ffffff" d="M208 0H332.1c12.7 0 24.9 5.1 33.9 14.1l67.9 67.9c9 9 14.1 21.2 14.1 
-33.9V336c0 26.5-21.5 48-48 48H208c-26.5 0-48-21.5-48-48V48c0-26.5 21.5-48 48-48zM48 128h80v64H64V448H256V416h64v48c0 
+FA_COPY = """<svg xmlns="http://www.w3.org/2000/svg" height="1rem" width="0.85rem" viewBox="0 0 448 512"><!--!Font
+Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright
+2024 Fonticons, Inc.--><path fill="#ffffff" d="M208 0H332.1c12.7 0 24.9 5.1 33.9 14.1l67.9 67.9c9 9 14.1 21.2 14.1
+33.9V336c0 26.5-21.5 48-48 48H208c-26.5 0-48-21.5-48-48V48c0-26.5 21.5-48 48-48zM48 128h80v64H64V448H256V416h64v48c0
 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V176c0-26.5 21.5-48 48-48z"/></svg>"""
 
 FA_COPY_LIGHT = FA_COPY.replace("#ffffff", "#0d53b1")
 
-FA_DOWNLOAD = """<svg xmlns="http://www.w3.org/2000/svg" height="1rem" width="1rem" viewBox="0 0 512 512"><!--!Font 
-Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 
-2024 Fonticons, Inc.--><path fill="#ffffff" d="M288 32c0-17.7-14.3-32-32-32s-32 14.3-32 
-32V274.7l-73.4-73.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l128 128c12.5 12.5 32.8 12.5 45.3 
-0l128-128c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L288 274.7V32zM64 352c-35.3 0-64 28.7-64 64v32c0 35.3 28.7 64 
-64 64H448c35.3 0 64-28.7 64-64V416c0-35.3-28.7-64-64-64H346.5l-45.3 45.3c-25 25-65.5 25-90.5 0L165.5 352H64zm368 
+FA_DOWNLOAD = """<svg xmlns="http://www.w3.org/2000/svg" height="1rem" width="1rem" viewBox="0 0 512 512"><!--!Font
+Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright
+2024 Fonticons, Inc.--><path fill="#ffffff" d="M288 32c0-17.7-14.3-32-32-32s-32 14.3-32
+32V274.7l-73.4-73.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l128 128c12.5 12.5 32.8 12.5 45.3
+0l128-128c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L288 274.7V32zM64 352c-35.3 0-64 28.7-64 64v32c0 35.3 28.7 64
+64 64H448c35.3 0 64-28.7 64-64V416c0-35.3-28.7-64-64-64H346.5l-45.3 45.3c-25 25-65.5 25-90.5 0L165.5 352H64zm368
 56a24 24 0 1 1 0 48 24 24 0 1 1 0-48z"/></svg>"""
+
+
+def display(obj, *args, **kwargs):
+    """Wrapper around IPython's display function. Ignores output if running non-interactively."""
+    if get_ipython() is None:
+        return None
+    else:
+        return ipython_display(obj, *args, **kwargs)
 
 
 def timestamp_to_local_tz(dt_tz):
@@ -139,7 +147,7 @@ class RevisionWidgetBase(WidgetBase, ABC):
             return ""
         else:
             img = matches[0]
-            return f"""<a download="{self.revision.figure.name}.{image_format}" 
+            return f"""<a download="{self.revision.figure.name}.{image_format}"
                           style="{DOWNLOAD_BUTTON_STYLE}"
                           href="data:image/{image_format};base64,{b64encode(img.data).decode('ascii')}">
                           {label}</a>"""
@@ -192,15 +200,15 @@ class DetailedWidget(RevisionWidgetBase):
                                            f"{FA_COPY_LIGHT}</span>",
                                            self.revision.revision_url)
 
-        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
                 style='width: 3rem; height: 3rem'/>""", self.revision.revision_url)
 
         return display(HTML(f"""
                 <div style="{WIDGET_STYLE}">
                     <div style="{ROW_STYLE + "margin-bottom: 0.5rem"}">
-                    <span>Successfully published {copy_url} 
-                    on {timestamp_to_local_tz(self.revision.created_on).strftime("%x at %X")}.</span> 
-                    <span style="margin-left: 0.25rem;"> 
+                    <span>Successfully published {copy_url}
+                    on {timestamp_to_local_tz(self.revision.created_on).strftime("%x at %X")}.</span>
+                    <span style="margin-left: 0.25rem;">
                     Revision size: {humanize.naturalsize(self.revision.size_bytes)}</span>
                     </div>
 
@@ -233,14 +241,14 @@ class CompactWidget(RevisionWidgetBase):
     def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
-        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
         style='width: 2rem; height: 2rem'/>""", self.revision.revision_url)
 
         return display(HTML(f"""
                 <div style="{COMPACT_WIDGET_STYLE}">
                     <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
                     <!-- Logo -->
-                    {logo_html}               
+                    {logo_html}
 
                     <!-- View on GoFigr -->
                     <a href='{self.revision.revision_url}' target="_blank" style="{VIEW_BUTTON_STYLE}">{FA_VIEW}
@@ -267,19 +275,19 @@ class MinimalWidget(RevisionWidgetBase):
     def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
-        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
         style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>""", self.revision.revision_url)
 
         return display(HTML(f"""
                 <div style="{COMPACT_WIDGET_STYLE}">
                     <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
                     <!-- Logo -->
-                    {logo_html}               
+                    {logo_html}
 
                     <!-- View on GoFigr -->
                     <a href='{self.revision.revision_url}' target="_blank" style="margin-top: auto; margin-bottom: auto;">View on GoFigr</a>
                     </div>
-                    
+
                     <div id={self.alert_id} style="{ROW_STYLE + MESSAGE_STYLE}">
                     </div>
                 </div>"""))
@@ -300,23 +308,23 @@ class StartupWidget(WidgetBase):
         self.extension.startup_widget_shown = True
 
         logo_b64 = self.get_logo_b64()
-        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
             style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>"""
 
         return display(HTML(f"""
                     <div style="{WIDGET_STYLE}">
                         <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
                             <!-- Logo -->
-                            {logo_html}      
-                            
+                            {logo_html}
+
                             <div style="margin-top: auto; margin-bottom: auto;">
-                                <span style="font-weight: bold">GoFigr active</span>. 
-                                Workspace: {self.get_link(self.extension.publisher.workspace)}. 
-                                Analysis: {self.get_link(self.extension.publisher.analysis)}. 
+                                <span style="font-weight: bold">GoFigr active</span>.
+                                Workspace: {self.get_link(self.extension.publisher.workspace)}.
+                                Analysis: {self.get_link(self.extension.publisher.analysis)}.
                                 Autopublish: {self.extension.auto_publish}.
                             </div>
                         </div>
-                        
+
                     </div>"""))
 
 
@@ -330,7 +338,7 @@ class LiteStartupWidget(WidgetBase):
     def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
-        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
             style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>"""
 
         meta = NotebookMetadataAnnotator().parse_metadata(error=False)
@@ -343,19 +351,19 @@ class LiteStartupWidget(WidgetBase):
                     <div style="{WIDGET_STYLE}">
                         <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
                             <!-- Logo -->
-                            {logo_html}      
+                            {logo_html}
 
                             <div style="margin-top: auto; margin-bottom: auto;">
                                 <span style="font-weight: bold">GoFigr Lite active. Notebook: </span>
-                                <code>{notebook_name}</code>. 
-                            </div>                            
-                        </div>                        
-                        
+                                <code>{notebook_name}</code>.
+                            </div>
+                        </div>
+
                         <div style="{ROW_STYLE + "margin-bottom: 0.0rem; margin-top: 1.0rem"}">
-                            <span>GoFigr Lite adds annotation to your figures but does not publish them to our servers. To experience 
-                            full functionality, consider using the full GoFigr extension. See 
+                            <span>GoFigr Lite adds annotation to your figures but does not publish them to our servers. To experience
+                            full functionality, consider using the full GoFigr extension. See
                             <a href="https://gofigr.io/gofigr-lite/">this page</a> for details.
-                            </span>                
+                            </span>
                         </div>
 
                     </div>"""))
@@ -376,14 +384,14 @@ class AssetWidget(WidgetBase):
     def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
-        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo" 
+        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
             style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>"""
 
         return display(HTML(f"""
                     <div style="{WIDGET_STYLE}">
                         <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
                             <!-- Logo -->
-                            {logo_html}      
+                            {logo_html}
 
                             <div style="margin-top: auto; margin-bottom: auto;">
                                 <span style="font-weight: bold">Asset: </span>

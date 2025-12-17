@@ -100,6 +100,40 @@ def integer_range(min_val, max_val):
 
     return _validate
 
+
+def resolve_config_path(path_arg):
+    """\
+    Resolves the config file path from a command-line argument.
+
+    If the argument is a directory (exists as a directory or ends with /),
+    appends '.gofigr' as the filename.
+    If it's a file path, uses it directly.
+    Creates parent directories if they don't exist.
+
+    :param path_arg: Either a directory path or a full file path
+    :return: Full path to the config file
+    """
+    if path_arg is None:
+        return os.path.join(os.environ['HOME'], '.gofigr')
+
+    path_arg = os.path.expanduser(path_arg)  # Handle ~ in paths
+
+    # Normalize trailing slashes
+    path_arg = path_arg.rstrip(os.sep)
+
+    # Check if it's an existing directory
+    if os.path.isdir(path_arg):
+        return os.path.join(path_arg, '.gofigr')
+
+    # Check if parent directory exists and create it if needed
+    parent_dir = os.path.dirname(path_arg)
+    if parent_dir and not os.path.exists(parent_dir):
+        # Create parent directories if needed
+        os.makedirs(parent_dir, exist_ok=True)
+
+    # Treat as file path (will be created when written)
+    return path_arg
+
 def pretty_format_name(name):
     """\
     Pretty formats a name as N/A if it's None.
@@ -165,15 +199,19 @@ def main(args=None):
     parser = ArgumentParser(prog="gfconfig",
                             description="Configures default settings for GoFigr.io")
     parser.add_argument("-a", "--advanced", action='store_true', help="Configure lesser-used settings.")
+    parser.add_argument("-c", "--config-path", dest="config_path", default=None,
+                        help="Path where to save the .gofigr config file. "
+                             "Can be a directory (will append .gofigr) or a full file path. "
+                             "Default: ~/.gofigr")
     args = parser.parse_args(args)
 
-    config_path = os.path.join(os.environ['HOME'], '.gofigr')
+    config_path = resolve_config_path(args.config_path)
 
     print("-" * 30)
     print("GoFigr configuration")
     print("-" * 30)
 
-    config = {}
+    config = {'api_key': None, 'url': API_URL}
     if args.advanced:
         config['url'] = read_input(f"API URL [{API_URL}]: ", assert_nonempty, default=API_URL)
 
