@@ -1578,6 +1578,8 @@ class TestAssets(GfTestCase):
 
     def test_find_hash(self):
         for rev in self.reference_revs:
+            # Wait for async processing to complete so hash is indexed
+            rev.wait_for_processing()
             hits = self.gf.AssetRevision.find_by_hash(rev.data[0].calculate_hash())
             self.assertEqual(len(hits), 1)
 

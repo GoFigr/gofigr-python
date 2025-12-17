@@ -85,11 +85,19 @@ jobs:
 
       - name: Publish to PyPI
         env:
-          PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          PROD_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
           PYPI_REPOSITORY: ${{ steps.vars.outputs.pypi_repo }}
         run: |
           source venv/bin/activate
           pip install twine
+
+          # Select token based on repository
+          if [[ "$PYPI_REPOSITORY" == "testpypi" ]]; then
+            PYPI_TOKEN="$TEST_PYPI_TOKEN"
+          else
+            PYPI_TOKEN="$PROD_PYPI_TOKEN"
+          fi
 
           # Upload all gofigr* packages except docs (matching TeamCity script)
           twine upload -u "__token__" -p "$PYPI_TOKEN" -r $PYPI_REPOSITORY $(ls dist/gofigr* | grep -v docs)
