@@ -59,7 +59,7 @@ $ gfconfig
 GoFigr configuration
 ------------------------------
 Username: alyssa
-Password: 
+Password:
 Verifying connection...
   => Authenticated successfully
 API key (leave blank to generate a new key):
@@ -95,7 +95,7 @@ $ gfconfig --advanced
 GoFigr configuration
 ------------------------------
 Username: mpacula
-Password: 
+Password:
 API URL [https://api.gofigr.io]:
 Verifying connection...
   => Connected successfully
@@ -271,7 +271,7 @@ from gofigr.publisher import Publisher
 pub = Publisher(
     workspace="My Workspace",
     analysis="Script Analysis",
-    api_key="your-api-key-here"
+    api_key="your-api-key-here"  # pragma: allowlist secret
 )
 ```
 
@@ -521,4 +521,3 @@ If asset syncing fails:
 4. Review the logs for detailed error messages
 
 For more help, visit [https://gofigr.io/support](https://gofigr.io/support).
-

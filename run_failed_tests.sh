@@ -16,4 +16,3 @@ python -m unittest -v --failfast \
     tests.test_client.TestPermissions.test_exclusivity \
     tests.test_client.TestSharing.test_malicious_sharing \
     tests.test_client.TestSharing.test_sharing
-

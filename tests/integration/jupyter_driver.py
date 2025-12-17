@@ -45,7 +45,7 @@ def find_element_with_alternatives(driver, by, possible_values, delay_seconds=0.
 def _trigger_run_all_via_keyboard(driver, is_lab=True):
     """Trigger 'restart and run all cells' using keyboard shortcuts.
     This is more stable across JupyterLab/Notebook versions than relying on internal JS APIs.
-    
+
     Keyboard shortcuts:
     - JupyterLab: Varies by version, but we can use the Run menu or command palette
     - Classic Notebook: Uses the Jupyter.notebook API which is stable
@@ -75,11 +75,11 @@ def _trigger_run_all_via_keyboard(driver, is_lab=True):
         if isinstance(result, str) and result.startswith('error'):
             raise RuntimeError(result)
         return
-    
+
     # For JupyterLab, use keyboard shortcut to open command palette and execute command
     # This works across all JupyterLab versions (3.x, 4.x)
     print("Triggering restart-and-run-all via keyboard shortcut...")
-    
+
     # Focus the notebook by clicking on it first
     try:
         # Click on the notebook content area to ensure it has focus
@@ -90,29 +90,29 @@ def _trigger_run_all_via_keyboard(driver, is_lab=True):
         print("Could not click notebook area, trying to focus body...")
         driver.find_element(By.TAG_NAME, 'body').click()
         time.sleep(0.5)
-    
+
     # Use ActionChains to send keyboard shortcut
     # Open command palette: Cmd+Shift+C (Mac) or Ctrl+Shift+C (Linux/Windows)
     actions = ActionChains(driver)
-    
+
     # Determine if we're on Mac or not
     platform = driver.execute_script("return navigator.platform;")
     is_mac = 'Mac' in platform
-    
+
     modifier_key = Keys.COMMAND if is_mac else Keys.CONTROL
-    
+
     # Open command palette
     actions.key_down(modifier_key).key_down(Keys.SHIFT).send_keys('c').key_up(Keys.SHIFT).key_up(modifier_key).perform()
     time.sleep(1)
-    
+
     # Type the command
     actions.send_keys('Restart Kernel and Run All Cells').perform()
     time.sleep(0.5)
-    
+
     # Press Enter to execute
     actions.send_keys(Keys.ENTER).perform()
     time.sleep(1)
-    
+
     # Confirm the restart (if dialog appears)
     # The confirmation is usually Enter or clicking a button
     try:
@@ -129,7 +129,7 @@ def _trigger_run_all_via_keyboard(driver, is_lab=True):
             print("Sent Enter for confirmation")
         except:
             print("No confirmation needed or already confirmed")
-    
+
     time.sleep(1)
     print("Restart-and-run-all triggered successfully")
 

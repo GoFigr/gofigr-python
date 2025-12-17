@@ -24,7 +24,7 @@ jobs:
     permissions:
       contents: read
       id-token: write  # For OIDC authentication (optional, more secure)
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -71,7 +71,7 @@ jobs:
             VERSION=$(cat version.txt | tr -d '[:space:]')
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          
+
           # Determine PyPI repository
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             PYPI_REPO="${{ github.event.inputs.pypi_repository }}"
@@ -79,7 +79,7 @@ jobs:
             PYPI_REPO="pypi"
           fi
           echo "pypi_repo=$PYPI_REPO" >> $GITHUB_OUTPUT
-          
+
           echo "Version: $VERSION"
           echo "PyPI Repository: $PYPI_REPO"
 
@@ -90,10 +90,10 @@ jobs:
         run: |
           source venv/bin/activate
           pip install twine
-          
+
           # Upload all gofigr* packages except docs (matching TeamCity script)
           twine upload -u "__token__" -p "$PYPI_TOKEN" -r $PYPI_REPOSITORY $(ls dist/gofigr* | grep -v docs)
-          
+
           echo "✅ Published to PyPI ($PYPI_REPOSITORY)"
 
       - name: Deploy documentation
@@ -109,11 +109,11 @@ jobs:
             echo "⚠️  DOCS_SSH_KEY secret not configured, skipping documentation deployment"
             exit 0
           fi
-          
+
           # Extract docs archive
           mkdir -p docs_deploy
           tar xvf docs/gofigr-docs-$VERSION.tar.gz -C docs_deploy/
-          
+
           # Setup SSH
           mkdir -p ~/.ssh
           echo "$DOCS_SSH_KEY" > ~/.ssh/id_rsa
@@ -121,16 +121,15 @@ jobs:
           # Extract hostname from SSH_HOST for host key verification
           SSH_HOSTNAME=$(echo "$DOCS_SSH_HOST" | cut -d'@' -f2 | cut -d':' -f1)
           ssh-keyscan -H "$SSH_HOSTNAME" >> ~/.ssh/known_hosts 2>/dev/null || true
-          
+
           # Create version directory on remote
           ssh "$DOCS_SSH_HOST" "mkdir -p $DOCS_DEPLOY_PATH/$VERSION"
-          
+
           # Deploy docs
           VERSION_DIR="$DOCS_DEPLOY_PATH/$VERSION"
           scp -r docs_deploy/* "$DOCS_SSH_HOST:$VERSION_DIR"
-          
+
           # Update latest symlink
           ssh "$DOCS_SSH_HOST" "ln -sfT $VERSION_DIR $DOCS_DEPLOY_PATH/latest"
-          
-          echo "✅ Documentation deployed to $VERSION_DIR and latest symlink updated"
 
+          echo "✅ Documentation deployed to $VERSION_DIR and latest symlink updated"

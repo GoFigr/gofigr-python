@@ -137,7 +137,7 @@ def run_one_config(args, idx, config, all_configurations, messages):
 
 def test_wrapper(messages, config, args, idx, all_configurations):
     test_name = config["name"].replace(".", "_")
-    
+
     start_time = datetime.datetime.now()
     analysis = None
     try:

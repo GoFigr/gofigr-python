@@ -452,7 +452,7 @@ def _test_timestamps(test_case, gf, obj, prop_name, vals, delay_seconds=0.5):
 
         setattr(obj, prop_name, val)
         obj.save()
-        
+
         # Wait for async processing to complete if this is a revision
         if hasattr(obj, 'wait_for_processing') and hasattr(obj, 'is_processing'):
             obj.wait_for_processing()

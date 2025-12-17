@@ -35,7 +35,7 @@ X, y = make_classification(
     random_state=42
 )
 
-# Standardize the data 
+# Standardize the data
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 

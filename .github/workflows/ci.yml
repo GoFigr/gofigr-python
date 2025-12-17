@@ -15,7 +15,7 @@ jobs:
     concurrency:
       group: test-job
       cancel-in-progress: false
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -64,6 +64,12 @@ jobs:
         run: |
           bash run_lints.sh
 
+      - name: Check for secrets (Step 3.5)
+        run: |
+          source venv/bin/activate
+          pip install pre-commit detect-secrets
+          pre-commit run detect-secrets --all-files || (echo "❌ Secrets detected! Please review and remove any secrets before committing." && exit 1)
+
       - name: Build package (Step 4)
         run: |
           bash build.sh
@@ -87,4 +93,3 @@ jobs:
           name: docs
           path: docs/gofigr-docs-*.tar.gz
           retention-days: 7
-
