@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    # Ensure only one test job runs at a time across all branches and PRs
+    # to prevent side effects from concurrent test executions
+    concurrency:
+      group: test-job
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ghostscript
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies (Step 1)
+        run: |
+          python -m venv venv/
+          source venv/bin/activate
+          uv pip install jupyterlab numpy pytest
+          uv pip install -e .[dev]
+          jlpm install
+          jlpm build
+
+      - name: Run tests (Step 2)
+        env:
+          GF_TEST_USER: ${{ secrets.GF_TEST_USER }}
+          GF_TEST_PASSWORD: ${{ secrets.GF_TEST_PASSWORD }}
+          GF_TEST_API_URL: ${{ vars.GF_TEST_API_URL || 'https://api-dev.gofigr.io' }}
+          PYTHONUNBUFFERED: 1
+        run: |
+          source venv/bin/activate
+          pytest -v -s --tb=short --durations=0 tests/
+
+      - name: Run lints (Step 3)
+        run: |
+          bash run_lints.sh
+
+      - name: Check for secrets (Step 3.5)
+        run: |
+          source venv/bin/activate
+          pip install pre-commit detect-secrets
+          pre-commit run detect-secrets --all-files || (echo "❌ Secrets detected! Please review and remove any secrets before committing." && exit 1)
+
+      - name: Build package (Step 4)
+        run: |
+          bash build.sh
+
+      - name: Build docs (Step 5)
+        run: |
+          bash make_docs.sh
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+      - name: Upload docs artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: docs/gofigr-docs-*.tar.gz
+          retention-days: 7

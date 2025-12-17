@@ -1,0 +1,143 @@
+name: Release to PyPI
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      pypi_repository:
+        description: 'PyPI repository (pypi or testpypi)'
+        required: true
+        default: 'pypi'
+        type: choice
+        options:
+          - pypi
+          - testpypi
+
+jobs:
+  release:
+    name: Release to PyPI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # For OIDC authentication (optional, more secure)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ghostscript
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Build package and docs
+        run: |
+          python -m venv venv/
+          source venv/bin/activate
+          uv pip install jupyterlab numpy
+          uv pip install -e .[dev]
+          jlpm install
+          jlpm build
+          bash build.sh
+          bash make_docs.sh
+
+      - name: Determine version and PyPI repository
+        id: vars
+        run: |
+          # Extract version from tag if available, otherwise from version.txt
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION=$(cat version.txt | tr -d '[:space:]')
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Determine PyPI repository
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            PYPI_REPO="${{ github.event.inputs.pypi_repository }}"
+          else
+            PYPI_REPO="pypi"
+          fi
+          echo "pypi_repo=$PYPI_REPO" >> $GITHUB_OUTPUT
+
+          echo "Version: $VERSION"
+          echo "PyPI Repository: $PYPI_REPO"
+
+      - name: Publish to PyPI
+        env:
+          TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          PROD_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          PYPI_REPOSITORY: ${{ steps.vars.outputs.pypi_repo }}
+        run: |
+          source venv/bin/activate
+          pip install twine
+
+          # Select token based on repository
+          if [[ "$PYPI_REPOSITORY" == "testpypi" ]]; then
+            PYPI_TOKEN="$TEST_PYPI_TOKEN"
+          else
+            PYPI_TOKEN="$PROD_PYPI_TOKEN"
+          fi
+
+          # Upload all gofigr* packages except docs (matching TeamCity script)
+          twine upload -u "__token__" -p "$PYPI_TOKEN" -r $PYPI_REPOSITORY $(ls dist/gofigr* | grep -v docs)
+
+          echo "✅ Published to PyPI ($PYPI_REPOSITORY)"
+
+      - name: Deploy documentation
+        if: steps.vars.outputs.pypi_repo == 'pypi'
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          DOCS_SSH_KEY: ${{ secrets.DOCS_SSH_KEY }}
+          DOCS_SSH_HOST: ${{ secrets.DOCS_SSH_HOST || 'bitnami@gofigr.io' }}
+          DOCS_DEPLOY_PATH: ${{ secrets.DOCS_DEPLOY_PATH || '/opt/bitnami/wordpress/docs/gofigr-python' }}
+        run: |
+          # Skip if SSH key is not configured
+          if [ -z "$DOCS_SSH_KEY" ]; then
+            echo "⚠️  DOCS_SSH_KEY secret not configured, skipping documentation deployment"
+            exit 0
+          fi
+
+          # Extract docs archive
+          mkdir -p docs_deploy
+          tar xvf docs/gofigr-docs-$VERSION.tar.gz -C docs_deploy/
+
+          # Setup SSH
+          mkdir -p ~/.ssh
+          echo "$DOCS_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          # Extract hostname from SSH_HOST for host key verification
+          SSH_HOSTNAME=$(echo "$DOCS_SSH_HOST" | cut -d'@' -f2 | cut -d':' -f1)
+          ssh-keyscan -H "$SSH_HOSTNAME" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          # Create version directory on remote
+          ssh "$DOCS_SSH_HOST" "mkdir -p $DOCS_DEPLOY_PATH/$VERSION"
+
+          # Deploy docs
+          VERSION_DIR="$DOCS_DEPLOY_PATH/$VERSION"
+          scp -r docs_deploy/* "$DOCS_SSH_HOST:$VERSION_DIR"
+
+          # Update latest symlink
+          ssh "$DOCS_SSH_HOST" "ln -sfT $VERSION_DIR $DOCS_DEPLOY_PATH/latest"
+
+          echo "✅ Documentation deployed to $VERSION_DIR and latest symlink updated"
