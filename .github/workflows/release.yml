@@ -9,13 +9,14 @@ on:
   workflow_dispatch:
     inputs:
       pypi_repository:
-        description: 'PyPI repository (pypi or testpypi)'
+        description: 'PyPI repository (pypi or testpypi, or skip to skip PyPI release)'
         required: true
         default: 'pypi'
         type: choice
         options:
           - pypi
           - testpypi
+          - skip
 
 jobs:
   release:
@@ -80,10 +81,19 @@ jobs:
           fi
           echo "pypi_repo=$PYPI_REPO" >> $GITHUB_OUTPUT
 
+          # Determine if we should skip PyPI release
+          SKIP_PYPI="false"
+          if [[ "$PYPI_REPO" == "skip" ]]; then
+            SKIP_PYPI="true"
+          fi
+          echo "skip_pypi=$SKIP_PYPI" >> $GITHUB_OUTPUT
+
           echo "Version: $VERSION"
           echo "PyPI Repository: $PYPI_REPO"
+          echo "Skip PyPI Release: $SKIP_PYPI"
 
       - name: Publish to PyPI
+        if: steps.vars.outputs.skip_pypi != 'true'
         env:
           TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
           PROD_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
@@ -105,7 +115,7 @@ jobs:
           echo "✅ Published to PyPI ($PYPI_REPOSITORY)"
 
       - name: Deploy documentation
-        if: steps.vars.outputs.pypi_repo == 'pypi'
+        if: steps.vars.outputs.pypi_repo == 'pypi' || steps.vars.outputs.skip_pypi == 'true'
         env:
           VERSION: ${{ steps.vars.outputs.version }}
           DOCS_SSH_KEY: ${{ secrets.DOCS_SSH_KEY }}
