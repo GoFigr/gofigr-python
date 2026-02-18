@@ -31,7 +31,8 @@ keywords = ["science", "visualization", "version control", "plotting", "data", "
 dependencies = [
     "numpy", "pandas", "pyqrcode", "pillow", "matplotlib", "dateutils",
     "python-dateutil", "ipython", "requests", "pypng", "plotly", "kaleido",
-    "humanize", "blake3", "GitPython", "ipywidgets>=8.1.0", "nest-asyncio"
+    "humanize", "blake3", "GitPython", "ipywidgets>=8.1.0", "nest-asyncio",
+    "anywidget>=0.9.0", "traitlets"
 ]
 requires-python = ">=3.8"
 

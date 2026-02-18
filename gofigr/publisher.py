@@ -25,6 +25,7 @@ from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotato
 from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
+from gofigr.reproducible import _reproducible_context
 from gofigr.watermarks import DefaultWatermark
 from gofigr.widget import DetailedWidget
 
@@ -342,6 +343,13 @@ class Publisher:
 
         """
         # pylint: disable=too-many-branches, too-many-locals
+        ctx = _reproducible_context.get()
+        if ctx is not None:
+            print(f"[GoFigr] Publishing from @reproducible function: {ctx.function_name}")
+            print(f"[GoFigr] Packages: {ctx.packages}")
+            print(f"[GoFigr] Parameters: {ctx.parameters}")
+            print(f"[GoFigr] Source code:\n{ctx.source_code}")
+
         fig, backend = infer_figure_and_backend(fig, backend, self.backends)
 
         with MeasureExecution("Resolve target"):
