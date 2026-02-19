@@ -1582,3 +1582,141 @@ class TestFigureAssetAssociations(AssetTestCase):
                             # Clear associations
                             rev.assets = []
                             rev.save()
+
+
+class TestCleanRoomE2E(TestCase):
+    """End-to-end tests for clean room data publication and retrieval."""
+
+    def setUp(self):
+        self.gf = make_gf()
+        self.clean_up()
+
+    def tearDown(self):
+        self.clean_up()
+
+    def clean_up(self):
+        for ana in self.gf.primary_workspace.analyses:
+            ana.delete(delete=True)
+
+    def _create_figure(self, name="clean room test"):
+        ana = self.gf.primary_workspace.analyses.create(
+            self.gf.Analysis(name="clean room analysis"))
+        fig = ana.figures.create(self.gf.Figure(name=name))
+        return fig
+
+    def test_clean_room_revision(self):
+        """Publish a revision with clean room data and verify round-trip."""
+        import json as json_mod
+
+        fig = self._create_figure()
+
+        df = pd.DataFrame({"x": np.arange(10), "y": np.random.normal(size=10)})
+
+        source_code = "def my_func(data, n=5):\n    return data.head(n)\n"
+        manifest = {
+            "function_name": "my_func",
+            "packages": {"pd": {"module": "pandas", "version": "2.0.0"},
+                         "np": {"module": "numpy", "version": "1.24.0"}},
+            "parameters": {"data": {"type": "dataframe"},
+                           "n": {"type": "primitive", "value": 5}},
+        }
+
+        rev = self.gf.Revision(
+            figure=fig,
+            metadata={"test": True},
+            is_clean_room=True,
+        )
+
+        # Add clean room code
+        rev.data = [
+            self.gf.CodeData(
+                name="Clean Room Source",
+                language=CodeLanguage.PYTHON,
+                format="clean_room",
+                contents=source_code,
+                is_clean_room=True,
+            ),
+            self.gf.TextData(
+                name="Clean Room Manifest",
+                format="json",
+                contents=json_mod.dumps(manifest),
+                is_clean_room=True,
+            ),
+            self.gf.TableData(
+                name="data",
+                format="pandas/parquet",
+                dataframe=df,
+                is_clean_room=True,
+            ),
+            # Also add non-clean-room data
+            self.gf.CodeData(
+                name="Jupyter Cell",
+                language=CodeLanguage.PYTHON,
+                contents="my_func(df)",
+            ),
+        ]
+
+        fig.revisions.create(rev)
+        rev.wait_for_processing()
+
+        # Fetch from server
+        server_rev = self.gf.Revision(rev.api_id).fetch()
+
+        # Verify revision flag
+        self.assertTrue(server_rev.is_clean_room)
+
+        # Verify clean room data objects
+        cr_data = [d for d in server_rev.data if d.is_clean_room]
+        non_cr_data = [d for d in server_rev.data if not d.is_clean_room]
+
+        self.assertEqual(len(cr_data), 3)
+        self.assertEqual(len(non_cr_data), 1)
+
+        # Verify by type
+        cr_code = [d for d in cr_data if d.type == DataType.CODE]
+        cr_text = [d for d in cr_data if d.type == DataType.TEXT]
+        cr_table = [d for d in cr_data if d.type == DataType.DATA_FRAME]
+
+        self.assertEqual(len(cr_code), 1)
+        self.assertEqual(len(cr_text), 1)
+        self.assertEqual(len(cr_table), 1)
+
+        # Verify code contents
+        code_obj = cr_code[0]
+        self.assertEqual(code_obj.contents, source_code)
+        self.assertEqual(code_obj.format, "clean_room")
+
+        # Verify manifest
+        text_obj = cr_text[0]
+        self.assertEqual(text_obj.format, "json")
+        parsed_manifest = json_mod.loads(text_obj.contents)
+        self.assertEqual(parsed_manifest["function_name"], "my_func")
+        self.assertIn("packages", parsed_manifest)
+        self.assertIn("parameters", parsed_manifest)
+
+        # Verify DataFrame
+        table_obj = cr_table[0]
+        self.assertEqual(table_obj.format, "pandas/parquet")
+        self.assertTrue(table_obj.dataframe.equals(df))
+
+        # Verify non-clean-room data is unaffected
+        self.assertEqual(non_cr_data[0].type, DataType.CODE)
+        self.assertFalse(non_cr_data[0].is_clean_room)
+
+    def test_default_is_clean_room_false(self):
+        """Normal revisions should have is_clean_room=False."""
+        fig = self._create_figure("normal figure")
+
+        rev = self.gf.Revision(
+            figure=fig,
+            metadata={"test": True},
+            data=[self.gf.CodeData(name="cell", contents="print('hello')")],
+        )
+        fig.revisions.create(rev)
+        rev.wait_for_processing()
+
+        server_rev = self.gf.Revision(rev.api_id).fetch()
+        self.assertFalse(server_rev.is_clean_room)
+
+        for d in server_rev.data:
+            self.assertFalse(d.is_clean_room)

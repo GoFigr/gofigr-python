@@ -25,6 +25,7 @@ class ReproducibleContext:
     source_code: str
     function_name: str
     packages: Dict[str, str]
+    package_versions: Dict[str, dict]
     parameters: Dict[str, Any]
 
 
@@ -96,11 +97,44 @@ def _is_interactive_env() -> bool:
         return False
 
 
-def _build_clean_globals(packages: Dict[str, str]) -> Dict[str, Any]:
+def _resolve_package_versions(packages: Dict[str, str]) -> Dict[str, dict]:
+    """\
+    Resolve installed versions for each package.
+
+    :param packages: Dictionary mapping alias to module name
+    :return: Dictionary mapping alias to {"module": ..., "version": ...}
+    """
+    from importlib.metadata import version, PackageNotFoundError
+
+    result = {}
+    for alias, module_name in packages.items():
+        top_level = module_name.split(".")[0]
+        ver = None
+
+        try:
+            ver = version(top_level)
+        except PackageNotFoundError:
+            try:
+                from importlib.metadata import packages_distributions
+                dist_map = packages_distributions()
+                dists = dist_map.get(top_level, [])
+                if dists:
+                    ver = version(dists[0])
+            except (ImportError, PackageNotFoundError):
+                pass
+
+        result[alias] = {"module": module_name, "version": ver}
+
+    return result
+
+
+def _build_clean_globals(packages: Dict[str, str],
+                         extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Build a clean globals dictionary by importing the specified packages.
 
     :param packages: Dictionary mapping alias to module name
+    :param extra: Additional entries to inject (e.g. publish function)
     :return: Dictionary suitable for use as function globals
     """
     clean = {"__builtins__": __builtins__}
@@ -110,6 +144,9 @@ def _build_clean_globals(packages: Dict[str, str]) -> Dict[str, Any]:
             clean[alias] = importlib.import_module(module_name)
         except ImportError as e:
             warnings.warn(f"Could not import {module_name} as {alias}: {e}")
+
+    if extra:
+        clean.update(extra)
 
     return clean
 
@@ -205,7 +242,7 @@ class ReproducibleWidget:
 
 
 def _run_clean(func: Callable, params: Dict[str, Any], packages: Dict[str, str],
-               show_plot: bool = True) -> Any:
+               show_plot: bool = True, extra_globals: Optional[Dict[str, Any]] = None) -> Any:
     """
     Execute a function in a clean room environment with isolated globals.
 
@@ -213,9 +250,10 @@ def _run_clean(func: Callable, params: Dict[str, Any], packages: Dict[str, str],
     :param params: Keyword arguments to pass to the function
     :param packages: Package mapping for the clean globals
     :param show_plot: Whether to call plt.show() after execution
+    :param extra_globals: Additional entries to inject into the clean globals
     :return: The function's return value
     """
-    clean_globals = _build_clean_globals(packages)
+    clean_globals = _build_clean_globals(packages, extra=extra_globals)
 
     # Create isolated function with clean globals
     # Preserve closures if the function has any
@@ -284,6 +322,7 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
                 source_code=base_ctx.source_code,
                 function_name=base_ctx.function_name,
                 packages=base_ctx.packages,
+                package_versions=base_ctx.package_versions,
                 parameters=merged_params,
             ) if base_ctx is not None else None
             token = _reproducible_context.set(ctx) if ctx is not None else None
@@ -316,8 +355,9 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
 
 def reproducible(interactive: bool = False,
                  packages: Optional[Dict[str, str]] = None,
-                 merge_packages: bool = True) -> Callable:
-    """
+                 merge_packages: bool = True,
+                 publisher=None) -> Callable:
+    """\
     Decorator that executes functions in a clean room environment.
 
     The decorated function runs with an isolated globals namespace containing
@@ -330,21 +370,29 @@ def reproducible(interactive: bool = False,
                     If None, uses the global default packages.
     :param merge_packages: If True, merge provided packages with defaults.
                           If False, use only the provided packages.
+    :param publisher: Optional Publisher instance. When provided, ``publish`` is
+                     injected into the clean room globals so figures can be
+                     published from inside the decorated function.
 
-    Example:
-        @reproducible(interactive=True)
-        def my_plot(data, bins: int = 20, show_legend: bool = True):
+    Example::
+
+        pub = Publisher(workspace="Demo", analysis="Analysis")
+
+        @reproducible(publisher=pub)
+        def my_plot(data, bins: int = 20):
             sns.histplot(data=data, x='value', bins=bins)
-            if show_legend:
-                plt.legend()
+            publish(plt.gcf(), target="Histogram")
 
         @reproducible(packages={"pd": "pandas", "px": "plotly.express"})
         def plotly_chart(df):
             return px.scatter(df, x='x', y='y')
     """
+    from gofigr.cleanroom import (validate_params, round_trip_params,
+                                  check_clean_room_size)
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
+        def wrapper(*args, **kwargs) -> Any:  # pylint: disable=too-many-branches
             # Build effective packages
             if packages is None:
                 effective_packages = get_default_packages()
@@ -370,19 +418,47 @@ def reproducible(interactive: bool = False,
                     stacklevel=2
                 )
 
+            # Validate parameter types
+            try:
+                validate_params(bound.arguments)
+            except Exception:  # pylint: disable=broad-exception-caught
+                warnings.warn(
+                    f"@reproducible on '{func.__name__}': parameters contain unsupported types. "
+                    "Falling back to direct execution without clean room.",
+                    stacklevel=2
+                )
+                return func(*args, **kwargs)
+
+            # Check DataFrame memory limits
+            if not check_clean_room_size(bound.arguments):
+                return func(*args, **kwargs)
+
+            # Round-trip parameters through serialization
+            rt_args = round_trip_params(bound.arguments)
+
+            # Resolve package versions
+            pkg_versions = _resolve_package_versions(effective_packages)
+
+            # Build extra globals for the clean room
+            extra = {}
+            if publisher is not None:
+                extra["publish"] = publisher.publish
+
             ctx = ReproducibleContext(
                 source_code=inspect.getsource(func),
                 function_name=func.__name__,
                 packages=effective_packages,
-                parameters=dict(bound.arguments),
+                package_versions=pkg_versions,
+                parameters=rt_args,
             )
             token = _reproducible_context.set(ctx)
             try:
                 if effective_interactive:
-                    _run_interactive(func, bound.arguments, effective_packages, ctx)
+                    _run_interactive(func, rt_args, effective_packages, ctx)
                     return None  # Interactive mode doesn't return values
                 else:
-                    return _run_clean(func, bound.arguments, effective_packages)
+                    return _run_clean(func, rt_args, effective_packages,
+                                     extra_globals=extra or None)
             finally:
                 _reproducible_context.reset(token)
 

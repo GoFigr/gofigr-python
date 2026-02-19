@@ -1166,6 +1166,7 @@ class gf_Data(ModelMixin):
               "type",
               "hash",
               "size_bytes",
+              "is_clean_room",
               JSONField("metadata"),
               Base64Field("data")]
 
@@ -1176,6 +1177,7 @@ class gf_Data(ModelMixin):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.type = kwargs.pop('type', self.DATA_TYPE)
+        self.is_clean_room = kwargs.pop('is_clean_room', False)
         self.metadata = kwargs.pop('metadata', {})
 
         # Assign metadata fields
@@ -1391,8 +1393,9 @@ class gf_TextData(gf_Data):
     # pylint: disable=no-member
 
     DATA_TYPE = DataType.TEXT
+    format = MetadataProxyField("format")
     encoding = MetadataProxyField("encoding", default="utf-8")
-    metadata_fields = [encoding]
+    metadata_fields = [format, encoding]
 
     def __init__(self, contents=None, **kwargs):
         super().__init__(**kwargs)
@@ -1427,35 +1430,49 @@ class gf_TableData(gf_Data):
     metadata_fields = [format, encoding]
 
     def __init__(self, dataframe=None, **kwargs):
-        """
+        """\
 
-        :param dataframe: pd.DataFrame to store. Will be converted to CSV and stored as bytes.
-        :param kwargs: same as Data
+        :param dataframe: pd.DataFrame to store.
+        :param kwargs: same as Data. Pass format="pandas/parquet" for Parquet storage.
         """
         super().__init__(**kwargs)
-        self.format = "pandas/csv"
+        if self.format is None:
+            self.format = "pandas/csv"
 
         if dataframe is not None:
             self.dataframe = dataframe
 
     @property
     def dataframe(self):
-        """
+        """\
         Parses the dataframe from the embedded stream of bytes.
 
-        :return:
+        :return: pd.DataFrame or None
         """
-        return pd.read_csv(io.BytesIO(self.data), encoding=self.encoding) if self.data is not None else None
+        if self.data is None:
+            return None
+
+        if self.format == "pandas/parquet":
+            return pd.read_parquet(io.BytesIO(self.data), engine="pyarrow")
+        else:
+            return pd.read_csv(io.BytesIO(self.data), encoding=self.encoding)
 
     @dataframe.setter
     def dataframe(self, value):
         """\
-        Stores the dataframe by converting to CSV and saving as bytes.
+        Stores the dataframe using the configured format.
 
         :param value: pd.DataFrame instance
         :return:
         """
-        self.data = value.to_csv().encode(self.encoding) if value is not None else None
+        if value is None:
+            self.data = None
+        elif self.format == "pandas/parquet":
+            buf = io.BytesIO()
+            value.to_parquet(buf, engine="pyarrow")
+            self.data = buf.getvalue()
+        else:
+            self.data = value.to_csv().encode(self.encoding)
 
 class RevisionMixin(ShareableModelMixin):
     """Base class for revisions, e.g. FigureRevision or AssetRevision"""
@@ -1591,7 +1608,7 @@ class gf_AssetLinkedToFigure(ModelMixin):
 
 class gf_Revision(RevisionMixin, ThumbnailMixin):
     """Represents a figure revision"""
-    fields = ["api_id", "revision_index", "size_bytes", "is_processing",
+    fields = ["api_id", "revision_index", "size_bytes", "is_processing", "is_clean_room",
               JSONField("metadata"),
               LinkedEntityField("figure", lambda gf: gf.Figure, many=False),
               LinkedEntityField("assets", lambda gf: gf.AssetLinkedToFigure, many=True, nested=True,
