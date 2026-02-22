@@ -110,14 +110,14 @@ class TestTableDataParquet(unittest.TestCase):
         gf = make_gf()
         df = pd.DataFrame({"a": [1, 2, 3]})
         td = gf.TableData(name="test", dataframe=df)
-        self.assertEqual(td.format, "pandas/csv")
+        self.assertEqual(td.format, "csv")
         self.assertTrue(td.dataframe.equals(df))
 
     def test_parquet_format(self):
         gf = make_gf()
         df = pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
-        td = gf.TableData(name="test", dataframe=df, format="pandas/parquet")
-        self.assertEqual(td.format, "pandas/parquet")
+        td = gf.TableData(name="test", dataframe=df, format="parquet")
+        self.assertEqual(td.format, "parquet")
         self.assertTrue(td.dataframe.equals(df))
 
     def test_parquet_preserves_dtypes(self):
@@ -127,7 +127,7 @@ class TestTableDataParquet(unittest.TestCase):
             "floats": pd.array([1.0, 2.0, 3.0], dtype="float64"),
             "bools": pd.array([True, False, True], dtype="bool"),
         })
-        td = gf.TableData(name="test", dataframe=df, format="pandas/parquet")
+        td = gf.TableData(name="test", dataframe=df, format="parquet")
         restored = td.dataframe
         for col in df.columns:
             self.assertEqual(restored[col].dtype, df[col].dtype)
@@ -135,14 +135,14 @@ class TestTableDataParquet(unittest.TestCase):
     def test_parquet_roundtrip_via_json(self):
         gf = make_gf()
         df = pd.DataFrame({"x": np.arange(50)})
-        td = gf.TableData(name="test", dataframe=df, format="pandas/parquet")
+        td = gf.TableData(name="test", dataframe=df, format="parquet")
         restored = gf.TableData.from_json(td.to_json())
-        self.assertEqual(restored.format, "pandas/parquet")
+        self.assertEqual(restored.format, "parquet")
         self.assertTrue(restored.dataframe.equals(df))
 
     def test_none_dataframe(self):
         gf = make_gf()
-        td = gf.TableData(name="test", format="pandas/parquet")
+        td = gf.TableData(name="test", format="parquet")
         self.assertIsNone(td.dataframe)
 
 

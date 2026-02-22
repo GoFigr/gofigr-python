@@ -111,25 +111,30 @@ class TestRoundTripExecution(unittest.TestCase):
 class TestPackageVersionCollection(unittest.TestCase):
     def test_known_package_has_version(self):
         versions = _resolve_package_versions({"np": "numpy"})
-        self.assertIn("np", versions)
-        self.assertEqual(versions["np"]["module"], "numpy")
-        self.assertIsNotNone(versions["np"]["version"])
+        self.assertIn("numpy", versions)
+        self.assertIsNotNone(versions["numpy"])
 
     def test_multiple_packages(self):
         versions = _resolve_package_versions({"np": "numpy", "pd": "pandas"})
-        self.assertIsNotNone(versions["np"]["version"])
-        self.assertIsNotNone(versions["pd"]["version"])
+        self.assertIn("numpy", versions)
+        self.assertIn("pandas", versions)
+        self.assertIsNotNone(versions["numpy"])
+        self.assertIsNotNone(versions["pandas"])
 
     def test_submodule_stripping(self):
         versions = _resolve_package_versions({"plt": "matplotlib.pyplot"})
-        self.assertIn("plt", versions)
-        self.assertEqual(versions["plt"]["module"], "matplotlib.pyplot")
-        self.assertIsNotNone(versions["plt"]["version"])
+        self.assertIn("matplotlib", versions)
+        self.assertIsNotNone(versions["matplotlib"])
 
     def test_nonexistent_package(self):
         versions = _resolve_package_versions({"x": "nonexistent_package_xyz"})
-        self.assertIn("x", versions)
-        self.assertIsNone(versions["x"]["version"])
+        self.assertIn("nonexistent_package_xyz", versions)
+        self.assertIsNone(versions["nonexistent_package_xyz"])
+
+    def test_deduplicates_aliases(self):
+        versions = _resolve_package_versions({"np": "numpy", "nump": "numpy"})
+        self.assertIn("numpy", versions)
+        self.assertEqual(len(versions), 1)
 
 
 class TestPublisherInjection(unittest.TestCase):
@@ -184,7 +189,8 @@ class TestContextVarLifecycle(unittest.TestCase):
         self.assertIsInstance(ctx, ReproducibleContext)
         self.assertEqual(ctx.function_name, "func")
         self.assertIn("np", ctx.packages)
-        self.assertIn("np", ctx.package_versions)
+        self.assertIn("np", ctx.imports)
+        self.assertIn("numpy", ctx.package_versions)
         self.assertEqual(ctx.parameters["x"], 42)
 
     def test_context_reset_after_return(self):

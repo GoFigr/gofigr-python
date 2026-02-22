@@ -25,7 +25,8 @@ class ReproducibleContext:
     source_code: str
     function_name: str
     packages: Dict[str, str]
-    package_versions: Dict[str, dict]
+    imports: Dict[str, str]
+    package_versions: Dict[str, str]
     parameters: Dict[str, Any]
 
 
@@ -97,17 +98,17 @@ def _is_interactive_env() -> bool:
         return False
 
 
-def _resolve_package_versions(packages: Dict[str, str]) -> Dict[str, dict]:
+def _resolve_package_versions(packages: Dict[str, str]) -> Dict[str, str]:
     """\
     Resolve installed versions for each package.
 
     :param packages: Dictionary mapping alias to module name
-    :return: Dictionary mapping alias to {"module": ..., "version": ...}
+    :return: Dictionary mapping canonical package name to version string (or None)
     """
     from importlib.metadata import version, PackageNotFoundError
 
     result = {}
-    for alias, module_name in packages.items():
+    for module_name in set(packages.values()):
         top_level = module_name.split(".")[0]
         ver = None
 
@@ -123,7 +124,7 @@ def _resolve_package_versions(packages: Dict[str, str]) -> Dict[str, dict]:
             except (ImportError, PackageNotFoundError):
                 pass
 
-        result[alias] = {"module": module_name, "version": ver}
+        result[top_level] = ver
 
     return result
 
@@ -322,6 +323,7 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
                 source_code=base_ctx.source_code,
                 function_name=base_ctx.function_name,
                 packages=base_ctx.packages,
+                imports=base_ctx.imports,
                 package_versions=base_ctx.package_versions,
                 parameters=merged_params,
             ) if base_ctx is not None else None
@@ -448,6 +450,7 @@ def reproducible(interactive: bool = False,
                 source_code=inspect.getsource(func),
                 function_name=func.__name__,
                 packages=effective_packages,
+                imports=effective_packages,
                 package_versions=pkg_versions,
                 parameters=rt_args,
             )

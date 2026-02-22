@@ -9,6 +9,7 @@ import io
 import json
 import os
 import pickle
+import platform
 import sys
 
 import PIL
@@ -346,8 +347,11 @@ class Publisher:
 
         # Build manifest with packages and parameters
         manifest = {
+            "language": "python",
+            "language_version": platform.python_version(),
             "function_name": ctx.function_name,
             "packages": ctx.package_versions,
+            "imports": ctx.imports,
             "parameters": bundle.manifest,
         }
 
@@ -363,7 +367,7 @@ class Publisher:
         for param_name, parquet_bytes in bundle.dataframes.items():
             td = self.gf.TableData(
                 name=param_name,
-                format="pandas/parquet",
+                format="parquet",
                 data=parquet_bytes,
                 is_clean_room=True,
             )

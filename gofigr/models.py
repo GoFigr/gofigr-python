@@ -1433,11 +1433,11 @@ class gf_TableData(gf_Data):
         """\
 
         :param dataframe: pd.DataFrame to store.
-        :param kwargs: same as Data. Pass format="pandas/parquet" for Parquet storage.
+        :param kwargs: same as Data. Pass format="parquet" for Parquet storage.
         """
         super().__init__(**kwargs)
         if self.format is None:
-            self.format = "pandas/csv"
+            self.format = "csv"
 
         if dataframe is not None:
             self.dataframe = dataframe
@@ -1452,7 +1452,7 @@ class gf_TableData(gf_Data):
         if self.data is None:
             return None
 
-        if self.format == "pandas/parquet":
+        if self.format == "parquet":
             return pd.read_parquet(io.BytesIO(self.data), engine="pyarrow")
         else:
             return pd.read_csv(io.BytesIO(self.data), encoding=self.encoding)
@@ -1467,7 +1467,7 @@ class gf_TableData(gf_Data):
         """
         if value is None:
             self.data = None
-        elif self.format == "pandas/parquet":
+        elif self.format == "parquet":
             buf = io.BytesIO()
             value.to_parquet(buf, engine="pyarrow")
             self.data = buf.getvalue()

@@ -1614,9 +1614,11 @@ class TestCleanRoomE2E(TestCase):
 
         source_code = "def my_func(data, n=5):\n    return data.head(n)\n"
         manifest = {
+            "language": "python",
+            "language_version": "3.11.0",
             "function_name": "my_func",
-            "packages": {"pd": {"module": "pandas", "version": "2.0.0"},
-                         "np": {"module": "numpy", "version": "1.24.0"}},
+            "packages": {"pandas": "2.0.0", "numpy": "1.24.0"},
+            "imports": {"pd": "pandas", "np": "numpy"},
             "parameters": {"data": {"type": "dataframe"},
                            "n": {"type": "primitive", "value": 5}},
         }
@@ -1644,7 +1646,7 @@ class TestCleanRoomE2E(TestCase):
             ),
             self.gf.TableData(
                 name="data",
-                format="pandas/parquet",
+                format="parquet",
                 dataframe=df,
                 is_clean_room=True,
             ),
@@ -1690,13 +1692,16 @@ class TestCleanRoomE2E(TestCase):
         text_obj = cr_text[0]
         self.assertEqual(text_obj.format, "json")
         parsed_manifest = json_mod.loads(text_obj.contents)
+        self.assertEqual(parsed_manifest["language"], "python")
+        self.assertIn("language_version", parsed_manifest)
         self.assertEqual(parsed_manifest["function_name"], "my_func")
         self.assertIn("packages", parsed_manifest)
+        self.assertIn("imports", parsed_manifest)
         self.assertIn("parameters", parsed_manifest)
 
         # Verify DataFrame
         table_obj = cr_table[0]
-        self.assertEqual(table_obj.format, "pandas/parquet")
+        self.assertEqual(table_obj.format, "parquet")
         self.assertTrue(table_obj.dataframe.equals(df))
 
         # Verify non-clean-room data is unaffected
