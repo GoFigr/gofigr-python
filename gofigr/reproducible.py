@@ -6,16 +6,20 @@ Reproducible decorator for executing functions in a clean room environment
 with optional interactive widgets for parameter exploration.
 """
 # pylint: disable=global-statement, import-outside-toplevel, import-error
+import ast
 import contextvars
 import functools
 import importlib
 import inspect
+import textwrap
 import traceback
 import types
 import warnings
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, get_type_hints, get_origin, get_args, Literal
+from typing import Any, Callable, Dict, Optional, get_type_hints
 
+from gofigr.cleanroom import (Param, SliderParam, DropdownParam, CheckboxParam,  # pylint: disable=unused-import  # noqa: F401
+                               TextParam, StaticParam, infer_param)
 from gofigr.utils import read_resource_text
 
 
@@ -28,6 +32,7 @@ class ReproducibleContext:
     imports: Dict[str, str]
     package_versions: Dict[str, str]
     parameters: Dict[str, Any]
+    param_descriptors: Optional[Dict[str, Param]] = None
 
 
 _reproducible_context: contextvars.ContextVar[Optional['ReproducibleContext']] = contextvars.ContextVar(
@@ -73,6 +78,44 @@ def reset_default_packages() -> None:
     """Reset default packages to the built-in defaults."""
     global _global_default_packages
     _global_default_packages = DEFAULT_PACKAGES.copy()
+
+
+def _extract_function_body(func: Callable) -> str:
+    """\
+    Extract the body of a function as dedented source code, stripping the
+    decorator(s) and ``def`` line.
+
+    Uses ``ast.parse`` for robust extraction that handles multi-line decorators,
+    docstrings, and arbitrary decorator syntax.
+
+    :param func: The function whose body to extract.
+    :return: The dedented source code of the function body.
+    """
+    source = inspect.getsource(func)
+    dedented = textwrap.dedent(source)
+    lines = dedented.splitlines(keepends=True)
+
+    tree = ast.parse(dedented)
+    func_node = None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name == func.__name__:
+                func_node = node
+                break
+    if func_node is None:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                func_node = node
+                break
+
+    if func_node is None or not func_node.body:
+        return dedented
+
+    body_start = func_node.body[0].lineno - 1
+    body_end = func_node.body[-1].end_lineno
+    body_lines = lines[body_start:body_end]
+
+    return textwrap.dedent("".join(body_lines))
 
 
 def _is_interactive_env() -> bool:
@@ -150,63 +193,6 @@ def _build_clean_globals(packages: Dict[str, str],
         clean.update(extra)
 
     return clean
-
-
-def _infer_param_type(param_name: str, param_value: Any, type_hints: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Infer the widget type for a parameter based on its value and type hints.
-
-    Returns a dict with:
-    - type: "slider", "checkbox", "dropdown", "text", or "static"
-    - Additional metadata depending on type (choices, min, max, etc.)
-    """
-    hint = type_hints.get(param_name)
-
-    # Check for Literal type hint (dropdown)
-    if hint is not None:
-        origin = get_origin(hint)
-        if origin is Literal:
-            choices = list(get_args(hint))
-            return {"type": "dropdown", "choices": choices}
-
-    # Infer from value type
-    if isinstance(param_value, bool):
-        return {"type": "checkbox"}
-    elif isinstance(param_value, (int, float)):
-        # Determine reasonable slider bounds
-        if param_value == 0:
-            min_val, max_val = 0, 100
-        else:
-            min_val = 0
-            max_val = param_value * 2 if param_value > 0 else param_value * 0.5
-        step = 1 if isinstance(param_value, int) else 0.1
-        return {"type": "slider", "min": min_val, "max": max_val, "step": step}
-    elif isinstance(param_value, str):
-        return {"type": "text"}
-    else:
-        # Complex types (DataFrames, etc.) are static
-        return {"type": "static"}
-
-
-def _get_interactive_params(func: Callable, bound_args: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-    """
-    Analyze function parameters and return metadata for building widgets.
-
-    Returns dict mapping param_name -> {type, value, ...metadata}
-    """
-    try:
-        type_hints = get_type_hints(func)
-    except Exception:  # pylint: disable=broad-exception-caught
-        type_hints = {}
-
-    params = {}
-    for name, value in bound_args.items():
-        info = _infer_param_type(name, value, type_hints)
-        info["value"] = value
-        info["name"] = name
-        params[name] = info
-
-    return params
 
 
 def _load_widget_js() -> str:
@@ -296,8 +282,17 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
     import ipywidgets as widgets
     from IPython.display import display, clear_output
 
-    # Analyze parameters and build widget metadata
-    param_meta = _get_interactive_params(func, bound_args)
+    # Build widget metadata from Param descriptors stored in the context
+    descriptors = (base_ctx.param_descriptors or {}) if base_ctx else {}
+    param_meta = {}
+    for name, value in bound_args.items():
+        desc = descriptors.get(name)
+        if desc is None:
+            desc = infer_param(name, value)
+        meta = desc.to_widget_meta()
+        meta["value"] = value
+        meta["name"] = name
+        param_meta[name] = meta
 
     # Separate interactive params from static ones
     interactive_params = {k: v["value"] for k, v in param_meta.items()
@@ -326,6 +321,7 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
                 imports=base_ctx.imports,
                 package_versions=base_ctx.package_versions,
                 parameters=merged_params,
+                param_descriptors=base_ctx.param_descriptors,
             ) if base_ctx is not None else None
             token = _reproducible_context.set(ctx) if ctx is not None else None
             try:
@@ -409,6 +405,20 @@ def reproducible(interactive: bool = False,
             bound = sig.bind(*args, **kwargs)
             bound.apply_defaults()
 
+            # Unwrap Param defaults and build param_descriptors
+            try:
+                type_hints = get_type_hints(func)
+            except Exception:  # pylint: disable=broad-exception-caught
+                type_hints = {}
+
+            param_descriptors: Dict[str, Param] = {}
+            for name, value in list(bound.arguments.items()):
+                if isinstance(value, Param):
+                    param_descriptors[name] = value
+                    bound.arguments[name] = value.default
+                else:
+                    param_descriptors[name] = infer_param(name, value, type_hints)
+
             # Determine effective interactive mode
             effective_interactive = interactive and _is_interactive_env()
 
@@ -447,12 +457,13 @@ def reproducible(interactive: bool = False,
                 extra["publish"] = publisher.publish
 
             ctx = ReproducibleContext(
-                source_code=inspect.getsource(func),
+                source_code=_extract_function_body(func),
                 function_name=func.__name__,
                 packages=effective_packages,
                 imports=effective_packages,
                 package_versions=pkg_versions,
                 parameters=rt_args,
+                param_descriptors=param_descriptors,
             )
             token = _reproducible_context.set(ctx)
             try:
@@ -467,35 +478,3 @@ def reproducible(interactive: bool = False,
 
         return wrapper
     return decorator
-
-
-# Param class for explicit parameter configuration
-class Param:
-    """
-    Explicit parameter configuration for reproducible functions.
-
-    Use this to specify widget behavior for function parameters.
-
-    Example:
-        @reproducible(interactive=True)
-        def my_plot(
-            data,
-            bins=Param(20, min=5, max=100, step=5),
-            species=Param("Adelie", choices=["Adelie", "Chinstrap", "Gentoo"]),
-            show_grid=Param(True)
-        ):
-            ...
-    """
-    def __init__(self, default: Any, *,
-                 min: Optional[float] = None,  # pylint: disable=redefined-builtin
-                 max: Optional[float] = None,  # pylint: disable=redefined-builtin
-                 step: Optional[float] = None,
-                 choices: Optional[list] = None):
-        self.default = default
-        self.min = min
-        self.max = max
-        self.step = step
-        self.choices = choices
-
-    def __repr__(self):
-        return f"Param({self.default!r})"

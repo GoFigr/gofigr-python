@@ -343,7 +343,8 @@ class Publisher:
         rev.data.append(code)
 
         # Serialize parameters
-        bundle = serialize_params(ctx.parameters)
+        bundle = serialize_params(ctx.parameters,
+                                  param_descriptors=ctx.param_descriptors)
 
         # Build manifest with packages and parameters
         manifest = {

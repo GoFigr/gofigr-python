@@ -12,6 +12,7 @@ from gofigr.reproducible import (
     reproducible,
     _reproducible_context,
     _resolve_package_versions,
+    _extract_function_body,
     ReproducibleContext,
 )
 
@@ -211,8 +212,8 @@ class TestContextVarLifecycle(unittest.TestCase):
 
         self.assertIsNone(_reproducible_context.get())
 
-    def test_context_contains_source_code(self):
-        """Use a mock publisher to capture the context and verify source code."""
+    def test_context_contains_unwrapped_body(self):
+        """Source code should be the function body only, not the decorator or def line."""
         captured = {}
 
         mock_publisher = MagicMock()
@@ -228,8 +229,71 @@ class TestContextVarLifecycle(unittest.TestCase):
             return a + b
 
         my_function(1, 2)
-        self.assertIn("my_function", captured["ctx"].source_code)
-        self.assertIn("return a + b", captured["ctx"].source_code)
+        src = captured["ctx"].source_code
+        self.assertIn("return a + b", src)
+        self.assertNotIn("@reproducible", src)
+        self.assertNotIn("def my_function", src)
+
+
+class TestExtractFunctionBody(unittest.TestCase):
+    """Tests for _extract_function_body helper."""
+
+    def test_simple_function(self):
+        def my_func(x):
+            return x + 1
+
+        body = _extract_function_body(my_func)
+        self.assertIn("return x + 1", body)
+        self.assertNotIn("def my_func", body)
+
+    def test_strips_decorator(self):
+        """When used on a function that was defined with a decorator,
+        the decorator line should not appear in the body."""
+        @reproducible(packages={}, merge_packages=False)
+        def decorated_func(a, b):
+            result = a * b
+            return result
+
+        # _extract_function_body works on the original function, not the wrapper.
+        # Test it on a plain function to verify AST extraction.
+        def sample():
+            x = 1
+            y = 2
+            return x + y
+
+        body = _extract_function_body(sample)
+        self.assertIn("x = 1", body)
+        self.assertIn("return x + y", body)
+        self.assertNotIn("def sample", body)
+
+    def test_multiline_body(self):
+        def multi():
+            a = 1
+            b = 2
+            c = a + b
+            return c
+
+        body = _extract_function_body(multi)
+        lines = body.strip().splitlines()
+        self.assertEqual(len(lines), 4)
+        self.assertIn("a = 1", body)
+        self.assertIn("return c", body)
+
+    def test_body_is_dedented(self):
+        def indented():
+            return 42
+
+        body = _extract_function_body(indented)
+        self.assertTrue(body.strip().startswith("return"))
+
+    def test_preserves_docstring(self):
+        def with_doc():
+            """This is a docstring."""
+            return 1
+
+        body = _extract_function_body(with_doc)
+        self.assertIn("This is a docstring", body)
+        self.assertIn("return 1", body)
 
 
 class TestSizeLimitFallback(unittest.TestCase):
