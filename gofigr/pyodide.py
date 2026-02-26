@@ -57,7 +57,7 @@ class PyodidePublisher:
                  analysis,
                  source_revision_api_id,
                  watermark=None,
-                 image_formats=("png",),
+                 image_formats=("png", "svg"),
                  backends=None):
         """
         :param gf: authenticated GoFigr instance
