@@ -6,7 +6,7 @@ All rights reserved.
 import importlib.resources
 import io
 
-import pyqrcode
+import pyqrcodeng as pyqrcode
 from PIL import Image, ImageDraw, ImageFont
 
 from gofigr import APP_URL

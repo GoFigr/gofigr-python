@@ -13,12 +13,19 @@ import platform
 import sys
 
 import PIL
-from IPython import get_ipython
+
+try:
+    from IPython import get_ipython
+except ImportError:
+    get_ipython = None
 
 try:
     from IPython.core.display_functions import display
-except ModuleNotFoundError:
-    from IPython.core.display import display
+except (ModuleNotFoundError, ImportError):
+    try:
+        from IPython.core.display import display
+    except (ModuleNotFoundError, ImportError):
+        display = None
 
 from gofigr import GoFigr, MeasureExecution, NotebookName
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \

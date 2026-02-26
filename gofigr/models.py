@@ -20,7 +20,10 @@ import PIL
 import dateutil.parser
 
 import pandas as pd
-from blake3 import blake3
+try:
+    from blake3 import blake3
+except ImportError:
+    blake3 = None
 
 from gofigr.exceptions import UnauthorizedError
 from gofigr.profile import MeasureExecution
@@ -1208,6 +1211,9 @@ class gf_Data(ModelMixin):
         if not self.data:
             return None
         if hash_type == "blake3":
+            if blake3 is None:
+                import hashlib
+                return hashlib.sha256(self.data).hexdigest()
             return blake3(self.data).hexdigest()  # pylint: disable=not-callable
         else:
             raise ValueError(f"Unsupported hash type: {hash_type}")

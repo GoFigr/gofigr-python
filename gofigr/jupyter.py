@@ -16,7 +16,10 @@ from functools import wraps
 from pathlib import Path
 from uuid import UUID
 
-from IPython import get_ipython
+try:
+    from IPython import get_ipython
+except ImportError:
+    get_ipython = None
 
 import gofigr
 from gofigr import GoFigr, API_URL

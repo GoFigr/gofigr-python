@@ -10,15 +10,20 @@ from base64 import b64encode
 from uuid import uuid4
 
 import humanize
-from IPython import get_ipython
-from IPython.core.display import HTML
+
+try:
+    from IPython import get_ipython
+    from IPython.core.display import HTML
+except ImportError:
+    get_ipython = None
+    HTML = None
 
 from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME
 
 try:
     from IPython.core.display_functions import display as ipython_display
-except ModuleNotFoundError:
-    from IPython.core.display import display as ipython_display
+except (ModuleNotFoundError, ImportError):
+    ipython_display = None
 
 from gofigr.utils import read_resource_b64, read_resource_text
 
