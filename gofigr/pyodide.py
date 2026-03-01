@@ -9,6 +9,7 @@ the server-side derive + append_data endpoints for efficient publication:
   2. watermark -- uses api_id to generate QR watermark (client-side)
   3. append_data -- uploads watermarked images, code, manifest
 """
+import copy
 import io
 import json
 import logging
@@ -58,7 +59,9 @@ class PyodidePublisher:
                  source_revision_api_id,
                  watermark=None,
                  image_formats=("png", "svg"),
-                 backends=None):
+                 backends=None,
+                 source_manifest=None,
+                 current_params=None):
         """
         :param gf: authenticated GoFigr instance
         :param analysis: GoFigr Analysis object (fetched)
@@ -66,6 +69,8 @@ class PyodidePublisher:
         :param watermark: Watermark instance (default: DefaultWatermark)
         :param image_formats: image formats to save
         :param backends: figure backends to use
+        :param source_manifest: parsed manifest dict from the source revision
+        :param current_params: dict of current parameter values (name -> value)
         """
         self.gf = gf
         self.analysis = analysis
@@ -73,6 +78,8 @@ class PyodidePublisher:
         self.watermark = watermark or DefaultWatermark()
         self.image_formats = image_formats
         self.backends = [_make_backend(b) for b in (backends or PYODIDE_BACKENDS)]
+        self.source_manifest = source_manifest
+        self.current_params = current_params
         self._last_watermarked_png = {}
 
     def _resolve_target(self, fig, target, backend):
@@ -143,12 +150,14 @@ class PyodidePublisher:
             "parameters": bundle.manifest,
         }
 
-        data_list.append(self.gf.TextData(
+        manifest_text = self.gf.TextData(
             name="Clean Room Manifest",
             format="json",
             contents=json.dumps(manifest, ensure_ascii=False),
             is_clean_room=True,
-        ))
+        )
+        manifest_text.metadata["role"] = "manifest"
+        data_list.append(manifest_text)
 
         for param_name, parquet_bytes in bundle.dataframes.items():
             data_list.append(self.gf.TableData(
@@ -159,6 +168,25 @@ class PyodidePublisher:
             ))
 
         return data_list
+
+    def _build_updated_manifest(self):
+        """Build a manifest TextData with current parameter values merged into
+        the source manifest structure."""
+        updated = copy.deepcopy(self.source_manifest)
+        params_section = updated.get("parameters", {})
+        for name, value in self.current_params.items():
+            if name in params_section:
+                params_section[name]["value"] = value
+        updated["parameters"] = params_section
+
+        manifest_text = self.gf.TextData(
+            name="Clean Room Manifest",
+            format="json",
+            contents=json.dumps(updated, ensure_ascii=False),
+            is_clean_room=True,
+        )
+        manifest_text.metadata["role"] = "manifest"
+        return manifest_text
 
     def publish(self, fig=None, target=None, backend=None,
                 image_options=None, metadata=None):
@@ -215,6 +243,8 @@ class PyodidePublisher:
         ctx = _reproducible_context.get()
         if ctx is not None:
             all_data.extend(self._build_clean_room_data(ctx))
+        elif self.source_manifest is not None and self.current_params is not None:
+            all_data.append(self._build_updated_manifest())
 
         # Step 5: Upload data via append_data endpoint
         serialized_data = [d.to_json() for d in all_data]

@@ -369,6 +369,7 @@ class Publisher:
             contents=json.dumps(manifest, ensure_ascii=False),
             is_clean_room=True,
         )
+        manifest_text.metadata["role"] = "manifest"
         rev.data.append(manifest_text)
 
         # DataFrame parameters as Parquet TableData
