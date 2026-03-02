@@ -987,258 +987,86 @@ class MultiUserTestCase(MultiUserTestCaseBase, TestCase):
     pass
 
 
-class TestPermissions(MultiUserTestCase):
-    def test_exclusivity(self):
-        return self.assert_exclusivity()
+class TestPermissionsSmokeTest(MultiUserTestCase):
+    """Smoke test for permissions - detailed tests are on the server."""
 
-    def test_malicious_move(self):
-        for client, other_client in self.client_pairs:
-            # Case 1: user moving their analyses (to which they have access) to another users' workspace (to which
-            # they do not have access)
-            for w in client.workspaces:
-                for ana in w.analyses:
-                    ana.fetch()
-                    ana.workspace = other_client.primary_workspace
+    def test_basic_exclusivity(self):
+        """Verify that one user cannot access another user's objects."""
+        # Just test one object from each user pair
+        client, other_client = self.client_pairs[0]
 
-                    for patch in [False, True]:
-                        with self.assertRaises(UnauthorizedError,
-                                               msg=f"Unauthorized move granted on: {ana} -> {ana.workspace}"):
-                            ana.save(patch=patch)
+        # Get first analysis from client's workspace
+        ana = client.primary_workspace.analyses[0]
+        ana.fetch()
 
-                    # Likewise with figures
-                    for fig in ana.figures:
-                        fig.fetch()
-                        fig.analysis = other_client.primary_workspace.analyses[0]
+        # Other client should not be able to view it
+        ana_ref = self.clone_gf_object(ana, other_client, bare=True)
+        self.assertRaises(UnauthorizedError, ana_ref.fetch)
 
-                        for patch in [False, True]:
-                            with self.assertRaises(UnauthorizedError,
-                                                   msg=f"Unauthorized move granted on: {fig} -> {fig.analysis}"):
-                                fig.save(patch=patch)
-
-            # Case 2: user moving others' analyses (to which they don't have access) into their own workspace
-            # (to which they do)
-            for w in other_client.workspaces:
-                for ana in w.analyses:
-                    ana.fetch()
-                    ana.workspace = client.primary_workspace
-
-                    for patch in [False, True]:
-                        with self.assertRaises(UnauthorizedError,
-                                               msg=f"Unauthorized move granted on: {ana} -> {ana.workspace}"):
-                            ana.save(patch=patch)
-
-                    # Same with figures
-                    for fig in ana.figures:
-                        fig.fetch()
-                        fig.analysis = client.primary_workspace.analyses[0]
-
-                        for patch in [False, True]:
-                            with self.assertRaises(UnauthorizedError,
-                                                   msg=f"Unauthorized move granted on: {fig} -> {fig.analysis}"):
-                                fig.save(patch=patch)
-
-    def test_malicious_create(self):
-        for client, other_client in self.client_pairs:
-            # Attempt to create analyses and figures in workspaces that you do not control
-            for w in client.workspaces:
-                for ana in w.analyses:
-                    ana.fetch()
-                    new_ana = self.clone_gf_object(ana, other_client)
-                    new_ana.api_id = None  # pretend it's a new object
-
-                    with self.assertRaises(UnauthorizedError, msg="Unauthorized create"):
-                        new_ana.create()
-
-                    for fig in ana.figures:
-                        new_fig = self.clone_gf_object(fig, other_client)
-                        new_fig.api_id = None
-
-                        with self.assertRaises(UnauthorizedError, msg="Unauthorized create"):
-                            new_fig.create()
+        # Other client should not be able to modify it
+        ana_ref = self.clone_gf_object(ana, other_client)
+        ana_ref.name = "should not work"
+        self.assertRaises(UnauthorizedError, ana_ref.save)
 
 
-class TestSharing(MultiUserTestCase):
-    """\
-    Tests sharing. Note that the actual sharing logic is tested extensively on the backend, so this is
-    just a quick API test.
+class TestSharingSmokeTest(MultiUserTestCase):
+    """Smoke test for sharing - detailed tests are on the server."""
 
-    """
-    def test_sharing(self):
-        def _check_one(other_client, obj):
-            obj.fetch()  # in case it's just a shallow copy
+    def test_basic_sharing(self):
+        """Verify basic share/unshare cycle works."""
+        client, other_client = self.client_pairs[0]
 
-            # Not shared by default
-            self.assertRaises(UnauthorizedError,
-                              lambda: self.clone_gf_object(obj, other_client, bare=True).fetch())
+        # Get an analysis to share
+        ana = client.primary_workspace.analyses[0]
+        ana.fetch()
 
-            # Share with this specific user. Should be viewable now.
-            obj.share(other_client.username)
-            shared_obj = self.clone_gf_object(obj, other_client, bare=True).fetch()
-            self.assertEqual(obj, shared_obj)
+        # Not shared by default
+        ana_ref = self.clone_gf_object(ana, other_client, bare=True)
+        self.assertRaises(UnauthorizedError, ana_ref.fetch)
 
-            # However, the object should NOT be modifiable
-            if hasattr(shared_obj, 'name'):
-                shared_obj.name = 'i should not be able to do this'
-                self.assertRaises(UnauthorizedError, lambda: shared_obj.save())
+        # Share it
+        ana.share(other_client.username)
 
-            self.assertEqual(len(obj.get_sharing_users()), 1)
-            self.assertEqual(obj.get_sharing_users()[0].username, other_client.username)
+        # Now accessible
+        shared_ana = self.clone_gf_object(ana, other_client, bare=True).fetch()
+        self.assertEqual(ana.api_id, shared_ana.api_id)
 
-            # Even though the object is shared, the user it's shared with should not be able to view who else
-            # it's shared with.
-            self.assertRaises(UnauthorizedError, lambda: self.clone_gf_object(obj, other_client).get_sharing_users())
+        # But not modifiable
+        shared_ana.name = "should not work"
+        self.assertRaises(UnauthorizedError, shared_ana.save)
 
-            # Unshare
-            obj.unshare(other_client.username)
-            time.sleep(2)
+        # Unshare
+        ana.unshare(other_client.username)
+        time.sleep(2)  # Allow cache to expire
 
-            self.assertRaises(UnauthorizedError,
-                              lambda: self.clone_gf_object(obj, other_client, bare=True).fetch())
-            self.assertEqual(len(obj.get_sharing_users()), 0)
-
-            # Double unshare
-            obj.unshare(other_client.username)
-            self.assertRaises(UnauthorizedError,
-                              lambda: self.clone_gf_object(obj, other_client, bare=True).fetch())
-            self.assertEqual(len(obj.get_sharing_users()), 0)
-
-            # Turn on link sharing
-            obj.set_link_sharing(True)
-            shared_obj = self.clone_gf_object(obj, other_client, bare=True).fetch()
-            self.assertEqual(obj, shared_obj)
-            self.assertEqual(len(obj.get_sharing_users()), 0)
-            self.assertRaises(UnauthorizedError, lambda: self.clone_gf_object(obj, other_client).get_sharing_users())
-
-            # Turn off link sharing
-            obj.set_link_sharing(False)
-            time.sleep(2)
-
-            self.assertRaises(UnauthorizedError,
-                              lambda: self.clone_gf_object(obj, other_client, bare=True).fetch())
-            self.assertEqual(len(obj.get_sharing_users()), 0)
-
-        for client, other_client in self.client_pairs:
-            for obj in self.list_all_objects(client):
-                if not isinstance(obj, ShareableModelMixin):
-                    continue
-
-                for _ in range(2):  # Sharing/unsharing cycles are indempotent
-                    _check_one(other_client, obj)
-                    time.sleep(2)
-
-                # Sharing with a non-existent user
-                self.assertRaises(RuntimeError, lambda: obj.share("no_such_user_exists"))
-                self.assertRaises(RuntimeError, lambda: obj.unshare("no_such_user_exists"))
-
-        # Nothing should be shared now
-        self.assert_exclusivity()
-
-    def test_workspaces_not_shareable(self):
-        """Makes sure that workspaces are not shareable"""
-        for client, other_client in self.client_pairs:
-            # Workspaces are not ShareableModelMixins to prevent exactly this, but we pretend they are.
-            # The request should be rejected server-side.
-            self.assertRaises(RuntimeError,
-                              lambda: ShareableModelMixin.share(client.primary_workspace, other_client.username))
-            self.assertRaises(RuntimeError,
-                              lambda: ShareableModelMixin.set_link_sharing(client.primary_workspace, True))
-            self.assertRaises(RuntimeError,
-                              lambda: ShareableModelMixin.get_link_sharing(client.primary_workspace))
-
-    def test_malicious_sharing(self):
-        """Makes sure that users cannot share other people's objects with themselves"""
-        for client, other_client in self.client_pairs:
-            for obj in self.list_all_objects(client):
-                if not isinstance(obj, ShareableModelMixin):
-                    continue
-
-                # Other client creates a reference to this object, and attempts to share it with themselves
-                obj_ref = self.clone_gf_object(obj, other_client)
-                self.assertRaises(UnauthorizedError, lambda: obj_ref.share(other_client.username))
-                self.assertRaises(UnauthorizedError, lambda: obj_ref.set_link_sharing(True))
-                self.assertRaises(UnauthorizedError, lambda: obj_ref.fetch())
-
-        self.assert_exclusivity()
+        # No longer accessible
+        ana_ref = self.clone_gf_object(ana, other_client, bare=True)
+        self.assertRaises(UnauthorizedError, ana_ref.fetch)
 
 
-class TestWorkspaceMemberManagement(MultiUserTestCase):
-    def test_member_management(self):
-        for client, other_client in self.client_pairs:
-            for workspace in client.workspaces:
-                for lvl in [WorkspaceMembership.ADMIN, WorkspaceMembership.CREATOR, WorkspaceMembership.VIEWER]:
-                    workspace.add_member(other_client.username, lvl)
-                    self.assertEqual(len(workspace.get_members()), 2)
-                    self.assertIn(client.username, [m.username for m in workspace.get_members()])
-                    self.assertIn(other_client.username, [m.username for m in workspace.get_members()])
+class TestMemberManagementSmokeTest(MultiUserTestCase):
+    """Smoke test for member management - detailed tests are on the server."""
 
-                    member, = [m for m in workspace.get_members() if m.username == other_client.username]
-                    self.assertEqual(member.membership_type, lvl)
+    def test_basic_member_management(self):
+        """Verify basic add/remove member cycle works."""
+        client, other_client = self.client_pairs[0]
+        workspace = client.primary_workspace
 
-                    workspace.remove_member(other_client.username)
-                    self.assertEqual(len(workspace.get_members()), 1)
-                    self.assertIn(client.username, [m.username for m in workspace.get_members()])
-                    self.assertNotIn(other_client.username, [m.username for m in workspace.get_members()])
+        # Add member as creator
+        workspace.add_member(other_client.username, WorkspaceMembership.CREATOR)
 
-                # Adding a new owner should fail
-                self.assertRaises(RuntimeError, lambda: workspace.add_member(other_client.username,
-                                                                             WorkspaceMembership.OWNER))
+        # Verify they're in the list
+        members = workspace.get_members()
+        member_names = [m.username for m in members]
+        self.assertIn(other_client.username, member_names)
 
-                # Likewise, changing an existing user to owner
-                workspace.add_member(other_client.username, WorkspaceMembership.ADMIN)
-                self.assertRaises(RuntimeError, lambda: workspace.change_membership(other_client.username,
-                                                                                    WorkspaceMembership.OWNER))
+        # Remove member
+        workspace.remove_member(other_client.username)
 
-                # But changing to anything else should work
-                for lvl in [WorkspaceMembership.ADMIN, WorkspaceMembership.CREATOR, WorkspaceMembership.VIEWER]:
-                    workspace.change_membership(other_client.username, lvl)
-                    self.assertEqual(len(workspace.get_members()), 2)
-                    self.assertIn(client.username, [m.username for m in workspace.get_members()])
-                    self.assertIn(other_client.username, [m.username for m in workspace.get_members()])
-
-                    member, = [m for m in workspace.get_members() if m.username == other_client.username]
-                    self.assertEqual(member.membership_type, lvl)
-
-    def test_malicious_add(self):
-        for client, other_client in self.client_pairs:
-            for workspace in client.workspaces:
-                # Workspace accessed by the other client
-                workspace_ref = self.clone_gf_object(workspace, other_client)
-
-                self.assertRaises(UnauthorizedError, lambda: workspace_ref.add_member(other_client.username,
-                                                                                      WorkspaceMembership.ADMIN))
-
-                # This should fail even if the user is already a member with a level below ADMIN
-                workspace.add_member(other_client.username, WorkspaceMembership.CREATOR)
-                self.assertRaises(UnauthorizedError, lambda: workspace_ref.add_member(other_client.username,
-                                                                                      WorkspaceMembership.ADMIN))
-                self.assertRaises(UnauthorizedError, lambda: workspace_ref.change_membership(other_client.username,
-                                                                                             WorkspaceMembership.ADMIN))
-
-                workspace.change_membership(other_client.username, WorkspaceMembership.ADMIN)
-
-                # Because the authorized user made other_client an ADMIN, these should now work
-                workspace_ref.change_membership(other_client.username, WorkspaceMembership.ADMIN)  # no-op but OK
-
-                # Still, should not be able to remove original OWNER
-                self.assertRaises(RuntimeError, lambda: workspace_ref.change_membership(client.username,
-                                                                                        WorkspaceMembership.ADMIN))
-
-                # User should be able to downgrade themselves
-                workspace_ref.change_membership(other_client.username, WorkspaceMembership.VIEWER)
-
-                time.sleep(2)
-
-                self.assertRaises(UnauthorizedError, lambda: workspace_ref.change_membership(other_client.username,
-                                                                                             WorkspaceMembership.ADMIN))
-
-    def test_membership_validation(self):
-        for client, other_client in self.client_pairs:
-            for workspace in client.workspaces:
-                self.assertRaises(RuntimeError,
-                                  lambda: workspace.add_member(other_client.username, "not-a-valid-membership"))
-                self.assertEqual(len(workspace.get_members()), 1)
-                self.assertIn(client.username, [m.username for m in workspace.get_members()])
-                self.assertNotIn(other_client.username, [m.username for m in workspace.get_members()])
+        # Verify they're gone
+        members = workspace.get_members()
+        member_names = [m.username for m in members]
+        self.assertNotIn(other_client.username, member_names)
 
 
 class TestSizeCalculation(GfTestCase):
@@ -1754,3 +1582,146 @@ class TestFigureAssetAssociations(AssetTestCase):
                             # Clear associations
                             rev.assets = []
                             rev.save()
+
+
+class TestCleanRoomE2E(TestCase):
+    """End-to-end tests for clean room data publication and retrieval."""
+
+    def setUp(self):
+        self.gf = make_gf()
+        self.clean_up()
+
+    def tearDown(self):
+        self.clean_up()
+
+    def clean_up(self):
+        for ana in self.gf.primary_workspace.analyses:
+            ana.delete(delete=True)
+
+    def _create_figure(self, name="clean room test"):
+        ana = self.gf.primary_workspace.analyses.create(
+            self.gf.Analysis(name="clean room analysis"))
+        fig = ana.figures.create(self.gf.Figure(name=name))
+        return fig
+
+    def test_clean_room_revision(self):
+        """Publish a revision with clean room data and verify round-trip."""
+        import json as json_mod
+
+        fig = self._create_figure()
+
+        df = pd.DataFrame({"x": np.arange(10), "y": np.random.normal(size=10)})
+
+        source_code = "def my_func(data, n=5):\n    return data.head(n)\n"
+        manifest = {
+            "language": "python",
+            "language_version": "3.11.0",
+            "function_name": "my_func",
+            "packages": {"pandas": "2.0.0", "numpy": "1.24.0"},
+            "imports": {"pd": "pandas", "np": "numpy"},
+            "parameters": {"data": {"type": "dataframe"},
+                           "n": {"type": "primitive", "value": 5}},
+        }
+
+        rev = self.gf.Revision(
+            figure=fig,
+            metadata={"test": True},
+            is_clean_room=True,
+        )
+
+        # Add clean room code
+        rev.data = [
+            self.gf.CodeData(
+                name="Clean Room Source",
+                language=CodeLanguage.PYTHON,
+                format="clean_room",
+                contents=source_code,
+                is_clean_room=True,
+            ),
+            self.gf.TextData(
+                name="Clean Room Manifest",
+                format="json",
+                contents=json_mod.dumps(manifest),
+                is_clean_room=True,
+            ),
+            self.gf.TableData(
+                name="data",
+                format="parquet",
+                dataframe=df,
+                is_clean_room=True,
+            ),
+            # Also add non-clean-room data
+            self.gf.CodeData(
+                name="Jupyter Cell",
+                language=CodeLanguage.PYTHON,
+                contents="my_func(df)",
+            ),
+        ]
+
+        fig.revisions.create(rev)
+        rev.wait_for_processing()
+
+        # Fetch from server
+        server_rev = self.gf.Revision(rev.api_id).fetch()
+
+        # Verify revision flag
+        self.assertTrue(server_rev.is_clean_room)
+
+        # Verify clean room data objects
+        cr_data = [d for d in server_rev.data if d.is_clean_room]
+        non_cr_data = [d for d in server_rev.data if not d.is_clean_room]
+
+        self.assertEqual(len(cr_data), 3)
+        self.assertEqual(len(non_cr_data), 1)
+
+        # Verify by type
+        cr_code = [d for d in cr_data if d.type == DataType.CODE]
+        cr_text = [d for d in cr_data if d.type == DataType.TEXT]
+        cr_table = [d for d in cr_data if d.type == DataType.DATA_FRAME]
+
+        self.assertEqual(len(cr_code), 1)
+        self.assertEqual(len(cr_text), 1)
+        self.assertEqual(len(cr_table), 1)
+
+        # Verify code contents
+        code_obj = cr_code[0]
+        self.assertEqual(code_obj.contents, source_code)
+        self.assertEqual(code_obj.format, "clean_room")
+
+        # Verify manifest
+        text_obj = cr_text[0]
+        self.assertEqual(text_obj.format, "json")
+        parsed_manifest = json_mod.loads(text_obj.contents)
+        self.assertEqual(parsed_manifest["language"], "python")
+        self.assertIn("language_version", parsed_manifest)
+        self.assertEqual(parsed_manifest["function_name"], "my_func")
+        self.assertIn("packages", parsed_manifest)
+        self.assertIn("imports", parsed_manifest)
+        self.assertIn("parameters", parsed_manifest)
+
+        # Verify DataFrame
+        table_obj = cr_table[0]
+        self.assertEqual(table_obj.format, "parquet")
+        self.assertTrue(table_obj.dataframe.equals(df))
+
+        # Verify non-clean-room data is unaffected
+        self.assertEqual(non_cr_data[0].type, DataType.CODE)
+        self.assertFalse(non_cr_data[0].is_clean_room)
+
+    def test_default_is_clean_room_false(self):
+        """Normal revisions should have is_clean_room=False."""
+        fig = self._create_figure("normal figure")
+
+        rev = self.gf.Revision(
+            figure=fig,
+            metadata={"test": True},
+            data=[self.gf.CodeData(name="cell", contents="print('hello')")],
+        )
+        fig.revisions.create(rev)
+        rev.wait_for_processing()
+
+        server_rev = self.gf.Revision(rev.api_id).fetch()
+        self.assertFalse(server_rev.is_clean_room)
+
+        for d in server_rev.data:
+            self.assertFalse(d.is_clean_room)

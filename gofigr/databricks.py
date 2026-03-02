@@ -6,7 +6,10 @@ All rights reserved.
 import json
 import sys
 
-from IPython import get_ipython
+try:
+    from IPython import get_ipython
+except ImportError:
+    get_ipython = None
 
 try:
     from databricks.sdk import WorkspaceClient
@@ -15,7 +18,7 @@ except ImportError:
 
 def get_dbutils(shell=None):
     """Gets dbutils if running on DataBricks"""
-    if shell is None:
+    if shell is None and get_ipython is not None:
         shell = get_ipython()
 
     return shell.user_ns.get('dbutils') if shell is not None else None

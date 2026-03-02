@@ -9,8 +9,15 @@ import re
 import sys
 import tempfile
 
-import py3Dmol
-from html2image import Html2Image
+try:
+    import py3Dmol
+except ImportError:
+    py3Dmol = None
+
+try:
+    from html2image import Html2Image
+except ImportError:
+    Html2Image = None
 
 from gofigr.backends import GoFigrBackend, get_all_function_arguments
 

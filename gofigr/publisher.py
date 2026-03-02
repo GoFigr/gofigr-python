@@ -6,17 +6,26 @@ All rights reserved.
 # pylint: disable=protected-access, ungrouped-imports
 
 import io
+import json
 import os
 import pickle
+import platform
 import sys
 
 import PIL
-from IPython import get_ipython
+
+try:
+    from IPython import get_ipython
+except ImportError:
+    get_ipython = None
 
 try:
     from IPython.core.display_functions import display
-except ModuleNotFoundError:
-    from IPython.core.display import display
+except (ModuleNotFoundError, ImportError):
+    try:
+        from IPython.core.display import display
+    except (ModuleNotFoundError, ImportError):
+        display = None
 
 from gofigr import GoFigr, MeasureExecution, NotebookName
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
@@ -25,6 +34,9 @@ from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotato
 from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
+from gofigr.cleanroom import serialize_params
+from gofigr.models import CodeLanguage
+from gofigr.reproducible import _reproducible_context
 from gofigr.watermarks import DefaultWatermark
 from gofigr.widget import DetailedWidget
 
@@ -319,6 +331,60 @@ class Publisher:
 
         return data
 
+    def _attach_clean_room_data(self, rev, ctx):
+        """\
+        Attach clean room source code, manifest, and DataFrame parameters to a revision.
+
+        :param rev: the Revision being built
+        :param ctx: ReproducibleContext from the @reproducible decorator
+        """
+        # Source code
+        code = self.gf.CodeData(
+            name="Clean Room Source",
+            language=CodeLanguage.PYTHON,
+            format="clean_room",
+            contents=ctx.source_code,
+            is_clean_room=True,
+        )
+        code.metadata["function_name"] = ctx.function_name
+        rev.data.append(code)
+
+        # Serialize parameters
+        bundle = serialize_params(ctx.parameters,
+                                  param_descriptors=ctx.param_descriptors)
+
+        # Build manifest with packages and parameters
+        manifest = {
+            "language": "python",
+            "language_version": platform.python_version(),
+            "function_name": ctx.function_name,
+            "packages": ctx.package_versions,
+            "imports": ctx.imports,
+            "parameters": bundle.manifest,
+        }
+
+        manifest_text = self.gf.TextData(
+            name="Clean Room Manifest",
+            format="json",
+            contents=json.dumps(manifest, ensure_ascii=False),
+            is_clean_room=True,
+        )
+        manifest_text.metadata["role"] = "manifest"
+        rev.data.append(manifest_text)
+
+        # DataFrame parameters as Parquet TableData
+        for param_name, parquet_bytes in bundle.dataframes.items():
+            td = self.gf.TableData(
+                name=param_name,
+                format="parquet",
+                data=parquet_bytes,
+                is_clean_room=True,
+            )
+            rev.data.append(td)
+
+        # Flag the revision itself
+        rev.is_clean_room = True
+
     def publish(self, fig=None, target=None, dataframes=None, metadata=None,
                 backend=None, image_options=None, suppress_display=None, files=None,
                 annotators=None):
@@ -342,6 +408,7 @@ class Publisher:
 
         """
         # pylint: disable=too-many-branches, too-many-locals
+        ctx = _reproducible_context.get()
         fig, backend = infer_figure_and_backend(fig, backend, self.backends)
 
         with MeasureExecution("Resolve target"):
@@ -383,6 +450,9 @@ class Publisher:
 
         if files is not None:
             rev.file_data = self._prepare_files(self.gf, files)
+
+        if ctx is not None:
+            self._attach_clean_room_data(rev, ctx)
 
         with MeasureExecution("Final save"):
             rev.save(silent=True)

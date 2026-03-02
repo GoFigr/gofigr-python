@@ -6,7 +6,7 @@ All rights reserved.
 import importlib.resources
 import io
 
-import pyqrcode
+import pyqrcodeng as pyqrcode
 from PIL import Image, ImageDraw, ImageFont
 
 from gofigr import APP_URL
@@ -195,6 +195,23 @@ class DefaultWatermark:
         draw.text((self.margin_px[0], self.margin_px[1]), text, fill="black", font=self.font)
         return img
 
+    def _build_watermark_strip(self, url_text):
+        """Build the watermark strip image for a given URL string.
+
+        :param url_text: full URL to encode in the watermark
+        :return: PIL.Image of the watermark strip (text + optional QR code)
+        """
+        identifier_img = self.draw_identifier(url_text)
+
+        qr_img = None
+        if self.show_qr_code:
+            qr_img = _qr_to_image(url_text, scale=self.qr_scale,
+                                  module_color=self.qr_foreground,
+                                  background=self.qr_background)
+            qr_img = add_margins(qr_img, self.margin_px)
+
+        return stack_horizontally(identifier_img, qr_img)
+
     def get_watermark(self, revision):
         """\
         Generates just the watermark for a revision.
@@ -203,17 +220,36 @@ class DefaultWatermark:
         :return: PIL.Image
 
         """
-        identifier_text = f'{APP_URL}/r/{revision.api_id}'
-        identifier_img = self.draw_identifier(identifier_text)
+        return self._build_watermark_strip(f'{APP_URL}/r/{revision.api_id}')
 
-        qr_img = None
-        if self.show_qr_code:
-            qr_img = _qr_to_image(identifier_text, scale=self.qr_scale,
-                                  module_color=self.qr_foreground,
-                                  background=self.qr_background)
-            qr_img = add_margins(qr_img, self.margin_px)
+    def _get_watermark_size(self):
+        """Return the (width, height) of the watermark strip.
 
-        return stack_horizontally(identifier_img, qr_img)
+        The size is constant for UUID-based URLs, so it is computed once
+        with a dummy UUID and cached for subsequent calls.
+        """
+        if not hasattr(self, '_cached_wm_size'):
+            dummy_url = f'{APP_URL}/r/00000000-0000-0000-0000-000000000000'
+            wm = self._build_watermark_strip(dummy_url)
+            self._cached_wm_size = wm.size
+        return self._cached_wm_size
+
+    def get_watermark_height(self):
+        """Return the pixel height of the watermark strip."""
+        return self._get_watermark_size()[1]
+
+    def pad_for_watermark(self, image):
+        """Add blank space matching the dimensions that ``apply()`` would
+        produce.  This accounts for both the watermark height (added below
+        the figure) and the watermark width (``stack_vertically`` uses
+        ``max(figure_width, watermark_width)``).
+        """
+        wm_w, wm_h = self._get_watermark_size()
+        target_w = max(image.width, wm_w)
+        padded = Image.new('RGBA', (target_w, image.height + wm_h),
+                           (255, 255, 255, 255))
+        padded.paste(image, ((target_w - image.width) // 2, 0))
+        return padded
 
     def apply(self, image, revision):
         """\
