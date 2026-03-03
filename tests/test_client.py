@@ -11,8 +11,10 @@ from unittest import TestCase
 
 import numpy as np
 import pandas as pd
-import pkg_resources
+from pathlib import Path
 from PIL import Image
+
+DATA_DIR = Path(__file__).parent / "data"
 
 from gofigr.models import gf_Data, MembershipInfo, OrganizationMembership, DataType
 
@@ -314,7 +316,7 @@ class TestUsers(TestCase):
     def test_avatars(self):
         gf = make_gf()
         info = gf.user_info()
-        with open(pkg_resources.resource_filename('tests.data', 'avatar.png'), 'rb') as f:
+        with open(str(DATA_DIR /'avatar.png'), 'rb') as f:
             info.avatar = Image.open(f)
             info.avatar.load()
 
@@ -577,7 +579,7 @@ class TestData:
     def load_image_data(self, nonce=None):
         image_data = []
         for fmt in ['eps', 'svg', 'png']:
-            with open(pkg_resources.resource_filename('tests.data', f'plot.{fmt}'), 'rb') as f:
+            with open(str(DATA_DIR /f'plot.{fmt}'), 'rb') as f:
                 _data = f.read()
                 if nonce is not None:
                     _data = _data + str(nonce).encode('ascii')
@@ -587,7 +589,7 @@ class TestData:
         return image_data
 
     def load_file_data(self, nonce=None):
-        data_obj = self.gf.FileData.read(pkg_resources.resource_filename('tests.data', 'blob.bin'))
+        data_obj = self.gf.FileData.read(str(DATA_DIR /'blob.bin'))
         data_obj.data = data_obj.data + str(nonce).encode('ascii')
         return [data_obj]
 
