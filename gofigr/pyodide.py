@@ -9,6 +9,7 @@ the server-side derive + append_data endpoints for efficient publication:
   2. watermark -- uses api_id to generate QR watermark (client-side)
   3. append_data -- uploads watermarked images, code, manifest
 """
+# pylint: disable=duplicate-code
 import copy
 import io
 import json
@@ -61,7 +62,8 @@ class PyodidePublisher:
                  image_formats=("png", "svg"),
                  backends=None,
                  source_manifest=None,
-                 current_params=None):
+                 current_params=None,
+                 current_code=None):
         """
         :param gf: authenticated GoFigr instance
         :param analysis: GoFigr Analysis object (fetched)
@@ -71,6 +73,8 @@ class PyodidePublisher:
         :param backends: figure backends to use
         :param source_manifest: parsed manifest dict from the source revision
         :param current_params: dict of current parameter values (name -> value)
+        :param current_code: current source code (may differ from the source revision
+            if the user edited code in the studio before publishing)
         """
         self.gf = gf
         self.analysis = analysis
@@ -80,6 +84,7 @@ class PyodidePublisher:
         self.backends = [_make_backend(b) for b in (backends or PYODIDE_BACKENDS)]
         self.source_manifest = source_manifest
         self.current_params = current_params
+        self.current_code = current_code
         self._last_watermarked_png = {}
 
     def _resolve_target(self, fig, target, backend):
@@ -106,7 +111,7 @@ class PyodidePublisher:
 
             try:
                 raw_bytes = backend.figure_to_bytes(fig, fmt, image_options)
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.warning("Could not obtain figure in %s format: %s", fmt, e)
                 continue
 
@@ -221,15 +226,14 @@ class PyodidePublisher:
             target_figure.fetch()
 
         # Step 1: Create derived revision via derive endpoint (clones DataFrames)
-        derive_payload = {'figure': target_figure.api_id}
-        if metadata:
-            derive_payload['metadata'] = metadata
-        derive_resp = self.gf._post(
+        derived = self.gf._post(  # pylint: disable=protected-access
             f"revision/{self.source_revision_api_id}/derive/",
-            json=derive_payload,
+            json={
+                'figure': target_figure.api_id,
+                **(({'metadata': metadata}) if metadata else {})
+            },
             expected_status=(HTTPStatus.OK, HTTPStatus.CREATED),
-        )
-        derived = derive_resp.json()
+        ).json()
         derived_api_id = derived['api_id']
 
         # Step 2: Generate watermark using the derived revision's api_id
@@ -245,10 +249,18 @@ class PyodidePublisher:
             all_data.extend(self._build_clean_room_data(ctx))
         elif self.source_manifest is not None and self.current_params is not None:
             all_data.append(self._build_updated_manifest())
+            if self.current_code:
+                all_data.append(self.gf.CodeData(
+                    name="Clean Room Source",
+                    language=CodeLanguage.PYTHON,
+                    format="clean_room",
+                    contents=self.current_code,
+                    is_clean_room=True,
+                ))
 
         # Step 5: Upload data via append_data endpoint
         serialized_data = [d.to_json() for d in all_data]
-        self.gf._post(
+        self.gf._post(  # pylint: disable=protected-access
             f"revision/{derived_api_id}/append_data/",
             json={'data': serialized_data},
         )

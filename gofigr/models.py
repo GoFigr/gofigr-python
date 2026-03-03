@@ -1212,7 +1212,7 @@ class gf_Data(ModelMixin):
             return None
         if hash_type == "blake3":
             if blake3 is None:
-                import hashlib
+                import hashlib  # pylint: disable=import-outside-toplevel
                 return hashlib.sha256(self.data).hexdigest()
             return blake3(self.data).hexdigest()  # pylint: disable=not-callable
         else:

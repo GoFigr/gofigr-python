@@ -231,7 +231,7 @@ class DefaultWatermark:
         if not hasattr(self, '_cached_wm_size'):
             dummy_url = f'{APP_URL}/r/00000000-0000-0000-0000-000000000000'
             wm = self._build_watermark_strip(dummy_url)
-            self._cached_wm_size = wm.size
+            self._cached_wm_size = wm.size  # pylint: disable=attribute-defined-outside-init
         return self._cached_wm_size
 
     def get_watermark_height(self):
