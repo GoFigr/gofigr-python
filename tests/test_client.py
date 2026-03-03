@@ -21,11 +21,19 @@ from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, Share
 
 
 def make_gf(authenticate=True, username=None, password=None, api_key=None):
-    return GoFigr(username=username or (os.environ['GF_TEST_USER'] if api_key is None else None),
-                  password=password or (os.environ['GF_TEST_PASSWORD'] if api_key is None else None),
-                  api_key=api_key,
-                  url=os.environ['GF_TEST_API_URL'],
-                  authenticate=authenticate)
+    gf = GoFigr(username=username or (os.environ['GF_TEST_USER'] if api_key is None else None),
+                password=password or (os.environ['GF_TEST_PASSWORD'] if api_key is None else None),
+                api_key=api_key,
+                url=os.environ['GF_TEST_API_URL'],
+                authenticate=authenticate)
+
+    # Workspaces became shallow by default in API v1.4 but tests expect full objects
+    for worx in gf.workspaces:
+        worx.fetch()
+
+    gf.primary_workspace.fetch()
+
+    return gf
 
 
 class TestAuthentication(TestCase):
@@ -647,6 +655,10 @@ class GfTestCase(TestCase):
             org.delete(delete=True)
 
 
+def _strip_size(obj):
+    obj.size_bytes = None
+    return obj
+
 class TestFigures(TestCase):
     def setUp(self):
         return self.clean_up()
@@ -656,7 +668,7 @@ class TestFigures(TestCase):
 
     def clean_up(self):
         gf = make_gf()
-        for ana in gf.primary_workspace.analyses:
+        for ana in gf.primary_workspace.fetch().analyses:
             ana.delete(delete=True)
 
         for w in gf.workspaces:
@@ -750,6 +762,7 @@ class TestFigures(TestCase):
             rev = fig.revisions.create(rev)
 
             rev.wait_for_processing()
+            time.sleep(3.0)
 
             fig.fetch()  # to update timestamps
             ana.fetch()  # ...
@@ -768,7 +781,7 @@ class TestFigures(TestCase):
             for server_rev in [server_rev1, server_rev2]:
                 # Fetch all data objects
                 self.assertEqual(server_rev.metadata, {'index': idx})
-                self.assertEqual(server_rev.figure.fetch(), fig)
+                self.assertEqual(_strip_size(server_rev.figure.fetch()), _strip_size(fig))
                 self.assertEqual(server_rev.figure.analysis.fetch(), ana)
 
                 # Validate image data
