@@ -1478,7 +1478,7 @@ class gf_TableData(gf_Data):
             value.to_parquet(buf, engine="pyarrow")
             self.data = buf.getvalue()
         else:
-            self.data = value.to_csv().encode(self.encoding)
+            self.data = value.to_csv(index=False).encode(self.encoding)
 
 class RevisionMixin(ShareableModelMixin):
     """Base class for revisions, e.g. FigureRevision or AssetRevision"""

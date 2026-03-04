@@ -18,7 +18,7 @@ DATA_DIR = Path(__file__).parent / "data"
 
 from gofigr.models import gf_Data, MembershipInfo, OrganizationMembership, DataType
 
-from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, ShareableModelMixin, WorkspaceMembership, \
+from gofigr import GoFigr, CodeLanguage, WorkspaceType, UnauthorizedError, WorkspaceMembership, \
     ThumbnailMixin, MethodNotAllowedError
 
 
@@ -30,10 +30,12 @@ def make_gf(authenticate=True, username=None, password=None, api_key=None):
                 authenticate=authenticate)
 
     # Workspaces became shallow by default in API v1.4 but tests expect full objects
-    for worx in gf.workspaces:
-        worx.fetch()
+    if authenticate:
+        for worx in gf.workspaces:
+            worx.fetch()
 
-    gf.primary_workspace.fetch()
+        if gf.primary_workspace is not None:  # can be none for scoped API keys
+            gf.primary_workspace.fetch()
 
     return gf
 
@@ -192,7 +194,7 @@ class TestAuthentication(TestCase):
 
     def test_api_key_expiration(self):
         gf = make_gf(authenticate=True)
-        key1 = gf.create_api_key('test key 1', expiry=datetime.now() + timedelta(seconds=3))
+        key1 = gf.create_api_key('test key 1', expiry=datetime.now() + timedelta(seconds=10))
         token = key1.token
         self._use_api_key(gf, key1)
 
@@ -201,7 +203,7 @@ class TestAuthentication(TestCase):
         self.assertIsNotNone(key1.expiry)
 
         # Wait for key to expire
-        time.sleep(4)
+        time.sleep(11)
         self.assertRaises(RuntimeError, lambda: self._use_api_key(gf, key1))
 
     def test_api_key_scopes(self):
@@ -928,6 +930,7 @@ class MultiUserTestCaseBase:
         if include_self:
             yield workspace
 
+        workspace.fetch()
         for analysis in workspace.analyses:
             analysis.fetch()
             yield analysis
@@ -1494,6 +1497,7 @@ class TestAssetPermissions(AssetTestCase):
     def test_asset_permissions(self):
         for client, other_client in self.client_pairs:
             for worx in client.workspaces:
+                worx.fetch()
                 self.assertGreater(len(worx.assets), 0)
 
                 for ds in worx.assets:

@@ -29,6 +29,7 @@ class TestMixins(unittest.TestCase):
                          {'api_id': None,
                           'name': None,
                           'hash': None,
+                          'is_clean_room': False,
                           'type': 'image',
                           'metadata': {'is_watermarked': False, 'format': None},  # metadata defaults should be present
                           'data': 'AQID'})
@@ -48,8 +49,9 @@ class TestMixins(unittest.TestCase):
 
         self.assertEqual(_strip_fields(img.to_json(include_none=True)),
                          {'api_id': None,
-                         'name': 'test image',
+                          'name': 'test image',
                           'hash': None,
+                          'is_clean_room': False,
                           'type': 'image',
                           'metadata': {'is_watermarked': True, 'format': 'png'},
                           'data': 'AQID'})
@@ -74,6 +76,7 @@ class TestMixins(unittest.TestCase):
                          {'api_id': None,
                           'name': 'test image',
                           'hash': None,
+                          'is_clean_room': False,
                           'type': 'image',
                           'metadata': {'is_watermarked': True, 'format': 'png'},
                           'data': 'AQID'})
