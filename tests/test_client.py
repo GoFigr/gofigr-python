@@ -574,7 +574,7 @@ class TestAnalysis(TestCase):
         self.assertEqual(analysis.workspace.fetch(), gf.primary_workspace)
 
 
-class TestData:
+class MockData:
     def __init__(self, gf):
         self.gf = gf
 
@@ -711,7 +711,7 @@ class TestFigures(TestCase):
 
         for idx in range(2):
             rev = gf.Revision(metadata={'index': idx},
-                              data=TestData(gf).load_external_data(nonce=idx))
+                              data=MockData(gf).load_external_data(nonce=idx))
             rev = fig.revisions.create(rev)
 
             time.sleep(2.0)
@@ -761,7 +761,7 @@ class TestFigures(TestCase):
         revisions = []
         for idx in range(2):
             rev = gf.Revision(metadata={'index': idx},
-                              data=TestData(gf).load_external_data(nonce=idx))
+                              data=MockData(gf).load_external_data(nonce=idx))
 
             rev = fig.revisions.create(rev)
 
@@ -870,7 +870,7 @@ class MultiUserTestCaseBase:
 
         for idx in range(self.n_revisions):
             rev = gf.Revision(metadata={'index': idx},
-                              data=TestData(gf).load_external_data(nonce=idx))
+                              data=MockData(gf).load_external_data(nonce=idx))
             rev = fig.revisions.create(rev)
             rev.wait_for_processing()  # Wait for async processing to complete
 

@@ -220,6 +220,12 @@ class ReproducibleWidget:
                 params = traitlets.Dict().tag(sync=True)
                 param_meta = traitlets.Dict().tag(sync=True)
 
+                def __copy__(self):  # pylint: disable=useless-parent-delegation
+                    return super().__copy__()
+
+                def __deepcopy__(self, memo):  # pylint: disable=useless-parent-delegation
+                    return super().__deepcopy__(memo)
+
             cls._widget_class = _ReproducibleWidgetImpl
         return cls._widget_class
 

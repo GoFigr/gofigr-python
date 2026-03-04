@@ -26,6 +26,8 @@ from gofigr import GoFigr, API_URL
 from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME, NOTEBOOK_PATH
 from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, DEFAULT_BACKENDS, _mark_as_published, is_published, \
     is_suppressed
+import gofigr.cleanroom
+import gofigr.reproducible
 from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
 from gofigr.trap import GfDisplayPublisher, SuppressDisplayTrap
@@ -290,6 +292,14 @@ def _load_ipython_extension(ip):
     ip.user_ns["FindByName"] = gofigr.FindByName
     ip.user_ns["ApiId"] = gofigr.ApiId
     ip.user_ns["NotebookName"] = gofigr.NotebookName
+
+    # Clean Room: inject the reproducible decorator and all parameter widget classes
+    ip.user_ns["reproducible"] = gofigr.reproducible.reproducible
+    ip.user_ns["SliderParam"] = gofigr.cleanroom.SliderParam
+    ip.user_ns["DropdownParam"] = gofigr.cleanroom.DropdownParam
+    ip.user_ns["CheckboxParam"] = gofigr.cleanroom.CheckboxParam
+    ip.user_ns["TextParam"] = gofigr.cleanroom.TextParam
+    ip.user_ns["StaticParam"] = gofigr.cleanroom.StaticParam
 
 
 def parse_uuid(val):
