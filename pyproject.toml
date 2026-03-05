@@ -145,7 +145,3 @@ ignore = ["W002"]
 "docs/source/index.rst" = [
     "{version}"
 ]
-
-"README.md" = [
-    "{version}"
-]
