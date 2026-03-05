@@ -273,6 +273,122 @@ def _run_clean(func: Callable, params: Dict[str, Any], packages: Dict[str, str],
     return result
 
 
+_ANYWIDGET_WARNING_HTML = (
+    '<div style="padding:8px 12px;background:#fff3cd;border:1px solid #ffc107;'
+    'border-radius:4px;margin:4px 0;font-family:sans-serif;font-size:13px;">'
+    '<strong>&#9888; Interactive widgets unavailable.</strong> '
+    'The figure is shown in non-interactive mode. '
+    'To enable interactive controls, install the anywidget package and restart JupyterLab:<br>'
+    '<code style="background:#f5f5f5;padding:2px 6px;border-radius:3px;">'
+    'pip install anywidget</code>'
+    '&nbsp;&rarr;&nbsp;restart kernel &amp; JupyterLab.'
+    '<br>Run '
+    '<code style="background:#f5f5f5;padding:2px 6px;border-radius:3px;">'
+    'from gofigr.reproducible import check_anywidget_health; check_anywidget_health()'
+    '</code> for a detailed health check.'
+    '</div>'
+)
+
+
+def check_anywidget_health() -> bool:
+    """
+    Run a diagnostic health check for anywidget and print a report.
+
+    Checks whether the anywidget Python package is installed and importable,
+    whether traitlets is available, and whether the current environment is a
+    Jupyter kernel. Also prints guidance for fixing the JupyterLab frontend
+    extension, which cannot be verified from Python.
+
+    :return: True if all Python-side checks pass, False otherwise.
+    """
+    from importlib.metadata import version as pkg_version, PackageNotFoundError  # pylint: disable=import-outside-toplevel
+
+    ok = True
+    lines = ["=== anywidget health check ===", ""]
+
+    # Python package installed?
+    try:
+        v = pkg_version("anywidget")
+        lines.append(f"[OK]   anywidget installed  (version {v})")
+    except PackageNotFoundError:
+        lines.append("[FAIL] anywidget NOT installed")
+        lines.append("       Fix: pip install anywidget")
+        ok = False
+
+    # traitlets installed?
+    try:
+        v = pkg_version("traitlets")
+        lines.append(f"[OK]   traitlets installed  (version {v})")
+    except PackageNotFoundError:
+        lines.append("[FAIL] traitlets NOT installed")
+        lines.append("       Fix: pip install traitlets")
+        ok = False
+
+    # anywidget importable?
+    if ok:
+        try:
+            import anywidget  # pylint: disable=import-outside-toplevel
+            _ = anywidget  # suppress unused-import warning
+            lines.append("[OK]   anywidget importable")
+        except ImportError as e:
+            lines.append(f"[FAIL] anywidget import failed: {e}")
+            ok = False
+
+    # Jupyter kernel present?
+    if _is_interactive_env():
+        lines.append("[OK]   Jupyter kernel detected")
+    else:
+        lines.append("[WARN] Jupyter kernel NOT detected — widgets require a live kernel")
+
+    # Frontend extension guidance (cannot be verified from Python)
+    lines += [
+        "",
+        "--- JupyterLab frontend extension ---",
+        "The anywidget JupyterLab extension must be registered in the frontend.",
+        "If you see 'No version of module anywidget is registered' in the browser",
+        "console, the frontend extension is missing.  Try:",
+        "  1. pip install anywidget --upgrade",
+        "  2. Fully restart JupyterLab (not just the kernel)",
+        "  3. Hard-reload the browser (Ctrl+Shift+R / Cmd+Shift+R)",
+        "  4. If using a hosted JupyterLab, ask your admin to add anywidget",
+        "     to the server environment and rebuild the lab.",
+        "",
+        "[All Python checks passed]" if ok else "[Some checks failed — see above]",
+    ]
+
+    print("\n".join(lines))
+    return ok
+
+
+def _run_interactive_fallback(func, bound_args, packages, base_ctx,  # pylint: disable=too-many-arguments
+                              widgets, display, html_cls, exc) -> None:
+    """Show a warning banner and render the figure non-interactively."""
+    warnings.warn(
+        f"Interactive widgets unavailable ({exc}). "
+        "Falling back to non-interactive mode. "
+        "Install anywidget and restart JupyterLab to enable interactive controls: "
+        "pip install anywidget. "
+        "Run check_anywidget_health() from gofigr.reproducible for a detailed report.",
+        stacklevel=4,
+    )
+    try:
+        display(html_cls(_ANYWIDGET_WARNING_HTML))
+    except Exception:  # pylint: disable=broad-exception-caught
+        pass
+    out = widgets.Output()
+    display(out)
+    with out:
+        token = _reproducible_context.set(base_ctx) if base_ctx is not None else None
+        try:
+            _run_clean(func, bound_args, packages, show_plot=True)
+        except Exception as run_e:  # pylint: disable=broad-exception-caught
+            print(f"Error: {run_e}")
+            traceback.print_exc()
+        finally:
+            if token is not None:
+                _reproducible_context.reset(token)
+
+
 def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disable=too-many-locals
                      packages: Dict[str, str],
                      base_ctx: Optional['ReproducibleContext'] = None) -> None:
@@ -286,7 +402,7 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
     """
     # Lazy imports for interactive mode
     import ipywidgets as widgets
-    from IPython.display import display, clear_output
+    from IPython.display import display, clear_output, HTML
 
     # Build widget metadata from Param descriptors stored in the context
     descriptors = (base_ctx.param_descriptors or {}) if base_ctx else {}
@@ -310,8 +426,13 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
     interactive_meta = {k: v for k, v in param_meta.items()
                         if v["type"] != "static"}
 
-    # Create widget
-    widget = ReproducibleWidget(params=interactive_params, param_meta=interactive_meta)
+    # Attempt to create the anywidget.  Fall back gracefully if the package is
+    # missing or the frontend extension is not registered.
+    try:
+        widget = ReproducibleWidget(params=interactive_params, param_meta=interactive_meta)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        _run_interactive_fallback(func, bound_args, packages, base_ctx, widgets, display, HTML, e)  # noqa: E501
+        return
 
     # Output widget to capture plots and prints
     out = widgets.Output()
@@ -357,7 +478,9 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
                 _reproducible_context.reset(token)
 
 
-def reproducible(interactive: bool = False,
+def reproducible(_func: Optional[Callable] = None,
+                 *,
+                 interactive: bool = False,
                  packages: Optional[Dict[str, str]] = None,
                  merge_packages: bool = True,
                  publisher=None) -> Callable:
@@ -367,6 +490,17 @@ def reproducible(interactive: bool = False,
     The decorated function runs with an isolated globals namespace containing
     only the specified packages, ensuring reproducibility by preventing
     accidental dependencies on external state.
+
+    Can be used with or without arguments::
+
+        @reproducible
+        def my_plot(): ...
+
+        @reproducible()
+        def my_plot(): ...
+
+        @reproducible(interactive=True)
+        def my_plot(): ...
 
     :param interactive: If True, display interactive widgets for numeric, boolean,
                        and categorical parameters. Only works in Jupyter notebooks.
@@ -483,4 +617,7 @@ def reproducible(interactive: bool = False,
                 _reproducible_context.reset(token)
 
         return wrapper
+
+    if _func is not None:
+        return decorator(_func)
     return decorator
