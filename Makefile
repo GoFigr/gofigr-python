@@ -1,4 +1,4 @@
-.PHONY: build build-pyodide docs lint test test-dev test-local
+.PHONY: build build-pyodide docs lint test test-dev test-local version
 
 build:
 	bash build.sh
@@ -20,3 +20,9 @@ test-dev:
 
 test-local:
 	GF_TEST_API_URL=http://localhost:8000 venv/bin/pytest -v -s --tb=short --durations=0 $(if $(ARGS),$(ARGS),tests/)
+
+version:
+	bumpver update --$(or $(filter patch minor major,$(word 2,$(MAKECMDGOALS))),patch)
+
+patch minor major:
+	@true
