@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gofigr"
-version = "1.3.2"
+version = "2.0.0"
 description = "GoFigr client library"
 readme = "README.md"
 authors = [{ name = "Maciej Pacula", email = "maciej@gofigr.io" }]
@@ -29,9 +29,10 @@ classifiers = [
 ]
 keywords = ["science", "visualization", "version control", "plotting", "data", "reproducibility"]
 dependencies = [
-    "numpy", "pandas", "pyqrcode", "pillow", "matplotlib", "dateutils",
+    "numpy", "pandas", "pyarrow", "pyqrcodeng", "pillow", "matplotlib", "dateutils",
     "python-dateutil", "ipython", "requests", "pypng", "plotly", "kaleido",
-    "humanize", "blake3", "GitPython", "ipywidgets>=8.1.0", "nest-asyncio"
+    "humanize", "blake3", "GitPython", "ipywidgets>=8.1.0", "nest-asyncio",
+    "anywidget>=0.9.0", "traitlets"
 ]
 requires-python = ">=3.8"
 
@@ -45,17 +46,17 @@ databricks = ["databricks-sdk"]
 
 [project.urls]
 Homepage = "https://www.gofigr.io"
-Documentation = "https://gofigr.io/docs/gofigr-python/1.3.2/"
+Documentation = "https://gofigr.io/docs/gofigr-python/2.0.0/"
 
 [project.scripts]
 gfconfig = "gofigr.gfconfig:main"
 
 [tool.bumpver]
-current_version = "1.3.2"
+current_version = "2.0.0"
 version_pattern = "MAJOR.MINOR.PATCH"
 commit_message = "Bump version {old_version} -> {new_version}"
 commit = true
-tag = true
+tag = false
 push = false
 
 [tool.hatch.build]
@@ -142,9 +143,5 @@ ignore = ["W002"]
 ]
 
 "docs/source/index.rst" = [
-    "{version}"
-]
-
-"README.rst" = [
     "{version}"
 ]

@@ -3,7 +3,10 @@ Copyright (c) 2022-2025, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-from IPython import get_ipython
+try:
+    from IPython import get_ipython
+except ImportError:
+    get_ipython = None
 
 
 class GfDisplayPublisher:

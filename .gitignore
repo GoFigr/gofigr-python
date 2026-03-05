@@ -28,3 +28,4 @@ gofigr/_version.py
 gofigr/labextension/
 lib/
 tsconfig.tsbuildinfo
+RELEASE_NOTES.md

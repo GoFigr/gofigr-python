@@ -23,7 +23,7 @@ from gofigr.widget import AssetWidget
 LOGGER = logging.getLogger(__name__)
 
 API_URL = "https://api.gofigr.io"
-API_VERSION = "v1.3"
+API_VERSION = "v1.4"
 
 APP_URL = "https://app.gofigr.io"
 

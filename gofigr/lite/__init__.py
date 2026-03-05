@@ -16,11 +16,24 @@ from collections import namedtuple
 from datetime import timedelta, datetime
 
 import PIL
-import nest_asyncio
+try:
+    import nest_asyncio
+except ImportError:
+    nest_asyncio = None
+
 import numpy as np
-from IPython import get_ipython
-from ipywidgets import widgets
-from ipywidgets.comm import create_comm
+
+try:
+    from IPython import get_ipython
+except ImportError:
+    get_ipython = None
+
+try:
+    from ipywidgets import widgets
+    from ipywidgets.comm import create_comm
+except ImportError:
+    widgets = None
+    create_comm = None
 
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
