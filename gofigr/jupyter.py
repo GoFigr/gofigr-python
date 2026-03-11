@@ -255,6 +255,14 @@ def _get_extension_nocheck():
 
 
 
+@from_config_or_env("GF_", gofigr.find_config())
+def _should_auto_configure(auto_configure=True):
+    """Check if auto-configure is enabled via env var, config file, or Databricks secrets."""
+    if isinstance(auto_configure, str):
+        return auto_configure.lower() == "true"
+    return bool(auto_configure)
+
+
 def _load_ipython_extension(ip):
     """\
     Loads the Jupyter extension. Aliased to "load_ipython_extension" (no leading underscore) in the main init.py file.
@@ -271,16 +279,17 @@ def _load_ipython_extension(ip):
     ip.user_ns[EXTENSION_NAME] = ext
     ext.register_hooks()
 
-    try:
-        configure()
-    except Exception as e:  # pylint: disable=broad-exception-caught
-        if "auth" in str(e).lower() and "failed" in str(e).lower():
-            print("GoFigr authentication failed. Please manually call configure(api_key=<YOUR API KEY>).",
-                  file=sys.stderr)
-        else:
-            print(traceback.format_exc(), file=sys.stderr)
-            print(f"Could not automatically configure GoFigr. Please call configure() manually. Error: {e}",
-                  file=sys.stderr)
+    if _should_auto_configure():
+        try:
+            configure()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            if "auth" in str(e).lower() and "failed" in str(e).lower():
+                print("GoFigr authentication failed. Please manually call configure(api_key=<YOUR API KEY>).",
+                      file=sys.stderr)
+            else:
+                print(traceback.format_exc(), file=sys.stderr)
+                print(f"Could not automatically configure GoFigr. Please call configure() manually. Error: {e}",
+                      file=sys.stderr)
 
     ip.user_ns["configure"] = configure
     ip.user_ns["get_extension"] = get_extension
