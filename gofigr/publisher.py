@@ -11,6 +11,7 @@ import os
 import pickle
 import platform
 import sys
+from uuid import uuid4
 
 import PIL
 
@@ -420,10 +421,11 @@ class Publisher:
         if metadata is not None:
             combined_meta.update(metadata)
 
-        with MeasureExecution("Bare revision"):
-            # Create a bare revision first to get the API ID
-            rev = self.gf.Revision(figure=target, metadata=combined_meta, backend=backend)
-            target.revisions.create(rev)
+        rev = self.gf.Revision(figure=target, metadata=combined_meta, backend=backend)
+
+        # Generate UUID client-side so we can prepare watermarks before the server call
+        rev.api_id = str(uuid4())
+        rev._client_id = rev.api_id
 
         with MeasureExecution("Annotators"):
             # Annotate the revision
@@ -454,10 +456,10 @@ class Publisher:
         if ctx is not None:
             self._attach_clean_room_data(rev, ctx)
 
-        with MeasureExecution("Final save"):
-            rev.save(silent=True)
+        with MeasureExecution("Create revision"):
+            target.revisions.create(rev)
 
-            # Calling .save() above will update internal properties based on the response from the server.
+            # Calling .create() above will update internal properties based on the response from the server.
             # In our case, this will result in rev.figure becoming a shallow object with just the API ID. Here
             # we restore it from our cached copy, to avoid a separate API call.
             rev.figure = target
