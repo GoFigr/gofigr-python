@@ -351,8 +351,16 @@ class ModelMixin(abc.ABC):
         if not set(repr1.keys()) == set(repr2.keys()):
             return False
         else:
-            return all(repr1[k] == repr2[k] for k in repr1.keys()
-                       if not isinstance(self.fields[k], Timestamp))
+            for k in repr1.keys():
+                if isinstance(self.fields[k], Timestamp):
+                    continue
+                v1, v2 = repr1[k], repr2[k]
+                if isinstance(v1, list) and isinstance(v2, list):
+                    if sorted(v1) != sorted(v2):
+                        return False
+                elif v1 != v2:
+                    return False
+            return True
 
     def __hash__(self):
         raise RuntimeError("Model instances are not hashable")

@@ -93,6 +93,9 @@ class _GoFigrExtension:
 
     def resolve_analysis(self):
         """Gets the current analysis"""
+        if self.publisher is None:
+            return None
+
         if isinstance(self.publisher.analysis, gofigr.NotebookName):
             meta = NotebookMetadataAnnotator().try_get_metadata()
             if meta is not None:
@@ -111,7 +114,7 @@ class _GoFigrExtension:
 
         """
         if self.publisher is None:
-            logger.warning("No publisher configured.")
+            logger.warning("No publisher configured. Did you call gofigr.configure()?")
             return
 
         if self.auto_publish:
@@ -177,7 +180,7 @@ class _GoFigrExtension:
         if self.is_ready and not self.startup_widget_shown:
             StartupWidget(get_extension()).show()
 
-        while len(self.deferred_revisions) > 0:
+        while self.publisher is not None and len(self.deferred_revisions) > 0:
             rev = self.deferred_revisions.pop(0)
             rev = self.publisher.annotate(rev)
             rev.save(silent=True)
