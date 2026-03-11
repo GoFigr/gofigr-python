@@ -356,7 +356,8 @@ class ModelMixin(abc.ABC):
                     continue
                 v1, v2 = repr1[k], repr2[k]
                 if isinstance(v1, list) and isinstance(v2, list):
-                    if sorted(v1) != sorted(v2):
+                    key = lambda x: str(x.get('api_id', '')) if isinstance(x, dict) else str(x)
+                    if sorted(v1, key=key) != sorted(v2, key=key):
                         return False
                 elif v1 != v2:
                     return False
