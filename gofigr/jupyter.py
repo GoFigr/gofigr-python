@@ -93,6 +93,9 @@ class _GoFigrExtension:
 
     def resolve_analysis(self):
         """Gets the current analysis"""
+        if self.publisher is None:
+            return None
+
         if isinstance(self.publisher.analysis, gofigr.NotebookName):
             meta = NotebookMetadataAnnotator().try_get_metadata()
             if meta is not None:
@@ -111,7 +114,7 @@ class _GoFigrExtension:
 
         """
         if self.publisher is None:
-            logger.warning("No publisher configured.")
+            logger.warning("No publisher configured. Did you call gofigr.configure()?")
             return
 
         if self.auto_publish:
@@ -177,7 +180,7 @@ class _GoFigrExtension:
         if self.is_ready and not self.startup_widget_shown:
             StartupWidget(get_extension()).show()
 
-        while len(self.deferred_revisions) > 0:
+        while self.publisher is not None and len(self.deferred_revisions) > 0:
             rev = self.deferred_revisions.pop(0)
             rev = self.publisher.annotate(rev)
             rev.save(silent=True)
@@ -255,6 +258,14 @@ def _get_extension_nocheck():
 
 
 
+@from_config_or_env("GF_", gofigr.find_config())
+def _should_auto_configure(auto_configure=True):
+    """Check if auto-configure is enabled via env var, config file, or Databricks secrets."""
+    if isinstance(auto_configure, str):
+        return auto_configure.lower() == "true"
+    return bool(auto_configure)
+
+
 def _load_ipython_extension(ip):
     """\
     Loads the Jupyter extension. Aliased to "load_ipython_extension" (no leading underscore) in the main init.py file.
@@ -271,16 +282,17 @@ def _load_ipython_extension(ip):
     ip.user_ns[EXTENSION_NAME] = ext
     ext.register_hooks()
 
-    try:
-        configure()
-    except Exception as e:  # pylint: disable=broad-exception-caught
-        if "auth" in str(e).lower() and "failed" in str(e).lower():
-            print("GoFigr authentication failed. Please manually call configure(api_key=<YOUR API KEY>).",
-                  file=sys.stderr)
-        else:
-            print(traceback.format_exc(), file=sys.stderr)
-            print(f"Could not automatically configure GoFigr. Please call configure() manually. Error: {e}",
-                  file=sys.stderr)
+    if _should_auto_configure():
+        try:
+            configure()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            if "auth" in str(e).lower() and "failed" in str(e).lower():
+                print("GoFigr authentication failed. Please manually call configure(api_key=<YOUR API KEY>).",
+                      file=sys.stderr)
+            else:
+                print(traceback.format_exc(), file=sys.stderr)
+                print(f"Could not automatically configure GoFigr. Please call configure() manually. Error: {e}",
+                      file=sys.stderr)
 
     ip.user_ns["configure"] = configure
     ip.user_ns["get_extension"] = get_extension

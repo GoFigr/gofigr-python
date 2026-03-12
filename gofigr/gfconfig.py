@@ -222,6 +222,7 @@ def main(args=None):
     gf = login_with_api_key(gf_pw_auth, config, config_path)
 
     if args.advanced:
+        config['auto_configure'] = read_input("Auto-configure on extension load [Y/n]: ", yes_no, default='yes')
         config['auto_publish'] = read_input("Auto-publish all figures [Y/n]: ", yes_no, default='yes')
         config['default_metadata'] = read_input("Default revision metadata (JSON): ", valid_json, default="null")
 

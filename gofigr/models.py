@@ -351,8 +351,17 @@ class ModelMixin(abc.ABC):
         if not set(repr1.keys()) == set(repr2.keys()):
             return False
         else:
-            return all(repr1[k] == repr2[k] for k in repr1.keys()
-                       if not isinstance(self.fields[k], Timestamp))
+            for k in repr1.keys():
+                if isinstance(self.fields[k], Timestamp):
+                    continue
+                v1, v2 = repr1[k], repr2[k]
+                if isinstance(v1, list) and isinstance(v2, list):
+                    key = lambda x: str(x.get('api_id', '')) if isinstance(x, dict) else str(x)
+                    if sorted(v1, key=key) != sorted(v2, key=key):
+                        return False
+                elif v1 != v2:
+                    return False
+            return True
 
     def __hash__(self):
         raise RuntimeError("Model instances are not hashable")
@@ -463,13 +472,19 @@ class ModelMixin(abc.ABC):
 
         :return: self
         """
-        if self.api_id is not None:
+        client_id = getattr(self, '_client_id', None)
+
+        if self.api_id is not None and client_id is None:
             if update:
                 return self.save()
             else:
                 raise RuntimeError("This entity already exists. Cannot create.")
 
-        response = self._gf._post(self.endpoint, json=self.to_json(include_derived=False),
+        json_data = self.to_json(include_derived=False)
+        if client_id is not None:
+            json_data['client_id'] = client_id
+
+        response = self._gf._post(self.endpoint, json=json_data,
                                   expected_status=HTTPStatus.CREATED)
         self._update_properties(response.json())
         return self

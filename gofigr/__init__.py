@@ -23,7 +23,7 @@ from gofigr.widget import AssetWidget
 LOGGER = logging.getLogger(__name__)
 
 API_URL = "https://api.gofigr.io"
-API_VERSION = "v1.4"
+API_VERSION = "v1.4.1"
 
 APP_URL = "https://app.gofigr.io"
 
@@ -237,7 +237,7 @@ class GoFigr:
     @property
     def app_url(self):
         """Returns the URL to the GoFigr app"""
-        return self.service_url.replace("api", "app").replace(":8000", ":5173")
+        return self.service_url.replace("api", "app").replace(":8000", ":5173").replace(":9090", ":5173")
 
     def _bind_models(self):
         """\
