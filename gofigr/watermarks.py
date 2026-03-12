@@ -41,8 +41,14 @@ def _qr_to_image(text, **kwargs):
 
 def _default_font():
     """Loads the default font and returns it as an ImageFont"""
-    with importlib.resources.files("gofigr.resources").joinpath("FreeMono.ttf").open("rb") as f:
-        return ImageFont.truetype(f, 14)
+    try:
+        # Python 3.9+
+        with importlib.resources.files("gofigr.resources").joinpath("FreeMono.ttf").open("rb") as f:
+            return ImageFont.truetype(f, 14)
+    except AttributeError:
+        # Python 3.8
+        with importlib.resources.open_binary("gofigr.resources", "FreeMono.ttf") as f:
+            return ImageFont.truetype(f, 14)
 
 
 def stack_horizontally(*images, alignment="center"):
