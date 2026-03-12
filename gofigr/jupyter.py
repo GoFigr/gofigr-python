@@ -223,7 +223,9 @@ class _GoFigrExtension:
         self._register_handler('post_run_cell', self.post_run_cell)
 
         native_display_publisher = self.shell.display_pub
-        if not isinstance(native_display_publisher, GfDisplayPublisher):
+        if isinstance(native_display_publisher, GfDisplayPublisher):
+            native_display_publisher.display_trap = self.display_trap
+        else:
             self.shell.display_pub = GfDisplayPublisher(native_display_publisher, display_trap=self.display_trap)
 
 
