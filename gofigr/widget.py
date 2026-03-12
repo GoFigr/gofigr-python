@@ -23,7 +23,10 @@ from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME
 try:
     from IPython.core.display_functions import display as ipython_display
 except (ModuleNotFoundError, ImportError):
-    ipython_display = None
+    try:
+        from IPython.core.display import display as ipython_display
+    except (ModuleNotFoundError, ImportError):
+        ipython_display = None
 
 from gofigr.utils import read_resource_b64, read_resource_text
 
