@@ -207,7 +207,7 @@ class Publisher:
         else:
             return self.gf.find_figure(analysis, target)
 
-    def _get_pickle_data(self, gf, fig, revision, target):
+    def _get_pickle_data(self, gf, fig, target):
         if not self.save_pickle:
             return []
 
@@ -216,7 +216,7 @@ class Publisher:
             pickle.dump(fig, bio)
             bio.seek(0)
 
-            return [gf.FileData(name=f"{target.name}_rev_{revision.revision_index + 1}.pickle",
+            return [gf.FileData(name=f"{target.name}.pickle",
                                  data=bio.getvalue())]
         except Exception as e: # pylint: disable=broad-exception-caught
             print(f"WARNING: We could not obtain the figure in pickle format: {e}", file=sys.stderr)
@@ -286,7 +286,7 @@ class Publisher:
             image_data.append(html_with_watermark)
             image_to_display = wfig  # display the native Figure
 
-        image_data.extend(self._get_pickle_data(gf, fig, rev, target))
+        image_data.extend(self._get_pickle_data(gf, fig, target))
 
         return image_data, image_to_display
 
