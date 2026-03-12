@@ -72,10 +72,10 @@ class GfDisplayPublisher:
         :param value:
         :return:
         """
-        if key == "pub":
+        if key in ("pub", "display_trap"):
             super().__setattr__(key, value)
-
-        return setattr(self.pub, key, value)
+        else:
+            setattr(self.pub, key, value)
 
     def clear_output(self, *args, **kwargs):
         """IPython's clear_output. Defers to self.pub"""
