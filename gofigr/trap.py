@@ -3,10 +3,7 @@ Copyright (c) 2022-2025, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-try:
-    from IPython import get_ipython
-except ImportError:
-    get_ipython = None
+from gofigr.compat import get_ipython
 
 
 class GfDisplayPublisher:

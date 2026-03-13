@@ -1091,25 +1091,31 @@ class gf_Asset(ShareableModelMixin, ThumbnailMixin):
               "description",
               "size_bytes",
               LinkedEntityField("workspace", lambda gf: gf.Workspace, many=False),
+              LinkedEntityField("analysis", lambda gf: gf.Analysis, many=False),
               LinkedEntityField("revisions", lambda gf: gf.AssetRevision, many=True,
                                 derived=True, backlink_property='asset')
               ] + TIMESTAMP_FIELDS + CHILD_TIMESTAMP_FIELDS
     endpoint = "asset/"
 
     @classmethod
-    def find_by_name(cls, name):
+    def find_by_name(cls, name, analysis=None):
         """\
         Finds an asset by name.
 
         :param name: name to search for
+        :param analysis: optional analysis API ID to scope the search
         :return: Asset instances, or empty list if not found
 
         """
         if name is None:
             raise ValueError("Name cannot be None")
 
+        payload = {'name': name}
+        if analysis is not None:
+            payload['analysis'] = analysis
+
         response = cls._gf._post(urljoin(cls.endpoint, 'find_by_name/'),
-                                json={'name': name},
+                                json=payload,
                                 expected_status=HTTPStatus.OK)
         return [cls.from_json(datum) for datum in response.json()]
 
@@ -1708,12 +1714,13 @@ class gf_AssetRevision(RevisionMixin, ThumbnailMixin):
     endpoint = "asset_revision/"
 
     @classmethod
-    def find_by_hash(cls, digest, hash_type="blake3"):
+    def find_by_hash(cls, digest, hash_type="blake3", analysis=None):
         """\
         Finds an asset revision by its hash.
 
         :param digest: digest hash (text)
         :param hash_type: type of hash (only blake3 supported)
+        :param analysis: optional analysis API ID to scope the search
         :return: list of matching asset revisions, or empty list if not found
 
         """
@@ -1722,8 +1729,12 @@ class gf_AssetRevision(RevisionMixin, ThumbnailMixin):
         elif hash_type is None:
             raise ValueError("Hash type cannot be None")
 
+        payload = {'digest': digest, 'hash_type': hash_type}
+        if analysis is not None:
+            payload['analysis'] = analysis
+
         response = cls._gf._post(urljoin(cls.endpoint, 'find_by_hash/'),
-                                 json={'digest': digest, 'hash_type': hash_type},
+                                 json=payload,
                                  expected_status=HTTPStatus.OK)
         return [cls.from_json(datum) for datum in response.json()]
 

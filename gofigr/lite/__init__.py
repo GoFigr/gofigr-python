@@ -16,27 +16,13 @@ from collections import namedtuple
 from datetime import timedelta, datetime
 
 import PIL
-try:
-    import nest_asyncio
-except ImportError:
-    nest_asyncio = None
 
 import numpy as np
-
-try:
-    from IPython import get_ipython
-except ImportError:
-    get_ipython = None
-
-try:
-    from ipywidgets import widgets
-    from ipywidgets.comm import create_comm
-except ImportError:
-    widgets = None
-    create_comm = None
-
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+from gofigr.compat import get_ipython, ipython_display as display, \
+    nest_asyncio, ipywidgets_widgets as widgets, create_comm, PLOTNINE_AVAILABLE
 
 from gofigr import GoFigr
 from gofigr.annotators import GitAnnotator, NotebookMetadataAnnotator, NOTEBOOK_NAME
@@ -50,19 +36,8 @@ from gofigr.publisher import _make_backend, _mark_as_published, \
 from gofigr.watermarks import DefaultWatermark, _qr_to_image, add_margins, stack_horizontally
 from gofigr.widget import LiteStartupWidget
 
-try:
-    from IPython.core.display_functions import display
-except ModuleNotFoundError:
-    from IPython.core.display import display
-
-
-PLOTNINE_PRESENT = False
-try:
-    import plotnine # pylint: disable=unused-import
+if PLOTNINE_AVAILABLE:
     from gofigr.backends.plotnine import PlotnineBackend
-    PLOTNINE_PRESENT = True
-except ModuleNotFoundError:
-    pass
 
 
 logger = logging.getLogger(__name__)
@@ -396,7 +371,7 @@ class LiteWatermark(DefaultWatermark):
 
 DEFAULT_LITE_BACKENDS = (MatplotlibBackend, LitePlotlyBackend)
 
-if PLOTNINE_PRESENT:
+if PLOTNINE_AVAILABLE:
     # pylint: disable=possibly-used-before-assignment
     DEFAULT_LITE_BACKENDS = (PlotnineBackend,) + DEFAULT_LITE_BACKENDS
 

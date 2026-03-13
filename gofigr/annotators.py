@@ -12,15 +12,7 @@ import sys
 from abc import ABC
 from urllib.parse import unquote, urlparse
 
-try:
-    import git
-except ImportError:
-    git = None
-
-try:
-    from IPython import get_ipython
-except ImportError:
-    get_ipython = None
+from gofigr.compat import get_ipython, gitpython as git
 
 from gofigr.models import CodeLanguage
 from gofigr.databricks import get_dbutils

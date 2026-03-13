@@ -18,10 +18,7 @@ from queue import Empty as QueueEmpty
 from threading import Thread
 from urllib.parse import urljoin
 
-try:
-    from IPython.core.display import Javascript
-except ImportError:
-    Javascript = None
+from gofigr.compat import Javascript
 
 from gofigr.utils import read_resource_text, read_resource_b64
 

@@ -9,10 +9,10 @@ import logging
 import os
 import uuid
 from base64 import b64encode
-from importlib import resources
+from functools import wraps
 
-import six
-
+from gofigr.compat import open_resource_text as _open_resource_text, \
+    open_resource_binary as _open_resource_binary
 from gofigr.databricks import get_config as get_databricks_config
 
 
@@ -25,8 +25,7 @@ def read_resource_text(package, resource):
     :return: resource contents as a string
 
     """
-    # pylint: disable=deprecated-method
-    with resources.open_text(package, resource) as f:
+    with _open_resource_text(package, resource) as f:
         return f.read()
 
 
@@ -39,8 +38,7 @@ def read_resource_binary(package, resource):
     :return: bytes
 
     """
-    # pylint: disable=deprecated-method
-    with resources.open_binary(package, resource) as f:
+    with _open_resource_binary(package, resource) as f:
         return f.read()
 
 
@@ -53,8 +51,7 @@ def read_resource_b64(package, resource):
     :return: base64-encoded string
 
     """
-    # pylint: disable=deprecated-method
-    with resources.open_binary(package, resource) as f:
+    with _open_resource_binary(package, resource) as f:
         return b64encode(f.read()).decode('ascii')
 
 
@@ -77,7 +74,7 @@ def from_config_or_env(env_prefix, config_path):
 
     """
     def decorator(func):
-        @six.wraps(func)
+        @wraps(func)
         def wrapper(*args, **kwargs):
             # Read config file, if it exists
             if config_path and os.path.exists(config_path):

@@ -207,6 +207,7 @@ class GoFigr:
         self.api_key = api_key
         self.anonymous = anonymous
         self.workspace_id = workspace_id
+        self.analysis_id = None
         self.asset_log = asset_log if asset_log is not None else {}
         self._primary_workspace = None
 
@@ -226,7 +227,10 @@ class GoFigr:
     def sync(self):
         """Returns the default AssetSync object"""
         if not self._sync:
-            self._sync = AssetSync(self, workspace_id=self.workspace_id, asset_log=self.asset_log)
+            self._sync = AssetSync(self,
+                                      workspace_id=self.workspace_id,
+                                      analysis_id=self.analysis_id,
+                                      asset_log=self.asset_log)
 
         return self._sync
 
@@ -679,15 +683,17 @@ def load_ipython_extension(ip):
 class AssetSync:
     """Provides drop-in replacements for open, read_xlsx, read_csv which version the data with the GoFigr service."""
 
-    def __init__(self, gf, workspace_id=None, asset_log=None):
+    def __init__(self, gf, workspace_id=None, analysis_id=None, asset_log=None):
         """\
 
         :param gf: GoFigr instance
         :param workspace_id: workspace to sync under
+        :param analysis_id: optional analysis API ID to scope assets under
         :param asset_log: dictionary of data revision IDs -> data revision objects
         """
         self.gf = gf
         self.workspace_id = workspace_id or self.gf.primary_workspace.api_id
+        self.analysis_id = analysis_id
         self.asset_log = asset_log if asset_log is not None else {}
         self._bind_readers()
 
@@ -715,7 +721,9 @@ class AssetSync:
 
         """
         logging.debug(f"Creating new asset for {pathlike}")
-        ds = self.gf.Asset(name=os.path.basename(pathlike), workspace=self.gf.Workspace(api_id=self.workspace_id))
+        ds = self.gf.Asset(name=os.path.basename(pathlike),
+                           workspace=self.gf.Workspace(api_id=self.workspace_id),
+                           analysis=self.gf.Analysis(api_id=self.analysis_id) if self.analysis_id else None)
         ds.create()
         logging.debug(f"Created asset {ds.api_id}")
         return ds
@@ -727,7 +735,7 @@ class AssetSync:
 
         """
         logging.debug("New revision detected. Syncing...")
-        assets = self.gf.Asset.find_by_name(os.path.basename(pathlike))
+        assets = self.gf.Asset.find_by_name(os.path.basename(pathlike), analysis=self.analysis_id)
         logging.debug(f"Found assets: {assets}")
 
         # First, figure out which asset we're syncing to
@@ -778,7 +786,7 @@ class AssetSync:
         logging.debug(f"Calculated checksum for {pathlike}: {checksum}")
 
         # Check if we already have this asset
-        revisions = self.gf.AssetRevision.find_by_hash(checksum, "blake3")
+        revisions = self.gf.AssetRevision.find_by_hash(checksum, "blake3", analysis=self.analysis_id)
 
         if len(revisions) == 0:
             return self._log(self._new_revision(pathlike), is_new_revision=True)

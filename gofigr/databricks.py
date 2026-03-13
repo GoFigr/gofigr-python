@@ -6,15 +6,7 @@ All rights reserved.
 import json
 import sys
 
-try:
-    from IPython import get_ipython
-except ImportError:
-    get_ipython = None
-
-try:
-    from databricks.sdk import WorkspaceClient
-except ImportError:
-    pass
+from gofigr.compat import get_ipython, WorkspaceClient
 
 def get_dbutils(shell=None):
     """Gets dbutils if running on DataBricks"""

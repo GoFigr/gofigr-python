@@ -16,10 +16,7 @@ from functools import wraps
 from pathlib import Path
 from uuid import UUID
 
-try:
-    from IPython import get_ipython
-except ImportError:
-    get_ipython = None
+from gofigr.compat import get_ipython, ipython_display as display
 
 import gofigr
 from gofigr import GoFigr, API_URL
@@ -33,11 +30,6 @@ from gofigr.profile import MeasureExecution
 from gofigr.trap import GfDisplayPublisher, SuppressDisplayTrap
 from gofigr.utils import from_config_or_env
 from gofigr.widget import DetailedWidget, StartupWidget
-
-try:
-    from IPython.core.display_functions import display
-except ModuleNotFoundError:
-    from IPython.core.display import display
 
 
 logger = logging.getLogger(__name__)

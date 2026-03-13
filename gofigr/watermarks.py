@@ -3,11 +3,12 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-import importlib.resources
 import io
 
 import pyqrcodeng as pyqrcode
 from PIL import Image, ImageDraw, ImageFont
+
+from gofigr.compat import open_resource_binary
 
 from gofigr import APP_URL
 
@@ -41,14 +42,8 @@ def _qr_to_image(text, **kwargs):
 
 def _default_font():
     """Loads the default font and returns it as an ImageFont"""
-    try:
-        # Python 3.9+
-        with importlib.resources.files("gofigr.resources").joinpath("FreeMono.ttf").open("rb") as f:
-            return ImageFont.truetype(f, 14)
-    except AttributeError:
-        # Python 3.8
-        with importlib.resources.open_binary("gofigr.resources", "FreeMono.ttf") as f:
-            return ImageFont.truetype(f, 14)
+    with open_resource_binary("gofigr.resources", "FreeMono.ttf") as f:
+        return ImageFont.truetype(f, 14)
 
 
 def stack_horizontally(*images, alignment="center"):
