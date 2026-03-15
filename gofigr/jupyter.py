@@ -94,6 +94,10 @@ class _GoFigrExtension:
                 self.publisher.analysis = self.publisher.workspace.get_analysis(name=Path(meta[NOTEBOOK_NAME]).stem,
                                                                                 create=True)
                 self.publisher.analysis.fetch()
+                self.gf._analysis = self.publisher.analysis
+
+                if self.gf._sync:
+                    self.gf._sync.process_deferred_syncs()
 
         return self.publisher.analysis
 
@@ -432,9 +436,11 @@ def configure(username=None,
 
     worx = gf.find_workspace(workspace)
     gf.workspace_id = worx.api_id
+    resolved_analysis = gf.find_analysis(worx, analysis)
+    gf._analysis = resolved_analysis
     publisher = JupyterPublisher(gf,
                                  workspace=worx,
-                                 analysis=gf.find_analysis(worx, analysis),
+                                 analysis=resolved_analysis,
                                  default_metadata=default_metadata,
                                  watermark=watermark,
                                  annotators=[make_annotator() for make_annotator in annotators],

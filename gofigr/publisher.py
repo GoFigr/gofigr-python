@@ -146,8 +146,6 @@ class Publisher:
 
         self.workspace = self.gf.find_workspace(workspace).fetch()
         self.analysis = self.gf.find_analysis(self.workspace, analysis)
-        if self.analysis and not isinstance(self.analysis, NotebookName):
-            self.gf.analysis_id = self.analysis.api_id
 
     def _check_analysis(self):
         if self.analysis is None:

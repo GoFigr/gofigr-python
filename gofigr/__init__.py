@@ -170,7 +170,7 @@ def find_config(current_dir=None, filename=".gofigr"):
     return default_path if os.path.exists(default_path) else None
 
 
-# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-instance-attributes, too-many-public-methods
 class GoFigr:
     """\
     The GoFigr client. Handles all communication with the API: authentication, figure creation and manipulation,
@@ -207,7 +207,7 @@ class GoFigr:
         self.api_key = api_key
         self.anonymous = anonymous
         self.workspace_id = workspace_id
-        self.analysis_id = None
+        self._analysis = None
         self.asset_log = asset_log if asset_log is not None else {}
         self._primary_workspace = None
 
@@ -224,12 +224,23 @@ class GoFigr:
         self._sync = None
 
     @property
+    def analysis_id(self):
+        """Returns the analysis API ID, or None if analysis is pending or unset."""
+        if self._analysis is not None and not isinstance(self._analysis, NotebookName):
+            return self._analysis.api_id
+        return None
+
+    @property
+    def analysis_pending(self):
+        """Returns True if analysis is a NotebookName that hasn't been resolved yet."""
+        return isinstance(self._analysis, NotebookName)
+
+    @property
     def sync(self):
         """Returns the default AssetSync object"""
         if not self._sync:
             self._sync = AssetSync(self,
                                       workspace_id=self.workspace_id,
-                                      analysis_id=self.analysis_id,
                                       asset_log=self.asset_log)
 
         return self._sync
@@ -683,21 +694,25 @@ def load_ipython_extension(ip):
 class AssetSync:
     """Provides drop-in replacements for open, read_xlsx, read_csv which version the data with the GoFigr service."""
 
-    def __init__(self, gf, workspace_id=None, analysis_id=None, asset_log=None):
+    def __init__(self, gf, workspace_id=None, asset_log=None):
         """\
 
         :param gf: GoFigr instance
         :param workspace_id: workspace to sync under
-        :param analysis_id: optional analysis API ID to scope assets under
         :param asset_log: dictionary of data revision IDs -> data revision objects
         """
         self.gf = gf
         self.workspace_id = workspace_id or self.gf.primary_workspace.api_id
-        self.analysis_id = analysis_id
         self.asset_log = asset_log if asset_log is not None else {}
+        self.deferred_syncs = []
         self._bind_readers()
 
         logging.debug(f"Using workspace ID {self.workspace_id}")
+
+    @property
+    def analysis_id(self):
+        """Returns the analysis ID from the parent GoFigr instance."""
+        return self.gf.analysis_id
 
     @property
     def revisions(self):
@@ -766,6 +781,15 @@ class AssetSync:
         logging.debug(f"Current revision cache: {self.asset_log.keys()}")
         return revision
 
+    def process_deferred_syncs(self):
+        """Runs sync_revision for each stashed path now that analysis is resolved, then clears the list."""
+        while self.deferred_syncs:
+            pathlike = self.deferred_syncs.pop(0)
+            rev = self.sync_revision(pathlike)
+            if rev:
+                logging.info(f"Asset synced: {rev.app_url}")
+                AssetWidget(rev).show()
+
     def sync_revision(self, pathlike):
         """\
         Syncs an asset: calculates the checksum for the file and either uploads it to GoFigr (if checksum isn't found)
@@ -775,6 +799,11 @@ class AssetSync:
         :return: AssetRevision instance
 
         """
+        if self.gf.analysis_pending:
+            logging.debug(f"Analysis pending, deferring sync for {pathlike}")
+            self.deferred_syncs.append(pathlike)
+            return None
+
         # Grab the checksum
         logging.debug(f"Syncing {pathlike}")
 
@@ -786,6 +815,7 @@ class AssetSync:
         logging.debug(f"Calculated checksum for {pathlike}: {checksum}")
 
         # Check if we already have this asset
+        print(f"Looking for existing revisions with checksum {checksum} for analysis {self.analysis_id}...")
         revisions = self.gf.AssetRevision.find_by_hash(checksum, "blake3", analysis=self.analysis_id)
 
         if len(revisions) == 0:
@@ -851,7 +881,8 @@ class AssetSync:
             logging.debug(f"Calling {func.__name__} for {pathlike}")
             with self.open_and_get_revision(pathlike, 'rb') as (f, rev):
                 frame = func(f, *args, **kwargs)
-                frame.attrs = {REVISION_ATTR: rev.api_id}
+                if rev is not None:
+                    frame.attrs = {REVISION_ATTR: rev.api_id}
                 return frame
         return wrapper
 
@@ -864,9 +895,7 @@ class AssetSync:
                 file_hasher.update_mmap(path)
                 return file_hasher.hexdigest()
             else:
-                warnings.warn(
-                    "Non-local paths aren't supported yet. Please consider submitting an issue here: "
-                    "https://github.com/GoFigr/gofigr-python/issues")
+                warnings.warn(f"Path does not exist: {pathlike}")
                 return None
         except TypeError:
             warnings.warn(
