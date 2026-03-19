@@ -7,13 +7,12 @@ All rights reserved.
 """
 # pylint: disable=use-dict-literal, ungrouped-imports
 
-import asyncio
 import io
 import logging
 import os
 import sys
 from collections import namedtuple
-from datetime import timedelta, datetime
+from datetime import datetime
 
 import PIL
 
@@ -22,12 +21,13 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from gofigr.compat import get_ipython, ipython_display as display, \
-    nest_asyncio, ipywidgets_widgets as widgets, create_comm, PLOTNINE_AVAILABLE
+    ipywidgets_widgets as widgets, PLOTNINE_AVAILABLE
 
 from gofigr import GoFigr
 from gofigr.annotators import GitAnnotator, NotebookMetadataAnnotator, NOTEBOOK_NAME
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
+from gofigr.resolver import NotebookResolver
 from gofigr.trap import SuppressDisplayTrap
 from gofigr.utils import read_resource_b64, read_resource_binary
 from gofigr.jupyter import _GoFigrExtension, _base_publish
@@ -56,8 +56,8 @@ class _LiteGoFigrExtension(_GoFigrExtension):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, auto_publish=True, **kwargs)
-        self.comm_data = None
-        self.startup_widget = widgets.Output()
+        self.resolver = NotebookResolver(self.shell, enable_proxy=False)
+        self.resolver.try_resolve_immediate()
         self.publisher = LitePublisher()
 
     @property
@@ -66,21 +66,6 @@ class _LiteGoFigrExtension(_GoFigrExtension):
 
     def post_run_cell(self, result):
         self.cell = result.info
-
-
-def _gofigr_comm_handler(msg):
-    ext = get_extension()
-    first_data = ext.comm_data is None
-    ext.comm_data = msg['content']['data']
-    if first_data:
-        with ext.startup_widget:
-            LiteStartupWidget(get_extension()).show()
-
-
-def _requeue(ip, digest, item):
-    ip.kernel.session.digest_history = [x for x in ip.kernel.session.digest_history
-                                        if x.decode('ascii') != digest.decode('ascii')]
-    ip.kernel.msg_queue.put(item)
 
 
 def load_ipython_extension(ip):
@@ -93,8 +78,6 @@ def load_ipython_extension(ip):
     :return: None
 
     """
-    nest_asyncio.apply()
-
     ext = get_extension()
 
     if ext is not None:
@@ -107,51 +90,7 @@ def load_ipython_extension(ip):
     ip.user_ns["publish"] = publish
     ip.user_ns["suppress"] = suppress
 
-    display(ext.startup_widget)
-
-    my_comm = create_comm(target_name='gofigr', data={'state': "open"}, metadata={})
-    my_comm.on_msg(_gofigr_comm_handler)
-
-    # load_ipython_extension is running within the same event queue as Comms,
-    # so the comm will not be processed until much later (in some cases this can be after the whole
-    # notebook has finished executing (!)).
-    #
-    # That's too late to be useful, so we manually process the event queue message here.
-    logger.debug("Waiting for comm message...")
-
-    start_time = datetime.now()
-    queue_copy = []
-    comm_received = False
-    while not comm_received and datetime.now() - start_time < timedelta(seconds=5):
-        try:
-            item = asyncio.run(ip.kernel.msg_queue.get(timeout=timedelta(seconds=1)))
-
-            _, _, args = item
-            _, msg = ip.kernel.session.feed_identities(*args, copy=False)
-            digest = msg[0].bytes
-
-            msg = ip.kernel.session.deserialize(msg, content=True, copy=False)
-
-            if msg['msg_type'] == 'comm_msg' and msg['content']['comm_id'] == my_comm.comm_id:
-                # This is our message!
-                _gofigr_comm_handler(msg)
-                comm_received = True
-
-                # It's important to keep going until we exhaust all messages. Otherwise the previous messages
-                # will be appended out-of-order.
-
-            queue_copy.append((digest, item))
-
-        except TimeoutError:
-            if comm_received:  # no more messages and comm-received: we're done
-                break
-            else:
-                logger.debug("Timeout. Waiting...")  # no more messages and still no comm. Wait.
-                asyncio.run(asyncio.sleep(0.5))
-
-    # Restore the queue
-    for digest, item in queue_copy:
-        _requeue(ip, digest, item)
+    LiteStartupWidget(ext).show()
 
 
 class LiteClient(GoFigr):

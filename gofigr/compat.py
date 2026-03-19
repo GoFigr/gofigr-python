@@ -73,16 +73,9 @@ except ImportError:
     gitpython = None
 
 try:
-    import nest_asyncio
-except ImportError:
-    nest_asyncio = None
-
-try:
     from ipywidgets import widgets as ipywidgets_widgets
-    from ipywidgets.comm import create_comm
 except ImportError:
     ipywidgets_widgets = None
-    create_comm = None
 
 
 def open_resource_binary(package, resource):

@@ -277,20 +277,20 @@ class NotebookMetadataAnnotator(IPythonAnnotator):
         except Exception:  # pylint: disable=broad-exception-caught
             return None
 
+    def parse_from_jpy_session(self):
+        """Returns notebook path if JPY_SESSION_NAME is set by jupyter_server"""
+        session_name = os.environ.get("JPY_SESSION_NAME")
+        if session_name:
+            return {NOTEBOOK_PATH: session_name,
+                    NOTEBOOK_NAME: os.path.basename(session_name)}
+        return None
+
     def try_get_metadata(self):
         """Infers the notebook path & name using currently available metadata if possible, returning None otherwise"""
         try:
             return self.parse_metadata(error=False)
         except Exception:  # pylint: disable=broad-exception-caught
             return None
-
-    def _parse_from_comms(self, comm_data):
-        if comm_data is None:
-            return None
-
-        return {NOTEBOOK_PATH: comm_data.get('notebook_path'),
-                NOTEBOOK_NAME: comm_data.get('title'),
-                NOTEBOOK_URL: comm_data.get('url')}
 
     def _parse_from_proxy(self, meta, error):
         if 'url' not in meta and _ACTIVE_TAB_TITLE not in meta:
@@ -343,6 +343,10 @@ class NotebookMetadataAnnotator(IPythonAnnotator):
         if db_meta is not None:
             return db_meta
 
+        jpy_meta = self.parse_from_jpy_session()
+        if jpy_meta is not None:
+            return jpy_meta
+
         # At this point the metadata needs to come from the JavaScript proxy
         ext = self.get_ip_extension()
         if ext is None:
@@ -351,16 +355,19 @@ class NotebookMetadataAnnotator(IPythonAnnotator):
             else:
                 return None
 
-        if hasattr(ext, "comm_data"):
-            return self._parse_from_comms(ext.comm_data)
-        else:
-            meta = ext.notebook_metadata
-            if meta is None and error:
-                raise RuntimeError("No Notebook metadata available")
-            elif meta is None:
-                return None
+        meta = getattr(ext, 'notebook_metadata', None)
+        if meta is None:
+            # Try via resolver
+            resolver = getattr(ext, 'resolver', None)
+            if resolver is not None:
+                meta = resolver.metadata
 
-            return self._parse_from_proxy(meta, error)
+        if meta is None and error:
+            raise RuntimeError("No Notebook metadata available")
+        elif meta is None:
+            return None
+
+        return self._parse_from_proxy(meta, error)
 
     def annotate(self, revision, sync=True):
         if revision.metadata is None:
