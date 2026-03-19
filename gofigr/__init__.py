@@ -32,13 +32,6 @@ PANDAS_READERS = ["read_csv", "read_excel", "read_json", "read_html", "read_parq
 REVISION_ATTR = "_gofigr_revision"
 
 
-def _jupyter_labextension_paths():
-    return [{
-        "src": "labextension",
-        "dest": "gofigr"
-    }]
-
-
 def assert_one(elements, error_none=None, error_many=None):
     """\
     Asserts that a list/tuple contains only a single element (raising an exception if not), and returns
@@ -170,7 +163,7 @@ def find_config(current_dir=None, filename=".gofigr"):
     return default_path if os.path.exists(default_path) else None
 
 
-# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-instance-attributes, too-many-public-methods
 class GoFigr:
     """\
     The GoFigr client. Handles all communication with the API: authentication, figure creation and manipulation,
@@ -207,6 +200,7 @@ class GoFigr:
         self.api_key = api_key
         self.anonymous = anonymous
         self.workspace_id = workspace_id
+        self._analysis = None
         self.asset_log = asset_log if asset_log is not None else {}
         self._primary_workspace = None
 
@@ -223,10 +217,24 @@ class GoFigr:
         self._sync = None
 
     @property
+    def analysis_id(self):
+        """Returns the analysis API ID, or None if analysis is pending or unset."""
+        if self._analysis is not None and not isinstance(self._analysis, NotebookName):
+            return self._analysis.api_id
+        return None
+
+    @property
+    def analysis_pending(self):
+        """Returns True if analysis is a NotebookName that hasn't been resolved yet."""
+        return isinstance(self._analysis, NotebookName)
+
+    @property
     def sync(self):
         """Returns the default AssetSync object"""
         if not self._sync:
-            self._sync = AssetSync(self, workspace_id=self.workspace_id, asset_log=self.asset_log)
+            self._sync = AssetSync(self,
+                                      workspace_id=self.workspace_id,
+                                      asset_log=self.asset_log)
 
         return self._sync
 
@@ -689,9 +697,15 @@ class AssetSync:
         self.gf = gf
         self.workspace_id = workspace_id or self.gf.primary_workspace.api_id
         self.asset_log = asset_log if asset_log is not None else {}
+        self.deferred_syncs = []
         self._bind_readers()
 
         logging.debug(f"Using workspace ID {self.workspace_id}")
+
+    @property
+    def analysis_id(self):
+        """Returns the analysis ID from the parent GoFigr instance."""
+        return self.gf.analysis_id
 
     @property
     def revisions(self):
@@ -715,7 +729,9 @@ class AssetSync:
 
         """
         logging.debug(f"Creating new asset for {pathlike}")
-        ds = self.gf.Asset(name=os.path.basename(pathlike), workspace=self.gf.Workspace(api_id=self.workspace_id))
+        ds = self.gf.Asset(name=os.path.basename(pathlike),
+                           workspace=self.gf.Workspace(api_id=self.workspace_id),
+                           analysis=self.gf.Analysis(api_id=self.analysis_id) if self.analysis_id else None)
         ds.create()
         logging.debug(f"Created asset {ds.api_id}")
         return ds
@@ -727,7 +743,7 @@ class AssetSync:
 
         """
         logging.debug("New revision detected. Syncing...")
-        assets = self.gf.Asset.find_by_name(os.path.basename(pathlike))
+        assets = self.gf.Asset.find_by_name(os.path.basename(pathlike), analysis=self.analysis_id)
         logging.debug(f"Found assets: {assets}")
 
         # First, figure out which asset we're syncing to
@@ -758,6 +774,15 @@ class AssetSync:
         logging.debug(f"Current revision cache: {self.asset_log.keys()}")
         return revision
 
+    def process_deferred_syncs(self):
+        """Runs sync_revision for each stashed path now that analysis is resolved, then clears the list."""
+        while self.deferred_syncs:
+            pathlike = self.deferred_syncs.pop(0)
+            rev = self.sync_revision(pathlike)
+            if rev:
+                logging.info(f"Asset synced: {rev.app_url}")
+                AssetWidget(rev).show()
+
     def sync_revision(self, pathlike):
         """\
         Syncs an asset: calculates the checksum for the file and either uploads it to GoFigr (if checksum isn't found)
@@ -767,6 +792,11 @@ class AssetSync:
         :return: AssetRevision instance
 
         """
+        if self.gf.analysis_pending:
+            logging.debug(f"Analysis pending, deferring sync for {pathlike}")
+            self.deferred_syncs.append(pathlike)
+            return None
+
         # Grab the checksum
         logging.debug(f"Syncing {pathlike}")
 
@@ -778,7 +808,7 @@ class AssetSync:
         logging.debug(f"Calculated checksum for {pathlike}: {checksum}")
 
         # Check if we already have this asset
-        revisions = self.gf.AssetRevision.find_by_hash(checksum, "blake3")
+        revisions = self.gf.AssetRevision.find_by_hash(checksum, "blake3", analysis=self.analysis_id)
 
         if len(revisions) == 0:
             return self._log(self._new_revision(pathlike), is_new_revision=True)
@@ -843,7 +873,8 @@ class AssetSync:
             logging.debug(f"Calling {func.__name__} for {pathlike}")
             with self.open_and_get_revision(pathlike, 'rb') as (f, rev):
                 frame = func(f, *args, **kwargs)
-                frame.attrs = {REVISION_ATTR: rev.api_id}
+                if rev is not None:
+                    frame.attrs = {REVISION_ATTR: rev.api_id}
                 return frame
         return wrapper
 
@@ -856,9 +887,7 @@ class AssetSync:
                 file_hasher.update_mmap(path)
                 return file_hasher.hexdigest()
             else:
-                warnings.warn(
-                    "Non-local paths aren't supported yet. Please consider submitting an issue here: "
-                    "https://github.com/GoFigr/gofigr-python/issues")
+                warnings.warn(f"Path does not exist: {pathlike}")
                 return None
         except TypeError:
             warnings.warn(

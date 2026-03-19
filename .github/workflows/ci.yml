@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -27,29 +27,21 @@ jobs:
           sudo apt-get install -y ghostscript
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v5
         with:
           version: "latest"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
 
       - name: Install dependencies (Step 1)
         run: |
           python -m venv venv/
           source venv/bin/activate
-          uv pip install jupyterlab numpy pytest
+          uv pip install numpy pytest
           uv pip install -e .[dev]
-          jlpm install
-          jlpm build
 
       - name: Run tests (Step 2)
         env:

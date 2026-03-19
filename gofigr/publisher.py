@@ -15,18 +15,8 @@ from uuid import uuid4
 
 import PIL
 
-try:
-    from IPython import get_ipython
-except ImportError:
-    get_ipython = None
-
-try:
-    from IPython.core.display_functions import display
-except (ModuleNotFoundError, ImportError):
-    try:
-        from IPython.core.display import display
-    except (ModuleNotFoundError, ImportError):
-        display = None
+from gofigr.compat import get_ipython, ipython_display as display, \
+    PY3DMOL_AVAILABLE, PLOTNINE_AVAILABLE
 
 from gofigr import GoFigr, MeasureExecution, NotebookName
 from gofigr.annotators import CellIdAnnotator, SystemAnnotator, CellCodeAnnotator, \
@@ -41,34 +31,21 @@ from gofigr.reproducible import _reproducible_context
 from gofigr.watermarks import DefaultWatermark
 from gofigr.widget import DetailedWidget
 
-PY3DMOL_PRESENT = False
-if sys.version_info >= (3, 8):
-    try:
-        import py3Dmol  # pylint: disable=unused-import
-        from gofigr.backends.py3dmol import Py3DmolBackend
-        PY3DMOL_PRESENT = True
-    except ModuleNotFoundError:
-        pass
+if PY3DMOL_AVAILABLE:
+    from gofigr.backends.py3dmol import Py3DmolBackend
 
-PLOTNINE_PRESENT = False
-try:
-    import plotnine # pylint: disable=unused-import
+if PLOTNINE_AVAILABLE:
     from gofigr.backends.plotnine import PlotnineBackend
-    PLOTNINE_PRESENT = True
-except ModuleNotFoundError:
-    pass
 
 DEFAULT_ANNOTATORS = (NotebookMetadataAnnotator, EnvironmentAnnotator, CellIdAnnotator, CellCodeAnnotator,
                       SystemAnnotator, PipFreezeAnnotator, BackendAnnotator, HistoryAnnotator,
                       GitAnnotator, ScriptAnnotator)
 DEFAULT_BACKENDS = (MatplotlibBackend, PlotlyBackend)
-if PY3DMOL_PRESENT:
-    # pylint: disable=possibly-used-before-assignment
-    DEFAULT_BACKENDS = DEFAULT_BACKENDS + (Py3DmolBackend,)
+if PY3DMOL_AVAILABLE:
+    DEFAULT_BACKENDS = DEFAULT_BACKENDS + (Py3DmolBackend,)  # pylint: disable=possibly-used-before-assignment
 
-if PLOTNINE_PRESENT:
-    # pylint: disable=possibly-used-before-assignment
-    DEFAULT_BACKENDS = (PlotnineBackend,) + DEFAULT_BACKENDS
+if PLOTNINE_AVAILABLE:
+    DEFAULT_BACKENDS = (PlotnineBackend,) + DEFAULT_BACKENDS  # pylint: disable=possibly-used-before-assignment
 
 
 def _mark_as_published(fig):

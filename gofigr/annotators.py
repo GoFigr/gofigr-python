@@ -10,24 +10,12 @@ import re
 import subprocess
 import sys
 from abc import ABC
-from urllib.parse import unquote, urlparse
 
-try:
-    import git
-except ImportError:
-    git = None
-
-try:
-    from IPython import get_ipython
-except ImportError:
-    get_ipython = None
+from gofigr.compat import get_ipython, gitpython as git
 
 from gofigr.models import CodeLanguage
-from gofigr.databricks import get_dbutils
-
-PATH_WARNING = "To fix this warning, you can manually specify the notebook name & path in the call to configure(). " \
-               "Please see https://gofigr.io/docs/gofigr-python/latest/customization.html#notebook-name-path " \
-               "for details."
+from gofigr.resolver import NOTEBOOK_PATH, NOTEBOOK_NAME, NOTEBOOK_URL, PATH_WARNING, \
+    try_resolve_metadata  # pylint: disable=unused-import
 
 
 class Annotator(ABC):
@@ -228,147 +216,43 @@ class SystemAnnotator(Annotator):
         return revision
 
 
-NOTEBOOK_PATH = "notebook_path"
-NOTEBOOK_NAME = "notebook_name"
-NOTEBOOK_URL = "url"
 NOTEBOOK_KERNEL = "kernel"
 PYTHON_VERSION = "python_version"
 BACKEND_NAME = "backend"
 
 
-_ACTIVE_TAB_TITLE = "active_tab_title"
-
-
-def _parse_path_from_tab_title(title):
-    """Parses out the notebook path from the tab/widget title"""
-    for line in title.splitlines(keepends=False):
-        m = re.match(r'Path:\s*(.*)\s*', line)
-        if m:
-            return m.group(1)
-    return None
-
-
 class NotebookMetadataAnnotator(IPythonAnnotator):
     """Annotates revisions with notebook metadata, including filename & path, as well as the full URL"""
-    def parse_from_databricks(self):
-        """Returns notebook path if running in Databricks"""
-        try:
-            # pylint: disable=undefined-variable
-            context = get_dbutils(get_ipython()).notebook.entry_point.getDbutils().notebook().getContext()
-            nb = context.notebookPath().get()
-            return {NOTEBOOK_PATH: nb, NOTEBOOK_NAME: os.path.basename(nb)}
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            logging.debug(f"Unable to parse notebook metadata from Databricks: {e}")
-            return None
 
-    def parse_from_vscode(self):
-        """Returns notebook path if running in VSCode"""
+    def _get_metadata(self):
+        """Gets notebook metadata from the resolver or the synchronous detection chain."""
+        # First try via the extension's resolver (which has proxy results too)
         ext = self.get_ip_extension()
-        if ext is None:
-            return None
+        if ext is not None:
+            resolver = getattr(ext, 'resolver', None)
+            if resolver is not None and resolver.metadata is not None:
+                return resolver.metadata
 
-        try:
-            if ext.cell is None or getattr(ext.cell, "cell_id") is None:
-                return None
-            elif "vscode-notebook-cell:" not in ext.cell.cell_id:
-                return None
-
-            m = re.match(r'^vscode-notebook-cell:(.*)#.*$', unquote(ext.cell.cell_id))
-            if m is None:
-                return None
-
-            notebook_path = m.group(1)
-            notebook_name = os.path.basename(notebook_path)
-
-            return {NOTEBOOK_PATH: notebook_path,
-                    NOTEBOOK_NAME: notebook_name}
-        except Exception:  # pylint: disable=broad-exception-caught
-            return None
+        # Fall back to the synchronous detection chain directly
+        _, meta = try_resolve_metadata()
+        return meta
 
     def try_get_metadata(self):
         """Infers the notebook path & name using currently available metadata if possible, returning None otherwise"""
         try:
-            return self.parse_metadata(error=False)
+            return self._get_metadata()
         except Exception:  # pylint: disable=broad-exception-caught
             return None
 
-    def _parse_from_comms(self, comm_data):
-        if comm_data is None:
-            return None
-
-        return {NOTEBOOK_PATH: comm_data.get('notebook_path'),
-                NOTEBOOK_NAME: comm_data.get('title'),
-                NOTEBOOK_URL: comm_data.get('url')}
-
-    def _parse_from_proxy(self, meta, error):
-        if 'url' not in meta and _ACTIVE_TAB_TITLE not in meta:
-            if error:
-                raise RuntimeError("No URL found in Notebook metadata")
-            else:
-                return None
-
-        notebook_name = None
-
-        # Try parsing the name from the title first
-        if _ACTIVE_TAB_TITLE in meta and meta[_ACTIVE_TAB_TITLE] is not None:
-            notebook_name = _parse_path_from_tab_title(meta[_ACTIVE_TAB_TITLE])
-
-        # If that doesn't work, try the URL
-        if notebook_name is None:
-            notebook_name = unquote(urlparse(meta['url']).path.rsplit('/', 1)[-1])
-
-        notebook_dir = get_ipython().starting_dir
-        full_path = None
-
-        for candidate_path in [os.path.join(notebook_dir, notebook_name),
-                               os.path.join(notebook_dir, os.path.basename(notebook_name)),
-                               os.path.join(os.path.dirname(notebook_dir), notebook_name),
-                               os.path.join(os.path.dirname(notebook_dir), os.path.basename(notebook_name))]:
-            if os.path.exists(candidate_path):
-                full_path = candidate_path
-                break
-
-        if full_path is None:
-            full_path = os.path.join(notebook_dir, notebook_name)  # might still be helpful, even if slightly incorrect
-            print(f"The inferred path for the notebook does not exist: {full_path}. {PATH_WARNING}", file=sys.stderr)
-
-        return {NOTEBOOK_PATH: full_path,
-                NOTEBOOK_NAME: notebook_name,
-                NOTEBOOK_URL: meta.get('url')}
-
     def parse_metadata(self, error=True):
-        """
-        Infers the notebook path & name from metadata passed through the WebSocket (if available)
+        """Returns notebook metadata, raising an error if not available and error=True.
 
-        :param revision: GoFigr Revision instance
         :param error: if True, will raise an error if metadata is not available
         """
-        vsc_meta = self.parse_from_vscode()
-        if vsc_meta is not None:
-            return vsc_meta
-
-        db_meta = self.parse_from_databricks()
-        if db_meta is not None:
-            return db_meta
-
-        # At this point the metadata needs to come from the JavaScript proxy
-        ext = self.get_ip_extension()
-        if ext is None:
-            if error:
-                raise RuntimeError("No Notebook metadata available")
-            else:
-                return None
-
-        if hasattr(ext, "comm_data"):
-            return self._parse_from_comms(ext.comm_data)
-        else:
-            meta = ext.notebook_metadata
-            if meta is None and error:
-                raise RuntimeError("No Notebook metadata available")
-            elif meta is None:
-                return None
-
-            return self._parse_from_proxy(meta, error)
+        meta = self._get_metadata()
+        if meta is None and error:
+            raise RuntimeError("No Notebook metadata available")
+        return meta
 
     def annotate(self, revision, sync=True):
         if revision.metadata is None:
@@ -376,7 +260,9 @@ class NotebookMetadataAnnotator(IPythonAnnotator):
 
         try:
             if NOTEBOOK_NAME not in revision.metadata or NOTEBOOK_PATH not in revision.metadata:
-                revision.metadata.update(self.parse_metadata())
+                meta = self.parse_metadata()
+                if meta is not None:
+                    revision.metadata.update(meta)
 
             full_path = revision.metadata.get(NOTEBOOK_PATH)
             if sync and full_path and os.path.exists(full_path):

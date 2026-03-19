@@ -16,28 +16,20 @@ from functools import wraps
 from pathlib import Path
 from uuid import UUID
 
-try:
-    from IPython import get_ipython
-except ImportError:
-    get_ipython = None
+from gofigr.compat import get_ipython
 
 import gofigr
 from gofigr import GoFigr, API_URL
-from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME, NOTEBOOK_PATH
+from gofigr.resolver import NOTEBOOK_NAME, NOTEBOOK_PATH
 from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, DEFAULT_BACKENDS, _mark_as_published, is_published, \
     is_suppressed
 import gofigr.cleanroom
 import gofigr.reproducible
-from gofigr.proxy import run_proxy_async, get_javascript_loader
 from gofigr.profile import MeasureExecution
+from gofigr.resolver import NotebookResolver
 from gofigr.trap import GfDisplayPublisher, SuppressDisplayTrap
 from gofigr.utils import from_config_or_env
 from gofigr.widget import DetailedWidget, StartupWidget
-
-try:
-    from IPython.core.display_functions import display
-except ModuleNotFoundError:
-    from IPython.core.display import display
 
 
 logger = logging.getLogger(__name__)
@@ -55,41 +47,51 @@ class _GoFigrExtension:
                  auto_publish=False,
                  notebook_metadata=None,
                  configured=False,
-                 loader_shown=False,
                  asset_log=None):
         """\
 
         :param ip: iPython shell instance
         :param auto_publish: whether to auto-publish figures
-        :param pre_run_hook: function to use as a pre-run hook
-        :param post_execute_hook: function to use as a post-execute hook
         :param notebook_metadata: information about the running notebook, as a key-value dictionary
-        :param offline: if True, will provide watermarking but will not publish to GoFigr.io.
 
         """
         self.shell = ip
         self.auto_publish = auto_publish
         self.cell = None
-        self.proxy = None
-        self.loader_shown = loader_shown
         self.configured = configured
-        if notebook_metadata is None:
-            self.notebook_metadata = NotebookMetadataAnnotator().try_get_metadata()
+        self.resolver = NotebookResolver(ip, enable_proxy=True)
+
+        if notebook_metadata is not None:
+            self.resolver.metadata = notebook_metadata
         else:
-            self.notebook_metadata = notebook_metadata
+            self.resolver.try_resolve_immediate()
 
         self.gf = None  # active GF object
         self.publisher = None  # current Publisher instance
-        self.wait_for_metadata = None  # callable which waits for metadata to become available
         self.asset_log = asset_log if asset_log is not None else {}
         self.startup_widget_shown = False
 
         self.deferred_revisions = []
 
     @property
+    def notebook_metadata(self):
+        """Returns resolved notebook metadata from the resolver."""
+        return self.resolver.metadata
+
+    @notebook_metadata.setter
+    def notebook_metadata(self, value):
+        """Sets notebook metadata on the resolver."""
+        self.resolver.metadata = value
+
+    @property
+    def resolution(self):
+        """Returns the resolution log from the resolver."""
+        return self.resolver.resolution
+
+    @property
     def is_ready(self):
         """True if the extension has been configured and ready for use."""
-        return self.configured and self.notebook_metadata is not None
+        return self.configured and self.resolver.is_resolved
 
     def resolve_analysis(self):
         """Gets the current analysis"""
@@ -97,11 +99,17 @@ class _GoFigrExtension:
             return None
 
         if isinstance(self.publisher.analysis, gofigr.NotebookName):
-            meta = NotebookMetadataAnnotator().try_get_metadata()
+            meta = self.resolver.metadata
+
             if meta is not None:
-                self.publisher.analysis = self.publisher.workspace.get_analysis(name=Path(meta[NOTEBOOK_NAME]).stem,
-                                                                                create=True)
+                notebook_name = Path(meta[NOTEBOOK_NAME]).stem
+                self.publisher.analysis = self.publisher.workspace.get_analysis(
+                    name=notebook_name, create=True)
                 self.publisher.analysis.fetch()
+                self.gf._analysis = self.publisher.analysis
+
+                if self.gf._sync:
+                    self.gf._sync.process_deferred_syncs()
 
         return self.publisher.analysis
 
@@ -151,18 +159,16 @@ class _GoFigrExtension:
         """
         self.cell = info
 
-    def _get_metadata_from_proxy(self, result):
-        if self.configured and not self.loader_shown and "_VSCODE" not in result.info.raw_cell:
-            self.proxy, self.wait_for_metadata = run_proxy_async(self.gf, proxy_callback)
+    def _acquire_metadata(self, result):
+        """Try all available mechanisms to acquire notebook metadata.
 
-            with SuppressDisplayTrap():
-                display(get_javascript_loader(self.gf, self.proxy))
-                self.loader_shown = True
+        Attempts synchronous resolution first (VSCode, Databricks, JPY_SESSION_NAME),
+        then falls back to the JS proxy mechanism.
+        """
+        self.resolver.try_resolve_immediate()
 
-        if self.notebook_metadata is None and self.wait_for_metadata is not None:
-            self.wait_for_metadata()
-            self.wait_for_metadata = None
-
+        if not self.resolver.is_resolved and self.configured:
+            self.resolver.try_resolve_proxy(self.gf, result)
 
     def post_run_cell(self, result):
         """Post run cell hook.
@@ -173,8 +179,8 @@ class _GoFigrExtension:
         """
         self.cell = result.info
 
-        if self.notebook_metadata is None:
-            self._get_metadata_from_proxy(result)
+        if not self.resolver.is_resolved:
+            self._acquire_metadata(result)
 
         self.resolve_analysis()
         if self.is_ready and not self.startup_widget_shown:
@@ -330,12 +336,6 @@ def parse_uuid(val):
         return None
 
 
-def proxy_callback(result):
-    """Proxy callback"""
-    if result is not None and hasattr(result, 'metadata'):
-        get_extension().notebook_metadata = result.metadata
-
-
 class JupyterPublisher(Publisher):
     """\
     Adds Jupyter-specific functionality to GoFigr's base Publisher class.
@@ -435,14 +435,25 @@ def configure(username=None,
     if notebook_name is not None:
         default_metadata[NOTEBOOK_NAME] = notebook_name
 
+    if notebook_name is not None or notebook_path is not None:
+        extension.resolver.metadata = {
+            NOTEBOOK_PATH: notebook_path or notebook_name,
+            NOTEBOOK_NAME: notebook_name or os.path.basename(notebook_path),
+        }
+        extension.resolver.resolution.record(
+            method="configure_init", success=True,
+            detail="manual notebook_name/notebook_path")
+
     if str(analysis) == "NotebookName":  # str in case it's from config/env
         analysis = gofigr.NotebookName()
 
     worx = gf.find_workspace(workspace)
     gf.workspace_id = worx.api_id
+    resolved_analysis = gf.find_analysis(worx, analysis)
+    gf._analysis = resolved_analysis
     publisher = JupyterPublisher(gf,
                                  workspace=worx,
-                                 analysis=gf.find_analysis(worx, analysis),
+                                 analysis=resolved_analysis,
                                  default_metadata=default_metadata,
                                  watermark=watermark,
                                  annotators=[make_annotator() for make_annotator in annotators],
@@ -453,8 +464,9 @@ def configure(username=None,
     extension.gf = gf
     extension.publisher = publisher
     extension.auto_publish = auto_publish
-    extension.loader_shown = False
+    extension.resolver._loader_shown = False
     extension.configured = True
+
     extension.resolve_analysis()
 
     extension.shell.user_ns["gf"] = gf
