@@ -435,6 +435,15 @@ def configure(username=None,
     if notebook_name is not None:
         default_metadata[NOTEBOOK_NAME] = notebook_name
 
+    if notebook_name is not None or notebook_path is not None:
+        extension.resolver.metadata = {
+            NOTEBOOK_PATH: notebook_path or notebook_name,
+            NOTEBOOK_NAME: notebook_name or os.path.basename(notebook_path),
+        }
+        extension.resolver.resolution.record(
+            method="configure_init", success=True,
+            detail="manual notebook_name/notebook_path")
+
     if str(analysis) == "NotebookName":  # str in case it's from config/env
         analysis = gofigr.NotebookName()
 
