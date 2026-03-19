@@ -808,7 +808,6 @@ class AssetSync:
         logging.debug(f"Calculated checksum for {pathlike}: {checksum}")
 
         # Check if we already have this asset
-        print(f"Looking for existing revisions with checksum {checksum} for analysis {self.analysis_id}...")
         revisions = self.gf.AssetRevision.find_by_hash(checksum, "blake3", analysis=self.analysis_id)
 
         if len(revisions) == 0:
