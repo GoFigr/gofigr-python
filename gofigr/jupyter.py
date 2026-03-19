@@ -11,7 +11,6 @@ import logging
 import os
 import pickle
 import sys
-import time
 import traceback
 from functools import wraps
 from pathlib import Path
@@ -100,9 +99,7 @@ class _GoFigrExtension:
             return None
 
         if isinstance(self.publisher.analysis, gofigr.NotebookName):
-            t0 = time.monotonic()
             meta = self.resolver.metadata
-            elapsed = (time.monotonic() - t0) * 1000
 
             if meta is not None:
                 notebook_name = Path(meta[NOTEBOOK_NAME]).stem
@@ -111,20 +108,8 @@ class _GoFigrExtension:
                 self.publisher.analysis.fetch()
                 self.gf._analysis = self.publisher.analysis
 
-                self.resolution.record(
-                    method=self.resolution.resolved_method or "unknown",
-                    success=True,
-                    duration_ms=elapsed,
-                    detail=f"resolved to '{notebook_name}'")
-
                 if self.gf._sync:
                     self.gf._sync.process_deferred_syncs()
-            else:
-                self.resolution.record(
-                    method="resolve_analysis",
-                    success=False,
-                    duration_ms=elapsed,
-                    detail="metadata not yet available")
 
         return self.publisher.analysis
 
