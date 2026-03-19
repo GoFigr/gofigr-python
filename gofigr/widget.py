@@ -12,7 +12,7 @@ from uuid import uuid4
 import humanize
 
 from gofigr.compat import get_ipython, HTML, ipython_display
-from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME
+from gofigr.resolver import NOTEBOOK_NAME
 
 from gofigr.utils import read_resource_b64, read_resource_text
 
@@ -194,7 +194,7 @@ class DetailedWidget(RevisionWidgetBase):
                                            f"{FA_COPY_LIGHT}</span>",
                                            self.revision.revision_url)
 
-        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
+        logo_html = self.get_text_copy_link(f"""<img src="data:image/png;base64,{logo_b64}" alt="GoFigr.io logo"
                 style='width: 3rem; height: 3rem'/>""", self.revision.revision_url)
 
         return display(HTML(f"""
@@ -235,7 +235,7 @@ class CompactWidget(RevisionWidgetBase):
     def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
-        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
+        logo_html = self.get_text_copy_link(f"""<img src="data:image/png;base64,{logo_b64}" alt="GoFigr.io logo"
         style='width: 2rem; height: 2rem'/>""", self.revision.revision_url)
 
         return display(HTML(f"""
@@ -269,7 +269,7 @@ class MinimalWidget(RevisionWidgetBase):
     def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
-        logo_html = self.get_text_copy_link(f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
+        logo_html = self.get_text_copy_link(f"""<img src="data:image/png;base64,{logo_b64}" alt="GoFigr.io logo"
         style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>""", self.revision.revision_url)
 
         return display(HTML(f"""
@@ -302,7 +302,7 @@ class StartupWidget(WidgetBase):
         self.extension.startup_widget_shown = True
 
         logo_b64 = self.get_logo_b64()
-        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
+        logo_html = f"""<img src="data:image/png;base64,{logo_b64}" alt="GoFigr.io logo"
             style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>"""
 
         return display(HTML(f"""
@@ -332,10 +332,11 @@ class LiteStartupWidget(WidgetBase):
     def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
-        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
+        logo_html = f"""<img src="data:image/png;base64,{logo_b64}" alt="GoFigr.io logo"
             style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>"""
 
-        meta = NotebookMetadataAnnotator().parse_metadata(error=False)
+        resolver = getattr(self.extension, 'resolver', None)
+        meta = resolver.metadata if resolver is not None else None
         if meta is None:
             notebook_name = "N/A"
         else:
@@ -378,7 +379,7 @@ class AssetWidget(WidgetBase):
     def show(self):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
-        logo_html = f"""<img src="data:image;base64,{logo_b64}" alt="GoFigr.io logo"
+        logo_html = f"""<img src="data:image/png;base64,{logo_b64}" alt="GoFigr.io logo"
             style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>"""
 
         return display(HTML(f"""

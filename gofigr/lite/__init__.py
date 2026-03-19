@@ -24,7 +24,8 @@ from gofigr.compat import get_ipython, ipython_display as display, \
     ipywidgets_widgets as widgets, PLOTNINE_AVAILABLE
 
 from gofigr import GoFigr
-from gofigr.annotators import GitAnnotator, NotebookMetadataAnnotator, NOTEBOOK_NAME
+from gofigr.annotators import GitAnnotator, NotebookMetadataAnnotator
+from gofigr.resolver import NOTEBOOK_NAME
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
 from gofigr.resolver import NotebookResolver

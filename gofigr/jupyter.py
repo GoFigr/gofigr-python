@@ -21,7 +21,7 @@ from gofigr.compat import get_ipython
 
 import gofigr
 from gofigr import GoFigr, API_URL
-from gofigr.annotators import NotebookMetadataAnnotator, NOTEBOOK_NAME, NOTEBOOK_PATH
+from gofigr.resolver import NOTEBOOK_NAME, NOTEBOOK_PATH
 from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, DEFAULT_BACKENDS, _mark_as_published, is_published, \
     is_suppressed
 import gofigr.cleanroom
@@ -101,7 +101,7 @@ class _GoFigrExtension:
 
         if isinstance(self.publisher.analysis, gofigr.NotebookName):
             t0 = time.monotonic()
-            meta = NotebookMetadataAnnotator().try_get_metadata()
+            meta = self.resolver.metadata
             elapsed = (time.monotonic() - t0) * 1000
 
             if meta is not None:
@@ -472,9 +472,6 @@ def configure(username=None,
     extension.auto_publish = auto_publish
     extension.resolver._loader_shown = False
     extension.configured = True
-
-    # Record whether metadata was immediately available at configure time
-    extension.resolver.record_initial_resolution()
 
     extension.resolve_analysis()
 
