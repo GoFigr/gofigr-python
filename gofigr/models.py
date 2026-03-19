@@ -955,7 +955,7 @@ class FlexibleStorageMixin:
 
 
 class gf_Organization(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin):
-    """Represents a workspace"""
+    """Represents an organization"""
     # pylint: disable=protected-access
 
     fields = ["api_id",
@@ -963,9 +963,27 @@ class gf_Organization(ModelMixin, LogsMixin, MembersMixin, FlexibleStorageMixin)
               "email",
               "description",
               "allow_per_workspace_storage_settings",
+              Base64Field("logo"),
               LinkedEntityField("workspaces", lambda gf: gf.Workspace, many=True, derived=True,
                                 backlink_property='organization')]
     endpoint = "organization/"
+
+    @property
+    def logo_image(self):
+        """Returns the logo as a PIL.Image, or None if not set."""
+        if self.logo is None:
+            return None
+        return PIL.Image.open(io.BytesIO(self.logo))
+
+    @logo_image.setter
+    def logo_image(self, img):
+        """Sets the logo from a PIL.Image."""
+        if img is None:
+            self.logo = None
+        else:
+            buf = io.BytesIO()
+            img.save(buf, format="png")
+            self.logo = buf.getvalue()
 
     def get_invitations(self):
         """\
