@@ -50,16 +50,18 @@ class JupyterHarness:
         return self.shell.run_cell(code, store_history=True)
 
     def inject_notebook_metadata(self):
-        """Injects notebook metadata to bypass the JS proxy.
+        """Injects resolved notebook metadata to bypass the JS proxy.
 
         Must be called after configure() but before the next run_cell() so that
         post_run_cell -> resolve_analysis() can resolve NotebookName.
-
-        The active_tab_title format uses 'Path: <name>' which _parse_path_from_tab_title expects.
         """
+        from gofigr.resolver import NOTEBOOK_PATH, NOTEBOOK_NAME
         ext = self.get_extension()
         if ext is not None:
-            ext.notebook_metadata = {"active_tab_title": f"Path: {self.notebook_name}"}
+            ext.notebook_metadata = {
+                NOTEBOOK_PATH: self.notebook_name,
+                NOTEBOOK_NAME: self.notebook_name,
+            }
 
     def get_extension(self):
         """Returns the _GoFigrExtension instance (or None if not loaded yet)."""
