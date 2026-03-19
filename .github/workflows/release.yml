@@ -45,20 +45,12 @@ jobs:
         with:
           version: "latest"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-          cache: 'npm'
-
       - name: Build package and docs
         run: |
           python -m venv venv/
           source venv/bin/activate
-          uv pip install jupyterlab numpy
+          uv pip install numpy
           uv pip install -e .[dev]
-          jlpm install
-          jlpm build
           bash build.sh
           bash make_docs.sh
 

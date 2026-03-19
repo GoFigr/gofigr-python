@@ -36,20 +36,12 @@ jobs:
         with:
           version: "latest"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-          cache: 'npm'
-
       - name: Install dependencies (Step 1)
         run: |
           python -m venv venv/
           source venv/bin/activate
-          uv pip install jupyterlab numpy pytest
+          uv pip install numpy pytest
           uv pip install -e .[dev]
-          jlpm install
-          jlpm build
 
       - name: Run tests (Step 2)
         env:
