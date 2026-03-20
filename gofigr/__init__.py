@@ -25,7 +25,7 @@ LOGGER = logging.getLogger(__name__)
 API_URL = "https://api.gofigr.io"
 API_VERSION = "v1.4.1"
 
-APP_URL = "https://app.gofigr.io"
+APP_URL = "https://gofigr.io"
 
 PANDAS_READERS = ["read_csv", "read_excel", "read_json", "read_html", "read_parquet", "read_feather",
                   "read_hdf", "read_pickle", "read_sas"]
@@ -415,6 +415,18 @@ class GoFigr:
 
         """
         return self._get("info/", throw_exception=throw_exception)
+
+    def reserve_short_id_prefix(self):
+        """\
+        Reserve a short ID prefix from the server. The prefix can be combined with a sequential
+        base62 index to generate compact, unique short IDs for figure revisions.
+
+        :return: 8-character alphanumeric prefix string
+
+        """
+        response = self._post("short_id_prefix/reserve/", json={},
+                              expected_status=(HTTPStatus.CREATED,))
+        return response.json()['prefix']
 
     def _refresh_access_token(self):
         """\

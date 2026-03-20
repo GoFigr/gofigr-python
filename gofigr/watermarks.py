@@ -220,7 +220,9 @@ class DefaultWatermark:
         :return: PIL.Image
 
         """
-        return self._build_watermark_strip(f'{APP_URL}/r/{revision.api_id}')
+        # Use short_id for a more compact QR code when available
+        url_id = getattr(revision, '_short_id', None) or revision.api_id
+        return self._build_watermark_strip(f'{APP_URL}/r/{url_id}')
 
     def _get_watermark_size(self):
         """Return the (width, height) of the watermark strip.

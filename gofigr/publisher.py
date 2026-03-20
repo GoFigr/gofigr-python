@@ -6,6 +6,7 @@ All rights reserved.
 # pylint: disable=protected-access, ungrouped-imports
 
 import io
+import itertools
 import json
 import os
 import pickle
@@ -28,6 +29,7 @@ from gofigr.backends.plotly import PlotlyBackend
 from gofigr.cleanroom import serialize_params
 from gofigr.models import CodeLanguage
 from gofigr.reproducible import _reproducible_context
+from gofigr.short_id import make_short_id
 from gofigr.watermarks import DefaultWatermark
 from gofigr.widget import DetailedWidget
 
@@ -146,6 +148,20 @@ class Publisher:
 
         self.workspace = self.gf.find_workspace(workspace).fetch()
         self.analysis = self.gf.find_analysis(self.workspace, analysis)
+
+        # Reserve a short ID prefix for compact QR codes
+        self._short_id_prefix = None
+        self._short_id_counter = itertools.count()
+        try:
+            self._short_id_prefix = self.gf.reserve_short_id_prefix()
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass  # Server may not support short IDs yet; fall back to UUIDs
+
+    def _next_short_id(self):
+        """Generate the next short ID using the reserved prefix, or None if unavailable."""
+        if self._short_id_prefix is None:
+            return None
+        return make_short_id(self._short_id_prefix, next(self._short_id_counter))
 
     def _check_analysis(self):
         if self.analysis is None:
@@ -403,6 +419,9 @@ class Publisher:
         # Generate UUID client-side so we can prepare watermarks before the server call
         rev.api_id = str(uuid4())
         rev._client_id = rev.api_id
+
+        # Generate a short ID for compact QR codes
+        rev._short_id = self._next_short_id()
 
         with MeasureExecution("Annotators"):
             # Annotate the revision

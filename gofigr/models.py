@@ -484,6 +484,10 @@ class ModelMixin(abc.ABC):
         if client_id is not None:
             json_data['client_id'] = client_id
 
+        short_id = getattr(self, '_short_id', None)
+        if short_id is not None:
+            json_data['short_id'] = short_id
+
         response = self._gf._post(self.endpoint, json=json_data,
                                   expected_status=HTTPStatus.CREATED)
         self._update_properties(response.json())
@@ -1670,8 +1674,9 @@ class gf_Revision(RevisionMixin, ThumbnailMixin):
 
     @property
     def revision_url(self):
-        """Returns the GoFigr URL for this revision"""
-        return f"{self._gf.app_url}/r/{self.api_id}"
+        """Returns the GoFigr URL for this revision, using the short ID when available."""
+        url_id = getattr(self, '_short_id', None) or self.api_id
+        return f"{self._gf.app_url}/r/{url_id}"
 
     @property
     def image_data(self):
