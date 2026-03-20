@@ -419,6 +419,13 @@ def configure(username=None,
     if extension is None:
         raise RuntimeError("Please load the extension: %load_ext gofigr")
 
+    # Clear stale state so that if configure() fails, the extension doesn't
+    # appear ready (e.g. from a previous auto-configure that succeeded).
+    extension.configured = False
+    extension.gf = None
+    extension.publisher = None
+    extension.startup_widget_shown = False
+
     if isinstance(auto_publish, str):
         auto_publish = auto_publish.lower() == "true"  # in case it's coming from an environment variable
 
