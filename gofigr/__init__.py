@@ -203,6 +203,7 @@ class GoFigr:
         self._analysis = None
         self.asset_log = asset_log if asset_log is not None else {}
         self._primary_workspace = None
+        self._server_info = None
 
         # Tokens for JWT authentication
         self._access_token = None
@@ -415,6 +416,23 @@ class GoFigr:
 
         """
         return self._get("info/", throw_exception=throw_exception)
+
+    def server_info(self):
+        """\
+        Returns cached server info from the /info/ endpoint.
+
+        :return: dict with server info, or {} if the call fails (e.g. old server)
+        """
+        if self._server_info is None:
+            try:
+                response = self.heartbeat(throw_exception=False)
+                if response.status_code == HTTPStatus.OK:
+                    self._server_info = response.json()
+                else:
+                    self._server_info = {}
+            except Exception:  # pylint: disable=broad-exception-caught
+                self._server_info = {}
+        return self._server_info
 
     def reserve_short_id_prefix(self):
         """\
@@ -828,9 +846,15 @@ class AssetSync:
             logging.debug(f"Found existing revision {revisions[0].api_id}")
             return self._log(revisions[0])
         else:
-            logging.debug(f"Found existing revisions: {[rev.api_id for rev in revisions]}")
-            warnings.warn(f"Multiple assets with the same checksum found. Defaulting to first: "
-                          f"{[d.api_id for d in revisions]}")
+            unique_asset_ids = set(rev.asset.api_id for rev in revisions)
+            if len(unique_asset_ids) == 1:
+                logging.debug(f"Found {len(revisions)} revisions of the same asset "
+                              f"({revisions[0].asset.api_id}) with matching checksum. "
+                              f"Returning first: {revisions[0].api_id}")
+            else:
+                logging.debug(f"Found {len(revisions)} revisions across {len(unique_asset_ids)} assets "
+                              f"with the same checksum. This can happen if multiple clients sync "
+                              f"simultaneously. Defaulting to first: {revisions[0].api_id}")
             return self._log(revisions[0])
 
     def __call__(self, *args, **kwargs):
