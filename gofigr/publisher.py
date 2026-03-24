@@ -364,6 +364,14 @@ class Publisher:
         bundle = serialize_params(ctx.parameters,
                                   param_descriptors=ctx.param_descriptors)
 
+        # Capture matplotlib rendering settings so Pyodide can match them
+        rendering = {}
+        try:
+            import matplotlib  # pylint: disable=import-outside-toplevel
+            rendering["dpi"] = matplotlib.rcParams.get("figure.dpi", 100)
+        except ImportError:
+            pass
+
         # Build manifest with packages and parameters
         manifest = {
             "language": "python",
@@ -372,6 +380,7 @@ class Publisher:
             "packages": ctx.package_versions,
             "imports": ctx.imports,
             "parameters": bundle.manifest,
+            "rendering": rendering,
         }
 
         manifest_text = self.gf.TextData(
