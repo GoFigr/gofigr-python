@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import time
+import webbrowser
 from argparse import ArgumentParser
 from collections import namedtuple
 
@@ -191,6 +192,13 @@ def login_with_device_flow(config, auth0_config):
     print("\n  To log in, open this URL in your browser:\n")
     print(f"    {verification_uri}\n")
     print(f"  And enter code: {user_code}\n")
+
+    try:
+        webbrowser.open(verification_uri)
+        print("  (Browser opened automatically)")
+    except webbrowser.Error:
+        pass
+
     print("  Waiting for authorization...", end='', flush=True)
 
     # Poll for token
@@ -251,7 +259,8 @@ def login_with_username(config):
 def login_with_api_key(gf, config, config_path):
     """Using a GoFigr instance connected with a username and a password, switches to API key authentication"""
     while True:
-        token = read_input("API key (leave blank to generate a new key): ", validator=lambda val: val)
+        token = read_input("Paste an existing API key, or press Enter to generate a new one: ",
+                          validator=lambda val: val)
         if token in [None, ""]:
             key_name = read_input("Key name: ", assert_nonempty)
             apikey = gf.create_api_key(key_name)
