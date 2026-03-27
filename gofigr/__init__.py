@@ -485,6 +485,10 @@ class GoFigr:
             if rqst is not None:
                 rqst.close()
 
+    def set_access_token(self, token):
+        """Set the access token for Bearer authentication (e.g. from Auth0 device flow)."""
+        self._access_token = token
+
     def authenticate(self):
         """\
         Authenticates with the API.
