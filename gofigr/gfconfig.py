@@ -26,7 +26,7 @@ def get_auth0_config(api_url):
         resp.raise_for_status()
         data = resp.json()
         domain = data.get('auth0_domain')
-        client_id = data.get('auth0_client_id')
+        client_id = data.get('auth0_cli_client_id')
         audience = data.get('auth0_audience', '')
         if domain and client_id:
             return Auth0Config(domain=domain, client_id=client_id, audience=audience)
@@ -178,7 +178,9 @@ def login_with_device_flow(config, auth0_config):
         'audience': auth0_config.audience,
         'scope': 'openid email profile',
     }, timeout=10)
-    resp.raise_for_status()
+    if not resp.ok:
+        error_detail = resp.json().get('error_description', resp.text) if resp.text else resp.reason
+        raise RuntimeError(f"Failed to start device authorization (HTTP {resp.status_code}): {error_detail}")
     data = resp.json()
 
     verification_uri = data.get('verification_uri_complete', data['verification_uri'])
@@ -287,6 +289,8 @@ def main(args=None):
                              "Default: ~/.gofigr")
     parser.add_argument("--legacy", action='store_true',
                         help="Use legacy username/password login instead of browser-based login.")
+    parser.add_argument("--url", default=None,
+                        help=f"API URL. Default: {API_URL}")
     args = parser.parse_args(args)
 
     config_path = resolve_config_path(args.config_path)
@@ -295,19 +299,20 @@ def main(args=None):
     print("GoFigr configuration")
     print("-" * 30)
 
-    config = {'api_key': None, 'url': API_URL}
-    if args.advanced:
+    config = {'api_key': None, 'url': args.url or API_URL}
+    if args.advanced and not args.url:
         config['url'] = read_input(f"API URL [{API_URL}]: ", assert_nonempty, default=API_URL)
 
     # Authenticate
-    auth0_config = None
-    if not args.legacy:
-        auth0_config = get_auth0_config(config['url'])
-
-    if not args.legacy and auth0_config:
-        gf_auth = login_with_device_flow(config, auth0_config)
-    else:
+    if args.legacy:
         gf_auth = login_with_username(config)
+    else:
+        auth0_config = get_auth0_config(config['url'])
+        if not auth0_config:
+            print(f"Error: Could not fetch Auth0 configuration from {config['url']}/api/v1.4/info/")
+            print("Please check the URL and try again, or use --legacy for username/password login.")
+            sys.exit(1)
+        gf_auth = login_with_device_flow(config, auth0_config)
 
     # Switch to API key auth
     gf = login_with_api_key(gf_auth, config, config_path)
