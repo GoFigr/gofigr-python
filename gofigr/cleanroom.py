@@ -10,6 +10,7 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, List, get_origin, get_args, Literal
 
+import numpy as np
 import pandas as pd
 
 MAX_CLEAN_ROOM_BYTES = 100 * 1024 * 1024  # 100 MB
@@ -191,11 +192,28 @@ def _is_primitive(value):
     """Check if a value is a JSON-serializable primitive (recursively for containers)."""
     if isinstance(value, PRIMITIVE_TYPES):
         return True
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return all(_is_primitive(v) for v in value)
     if isinstance(value, dict):
         return all(isinstance(k, str) and _is_primitive(v) for k, v in value.items())
+    if isinstance(value, np.ndarray):
+        return _is_primitive(value.tolist())
     return False
+
+
+def _normalize_value(value):
+    """Convert tuples and numpy arrays to lists for JSON serialization."""
+    if isinstance(value, (list, tuple)):
+        return [_normalize_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _normalize_value(v) for k, v in value.items()}
+    if isinstance(value, np.ndarray):
+        return _normalize_value(value.tolist())
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, (np.integer, np.floating)):
+        return int(value) if isinstance(value, np.integer) else float(value)
+    return value
 
 
 def _is_dataframe(value):
@@ -225,7 +243,8 @@ def validate_params(params: Dict[str, Any]):
         details = ", ".join(f"'{n}' ({t})" for n, t in bad)
         raise CleanRoomSerializationError(
             f"Cannot serialize parameter(s) for clean room storage: {details}. "
-            f"Supported types: int, float, str, bool, None, list, dict (of primitives), pd.DataFrame."
+            f"Supported types: int, float, str, bool, None, list, tuple, dict (of primitives), "
+            f"numpy arrays of primitives, pd.DataFrame."
         )
 
 
@@ -279,6 +298,7 @@ def serialize_params(params: Dict[str, Any],
             dataframes[name] = buf.getvalue()
             manifest[name] = {"type": "dataframe"}
         elif _is_primitive(value):
+            value = _normalize_value(value)
             desc = (param_descriptors or {}).get(name)
             if desc is None:
                 desc = infer_param(name, value)

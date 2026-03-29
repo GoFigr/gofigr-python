@@ -25,6 +25,8 @@ from gofigr.cleanroom import (
     round_trip_params,
     check_clean_room_size,
     estimate_dataframe_memory,
+    _is_primitive,
+    _normalize_value,
 )
 
 
@@ -64,9 +66,12 @@ class TestValidateParams(unittest.TestCase):
         with self.assertRaises(CleanRoomSerializationError):
             validate_params({"fn": lambda x: x})
 
-    def test_numpy_array_rejected(self):
+    def test_numpy_array_accepted(self):
+        validate_params({"arr": np.array([1, 2, 3])})
+
+    def test_numpy_array_of_objects_rejected(self):
         with self.assertRaises(CleanRoomSerializationError):
-            validate_params({"arr": np.array([1, 2, 3])})
+            validate_params({"arr": np.array([object(), object()])})
 
     def test_dataframe_inside_list_rejected(self):
         df = pd.DataFrame({"a": [1]})
@@ -452,6 +457,93 @@ class TestInferParam(unittest.TestCase):
         """bool is a subclass of int -- make sure we get CheckboxParam, not SliderParam."""
         p = infer_param("flag", False)
         self.assertIsInstance(p, CheckboxParam)
+
+
+class TestTuplesAndNumpyArrays(unittest.TestCase):
+    """Tests for tuple, numpy array, and nested container support."""
+
+    def test_is_primitive_tuple(self):
+        self.assertTrue(_is_primitive((1, 2, 3)))
+        self.assertTrue(_is_primitive((1, "two", 3.0, None, True)))
+        self.assertTrue(_is_primitive(()))
+
+    def test_is_primitive_numpy_array(self):
+        self.assertTrue(_is_primitive(np.array([1, 2, 3])))
+        self.assertTrue(_is_primitive(np.array([1.0, 2.0, 3.0])))
+        self.assertTrue(_is_primitive(np.array([])))
+
+    def test_is_primitive_numpy_array_of_objects_false(self):
+        self.assertFalse(_is_primitive(np.array([object(), object()])))
+
+    def test_is_primitive_nested_containers(self):
+        self.assertTrue(_is_primitive(([1, 2], {"a": 3})))
+        self.assertTrue(_is_primitive({"a": [1, True, None]}))
+
+    def test_normalize_tuple_to_list(self):
+        self.assertEqual(_normalize_value((1, 2, 3)), [1, 2, 3])
+        self.assertEqual(_normalize_value((1, (2, 3))), [1, [2, 3]])
+
+    def test_normalize_numpy_array(self):
+        result = _normalize_value(np.array([1.0, 2.0, 3.0]))
+        self.assertEqual(result, [1.0, 2.0, 3.0])
+        self.assertIsInstance(result[0], float)
+
+    def test_normalize_numpy_scalars(self):
+        self.assertEqual(_normalize_value(np.int64(42)), 42)
+        self.assertIsInstance(_normalize_value(np.int64(42)), int)
+        self.assertEqual(_normalize_value(np.float64(3.14)), 3.14)
+        self.assertIsInstance(_normalize_value(np.float64(3.14)), float)
+        self.assertEqual(_normalize_value(np.bool_(True)), True)
+        self.assertIsInstance(_normalize_value(np.bool_(True)), bool)
+
+    def test_tuple_round_trip(self):
+        params = {"x": (1, 2, 3)}
+        result = round_trip_params(params)
+        self.assertEqual(result["x"], [1, 2, 3])
+
+    def test_numpy_array_round_trip(self):
+        params = {"x": np.array([1.0, 2.0, 3.0])}
+        result = round_trip_params(params)
+        self.assertEqual(result["x"], [1.0, 2.0, 3.0])
+
+    def test_numpy_int_array_round_trip(self):
+        params = {"x": np.array([1, 2, 3])}
+        result = round_trip_params(params)
+        self.assertEqual(result["x"], [1, 2, 3])
+
+    def test_list_round_trip(self):
+        params = {"x": [1, 2, 3]}
+        result = round_trip_params(params)
+        self.assertEqual(result["x"], [1, 2, 3])
+
+    def test_dict_with_nested_list_round_trip(self):
+        params = {"x": {"a": [1, True, None]}}
+        result = round_trip_params(params)
+        self.assertEqual(result["x"], {"a": [1, True, None]})
+
+    def test_nested_containers_round_trip(self):
+        params = {"x": ([1, 2], {"a": 3})}
+        result = round_trip_params(params)
+        self.assertEqual(result["x"], [[1, 2], {"a": 3}])
+
+    def test_validate_tuple_accepted(self):
+        validate_params({"x": (1, 2, 3)})
+
+    def test_validate_numpy_array_accepted(self):
+        validate_params({"x": np.array([1, 2, 3])})
+
+    def test_serialize_tuple_manifest(self):
+        bundle = serialize_params({"x": (1, 2, 3)})
+        self.assertEqual(bundle.manifest["x"]["value"], [1, 2, 3])
+
+    def test_serialize_numpy_array_manifest(self):
+        bundle = serialize_params({"x": np.array([1.0, 2.0])})
+        self.assertEqual(bundle.manifest["x"]["value"], [1.0, 2.0])
+
+    def test_2d_numpy_array_round_trip(self):
+        params = {"x": np.array([[1, 2], [3, 4]])}
+        result = round_trip_params(params)
+        self.assertEqual(result["x"], [[1, 2], [3, 4]])
 
 
 if __name__ == '__main__':
