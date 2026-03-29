@@ -484,6 +484,10 @@ class ModelMixin(abc.ABC):
         if client_id is not None:
             json_data['client_id'] = client_id
 
+        short_id = getattr(self, '_short_id', None)
+        if short_id is not None:
+            json_data['short_id'] = short_id
+
         response = self._gf._post(self.endpoint, json=json_data,
                                   expected_status=HTTPStatus.CREATED)
         self._update_properties(response.json())
@@ -1670,8 +1674,9 @@ class gf_Revision(RevisionMixin, ThumbnailMixin):
 
     @property
     def revision_url(self):
-        """Returns the GoFigr URL for this revision"""
-        return f"{self._gf.app_url}/r/{self.api_id}"
+        """Returns the GoFigr URL for this revision, using the short ID when available."""
+        url_id = getattr(self, '_short_id', None) or self.api_id
+        return f"{self._gf.app_url}/r/{url_id}"
 
     @property
     def image_data(self):
@@ -1718,6 +1723,37 @@ class gf_Revision(RevisionMixin, ThumbnailMixin):
     def text_data(self, value):
         self._replace_data_type(DataType.TEXT, value)
 
+    def _create_auto_assign(self, analysis):
+        """Create a revision via the auto-assign endpoint.
+
+        The server creates a temp figure, processes data, then uses AI to
+        assign the revision to the correct figure. The revision will have
+        is_processing=True until assignment completes.
+
+        :param analysis: Analysis instance (must have api_id set)
+        """
+        self._assert_data_not_shallow()
+        data_copy = self.data
+
+        json_data = self.to_json(include_derived=False)
+        # Replace figure with analysis for the auto-assign endpoint
+        json_data.pop('figure', None)
+        json_data['analysis'] = analysis.api_id
+
+        client_id = getattr(self, '_client_id', None)
+        if client_id is not None:
+            json_data['client_id'] = client_id
+
+        short_id = getattr(self, '_short_id', None)
+        if short_id is not None:
+            json_data['short_id'] = short_id
+
+        response = self._gf._post("revision/auto-assign/", json=json_data,
+                                  expected_status=HTTPStatus.CREATED)
+        self._update_properties(response.json())
+        self._restore_data(data_copy)
+        return self
+
 
 class gf_AssetRevision(RevisionMixin, ThumbnailMixin):
     """Represents a figure revision"""
@@ -1738,7 +1774,10 @@ class gf_AssetRevision(RevisionMixin, ThumbnailMixin):
 
         :param digest: digest hash (text)
         :param hash_type: type of hash (only blake3 supported)
-        :param analysis: optional analysis API ID to scope the search
+        :param analysis: optional analysis API ID to scope the search. When provided, only revisions
+            whose parent asset belongs to that analysis are returned. When None (default), returns
+            all matching revisions workspace-wide, including both scoped and unscoped assets.
+            Note: this does NOT filter to unscoped-only assets.
         :return: list of matching asset revisions, or empty list if not found
 
         """

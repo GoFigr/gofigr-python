@@ -292,7 +292,7 @@ def _load_ipython_extension(ip):
 
     if _should_auto_configure():
         try:
-            configure()
+            configure(_show_widget=False)
         except Exception as e:  # pylint: disable=broad-exception-caught
             if "auth" in str(e).lower() and "failed" in str(e).lower():
                 print("GoFigr authentication failed. Please manually call configure(api_key=<YOUR API KEY>).",
@@ -390,7 +390,9 @@ def configure(username=None,
               backends=DEFAULT_BACKENDS,
               widget_class=DetailedWidget,
               save_pickle=True,
-              show_watermark=True):
+              show_watermark=True,
+              auto_assign=False,
+              _show_widget=True):
     """\
     Configures the Jupyter plugin for use.
 
@@ -412,6 +414,8 @@ def configure(username=None,
     :param save_pickle: if True, will save the figure in pickle format in addition to any of the image formats
     :param show_watermark: True to show watermarked figures instead of original.
         False to always display the unmodified figure. Default True.
+    :param auto_assign: if True, the server will use AI to automatically assign revisions to the
+        correct figure based on image content. Default False.
     :return: None
 
     """
@@ -419,8 +423,18 @@ def configure(username=None,
     if extension is None:
         raise RuntimeError("Please load the extension: %load_ext gofigr")
 
+    # Clear stale state so that if configure() fails, the extension doesn't
+    # appear ready (e.g. from a previous auto-configure that succeeded).
+    extension.configured = False
+    extension.gf = None
+    extension.publisher = None
+    extension.startup_widget_shown = False
+
     if isinstance(auto_publish, str):
         auto_publish = auto_publish.lower() == "true"  # in case it's coming from an environment variable
+
+    if isinstance(auto_assign, str):
+        auto_assign = auto_assign.lower() == "true"
 
     with MeasureExecution("Login"):
         gf = GoFigr(username=username, password=password, url=url, api_key=api_key,
@@ -460,7 +474,8 @@ def configure(username=None,
                                  backends=backends,
                                  widget_class=widget_class,
                                  save_pickle=save_pickle,
-                                 show_watermark=show_watermark)
+                                 show_watermark=show_watermark,
+                                 auto_assign=auto_assign)
     extension.gf = gf
     extension.publisher = publisher
     extension.auto_publish = auto_publish
@@ -471,7 +486,7 @@ def configure(username=None,
 
     extension.shell.user_ns["gf"] = gf
 
-    if extension.is_ready:
+    if _show_widget and extension.is_ready:
         StartupWidget(extension).show()
 
 

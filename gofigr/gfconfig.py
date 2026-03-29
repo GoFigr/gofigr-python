@@ -7,10 +7,33 @@ import getpass
 import json
 import os
 import sys
+import time
+import webbrowser
 from argparse import ArgumentParser
+from collections import namedtuple
+
+import requests
 
 from gofigr import API_URL, GoFigr, WorkspaceType
 import gofigr.databricks as db
+
+Auth0Config = namedtuple('Auth0Config', ['domain', 'client_id', 'audience'])
+
+def get_auth0_config(api_url):
+    """Fetch Auth0 configuration from the server's /info endpoint.
+    Returns an Auth0Config or None if unavailable."""
+    try:
+        resp = requests.get(f"{api_url}/api/v1.4/info/", timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        domain = data.get('auth0_domain')
+        client_id = data.get('auth0_cli_client_id')
+        audience = data.get('auth0_audience', '')
+        if domain and client_id:
+            return Auth0Config(domain=domain, client_id=client_id, audience=audience)
+    except (requests.RequestException, ValueError, KeyError):
+        pass
+    return None
 
 
 def read_input(prompt, validator, default=None, password=False):
@@ -148,26 +171,80 @@ def pretty_format_name(name):
         return name
 
 
-def login_with_username(config):
-    """Logs in with a username and a password, returning a connected GoFigr client"""
-    while True:
-        username = read_input("Username: ", assert_nonempty)
-        password = read_input("Password: ", assert_nonempty, password=True)
+def login_with_device_flow(config, auth0_config):
+    """Logs in via Auth0 Device Authorization Flow, returning a connected GoFigr client"""
+    # Request device code
+    resp = requests.post(f"https://{auth0_config.domain}/oauth/device/code", json={
+        'client_id': auth0_config.client_id,
+        'audience': auth0_config.audience,
+        'scope': 'openid email profile',
+    }, timeout=10)
+    if not resp.ok:
+        error_detail = resp.json().get('error_description', resp.text) if resp.text else resp.reason
+        raise RuntimeError(f"Failed to start device authorization (HTTP {resp.status_code}): {error_detail}")
+    data = resp.json()
 
-        print("Verifying connection...")
-        try:
-            gf = GoFigr(username=username, password=password, **config)
-            gf.heartbeat(throw_exception=True)
+    verification_uri = data.get('verification_uri_complete', data['verification_uri'])
+    user_code = data['user_code']
+    device_code = data['device_code']
+    interval = data.get('interval', 5)
+
+    print("\n  To log in, open this URL in your browser:\n")
+    print(f"    {verification_uri}\n")
+    print(f"  And enter code: {user_code}\n")
+
+    try:
+        webbrowser.open(verification_uri)
+        print("  (Browser opened automatically)")
+    except webbrowser.Error:
+        pass
+
+    print("  Waiting for authorization...", end='', flush=True)
+
+    # Poll for token
+    while True:
+        time.sleep(interval)
+        token_resp = requests.post(f"https://{auth0_config.domain}/oauth/token", json={
+            'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
+            'client_id': auth0_config.client_id,
+            'device_code': device_code,
+        }, timeout=10)
+
+        token_data = token_resp.json()
+
+        if token_resp.ok:
+            print(" done!")
+            access_token = token_data['access_token']
+
+            # Create a GoFigr client using the Auth0 token
+            gf = GoFigr(authenticate=False, **config)
+            gf.set_access_token(access_token)
+            gf.username = gf.user_info().username
             print("  => Authenticated successfully")
             return gf
-        except RuntimeError as e:
-            print(f"{e}. Please try again.")
+
+        error = token_data.get('error')
+        if error == 'authorization_pending':
+            print('.', end='', flush=True)
+            continue
+        elif error == 'slow_down':
+            interval += 1
+            continue
+        elif error == 'expired_token':
+            print("\n  Authorization timed out. Please try again.")
+            raise RuntimeError("Device authorization expired")
+        elif error == 'access_denied':
+            print("\n  Authorization was denied.")
+            raise RuntimeError("Device authorization denied")
+        else:
+            raise RuntimeError(f"Device flow error: {token_data.get('error_description', error)}")
 
 
 def login_with_api_key(gf, config, config_path):
     """Using a GoFigr instance connected with a username and a password, switches to API key authentication"""
     while True:
-        token = read_input("API key (leave blank to generate a new key): ", validator=lambda val: val)
+        token = read_input("Paste an existing API key, or press Enter to generate a new one: ",
+                          validator=lambda val: val)
         if token in [None, ""]:
             key_name = read_input("Key name: ", assert_nonempty)
             apikey = gf.create_api_key(key_name)
@@ -203,6 +280,8 @@ def main(args=None):
                         help="Path where to save the .gofigr config file. "
                              "Can be a directory (will append .gofigr) or a full file path. "
                              "Default: ~/.gofigr")
+    parser.add_argument("--url", default=None,
+                        help=f"API URL. Default: {API_URL}")
     args = parser.parse_args(args)
 
     config_path = resolve_config_path(args.config_path)
@@ -211,15 +290,20 @@ def main(args=None):
     print("GoFigr configuration")
     print("-" * 30)
 
-    config = {'api_key': None, 'url': API_URL}
-    if args.advanced:
+    config = {'api_key': None, 'url': args.url or API_URL}
+    if args.advanced and not args.url:
         config['url'] = read_input(f"API URL [{API_URL}]: ", assert_nonempty, default=API_URL)
 
-    # Log in with username + pw first
-    gf_pw_auth = login_with_username(config)
+    # Authenticate via Auth0 Device Code flow
+    auth0_config = get_auth0_config(config['url'])
+    if not auth0_config:
+        print(f"Error: Could not fetch Auth0 configuration from {config['url']}/api/v1.4/info/")
+        print("Please check the URL and try again.")
+        sys.exit(1)
+    gf_auth = login_with_device_flow(config, auth0_config)
 
     # Switch to API key auth
-    gf = login_with_api_key(gf_pw_auth, config, config_path)
+    gf = login_with_api_key(gf_auth, config, config_path)
 
     if args.advanced:
         config['auto_configure'] = read_input("Auto-configure on extension load [Y/n]: ", yes_no, default='yes')

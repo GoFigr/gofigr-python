@@ -6,11 +6,13 @@ All rights reserved.
 # pylint: disable=protected-access, ungrouped-imports
 
 import io
+import itertools
 import json
 import os
 import pickle
 import platform
 import sys
+import warnings
 from uuid import uuid4
 
 import PIL
@@ -28,6 +30,7 @@ from gofigr.backends.plotly import PlotlyBackend
 from gofigr.cleanroom import serialize_params
 from gofigr.models import CodeLanguage
 from gofigr.reproducible import _reproducible_context
+from gofigr.short_id import make_short_id
 from gofigr.watermarks import DefaultWatermark
 from gofigr.widget import DetailedWidget
 
@@ -101,7 +104,7 @@ class Publisher:
     """\
     Publishes revisions to the GoFigr server.
     """
-    # pylint: disable=too-many-arguments
+    # pylint: disable=too-many-arguments, too-many-instance-attributes, too-many-locals
     def __init__(self,
                  gf=None,
                  workspace=None,
@@ -115,7 +118,8 @@ class Publisher:
                  default_metadata=None,
                  clear=False,
                  save_pickle=True,
-                 widget_class=DetailedWidget):
+                 widget_class=DetailedWidget,
+                 auto_assign=False):
         """
 
         :param gf: GoFigr instance
@@ -130,6 +134,8 @@ class Publisher:
         :param save_pickle: if True, will save the figure in pickle format in addition to any of the image formats
         :param widget_class: Widget type to show, e.g. DetailedWidget or CompactWidget. It will appear below the
                published figure
+        :param auto_assign: if True, the server will use AI to automatically assign revisions
+               to the correct figure based on image content. Default False.
 
         """
         self.gf = gf or GoFigr()
@@ -143,9 +149,35 @@ class Publisher:
         self.default_metadata = default_metadata
         self.save_pickle = save_pickle
         self.widget_class = widget_class
+        self.auto_assign = auto_assign
 
         self.workspace = self.gf.find_workspace(workspace).fetch()
         self.analysis = self.gf.find_analysis(self.workspace, analysis)
+
+        # Reserve a short ID prefix for compact QR codes
+        self._short_id_prefix = None
+        self._short_id_counter = itertools.count()
+        try:
+            self._short_id_prefix = self.gf.reserve_short_id_prefix()
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass  # Server may not support short IDs yet; fall back to UUIDs
+
+        # Check if AI is enabled on the server when auto_assign is requested
+        if self.auto_assign:
+            ai_enabled = self.gf.server_info().get('ai_enabled')
+            if ai_enabled is False:
+                warnings.warn(
+                    "auto_assign=True but AI is disabled on the server. "
+                    "We will use figure titles instead.",
+                    stacklevel=2,
+                )
+                self.auto_assign = False
+
+    def _next_short_id(self):
+        """Generate the next short ID using the reserved prefix, or None if unavailable."""
+        if self._short_id_prefix is None:
+            return None
+        return make_short_id(self._short_id_prefix, next(self._short_id_counter))
 
     def _check_analysis(self):
         if self.analysis is None:
@@ -193,7 +225,8 @@ class Publisher:
             pickle.dump(fig, bio)
             bio.seek(0)
 
-            return [gf.FileData(name=f"{target.name}.pickle",
+            pickle_name = target.name if target is not None else "figure"
+            return [gf.FileData(name=f"{pickle_name}.pickle",
                                  data=bio.getvalue())]
         except Exception as e: # pylint: disable=broad-exception-caught
             print(f"WARNING: We could not obtain the figure in pickle format: {e}", file=sys.stderr)
@@ -331,6 +364,14 @@ class Publisher:
         bundle = serialize_params(ctx.parameters,
                                   param_descriptors=ctx.param_descriptors)
 
+        # Capture matplotlib rendering settings so Pyodide can match them
+        rendering = {}
+        try:
+            import matplotlib  # pylint: disable=import-outside-toplevel
+            rendering["dpi"] = matplotlib.rcParams.get("figure.dpi", 100)
+        except ImportError:
+            pass
+
         # Build manifest with packages and parameters
         manifest = {
             "language": "python",
@@ -339,6 +380,7 @@ class Publisher:
             "packages": ctx.package_versions,
             "imports": ctx.imports,
             "parameters": bundle.manifest,
+            "rendering": rendering,
         }
 
         manifest_text = self.gf.TextData(
@@ -365,13 +407,13 @@ class Publisher:
 
     def publish(self, fig=None, target=None, dataframes=None, metadata=None,
                 backend=None, image_options=None, suppress_display=None, files=None,
-                annotators=None):
+                annotators=None, auto_assign=None):
         """\
         Publishes a revision to the server.
 
         :param fig: figure to publish. If None, we'll use plt.gcf()
         :param target: Target figure to publish this revision under. Can be a gf.Figure instance, an API ID, \
-               or a FindByName instance.
+               or a FindByName instance. Ignored when auto_assign=True.
         :param dataframes: dictionary of dataframes to associate & publish with the figure
         :param metadata: metadata (JSON) to attach to this revision
         :param backend: backend to use, e.g. MatplotlibBackend. If None it will be inferred automatically based on \
@@ -381,35 +423,50 @@ class Publisher:
                suppress the display of this figure using the native IPython backend.
         :param files: either (a) list of file paths or (b) dictionary of name to file path/file obj
         :param annotators: list of annotators to use. Defaults to self.annotators
+        :param auto_assign: if True, the server will use AI to automatically assign the revision
+               to the correct figure. The revision will have is_processing=True until assignment
+               completes. Use revision.wait_for_processing() to wait for completion.
+               If None, uses the publisher's default (self.auto_assign).
 
         :return: FigureRevision instance
 
         """
-        # pylint: disable=too-many-branches, too-many-locals
+        # pylint: disable=too-many-branches, too-many-locals, too-many-statements
+        if auto_assign is None:
+            auto_assign = self.auto_assign
+
         ctx = _reproducible_context.get()
         fig, backend = infer_figure_and_backend(fig, backend, self.backends)
 
-        with MeasureExecution("Resolve target"):
-            target = self._resolve_target(fig, target, backend)
-            if getattr(target, 'revisions', None) is None:
-                target.fetch()
+        if not auto_assign:
+            with MeasureExecution("Resolve target"):
+                target = self._resolve_target(fig, target, backend)
+                if getattr(target, 'revisions', None) is None:
+                    target.fetch()
 
         combined_meta = dict(self.default_metadata) if self.default_metadata is not None else {}
         if metadata is not None:
             combined_meta.update(metadata)
 
-        rev = self.gf.Revision(figure=target, metadata=combined_meta, backend=backend)
+        if auto_assign:
+            rev = self.gf.Revision(metadata=combined_meta, backend=backend)
+        else:
+            rev = self.gf.Revision(figure=target, metadata=combined_meta, backend=backend)
 
         # Generate UUID client-side so we can prepare watermarks before the server call
         rev.api_id = str(uuid4())
         rev._client_id = rev.api_id
+
+        # Generate a short ID for compact QR codes
+        rev._short_id = self._next_short_id()
 
         with MeasureExecution("Annotators"):
             # Annotate the revision
             self.annotate(rev, annotators=annotators)
 
         with MeasureExecution("Image data"):
-            rev.image_data, image_to_display = self._get_image_data(self.gf, backend, fig, rev, target, image_options)
+            rev.image_data, image_to_display = self._get_image_data(
+                self.gf, backend, fig, rev, target, image_options)
 
         if image_to_display is not None and self.show_watermark:
             if isinstance(image_to_display, self.gf.ImageData):
@@ -434,12 +491,19 @@ class Publisher:
             self._attach_clean_room_data(rev, ctx)
 
         with MeasureExecution("Create revision"):
-            target.revisions.create(rev)
+            if auto_assign:
+                analysis = self._check_analysis()
+                if analysis is None:
+                    return None
 
-            # Calling .create() above will update internal properties based on the response from the server.
-            # In our case, this will result in rev.figure becoming a shallow object with just the API ID. Here
-            # we restore it from our cached copy, to avoid a separate API call.
-            rev.figure = target
+                rev._create_auto_assign(analysis)
+            else:
+                target.revisions.create(rev)
+
+                # Calling .create() above will update internal properties based on the response from the server.
+                # In our case, this will result in rev.figure becoming a shallow object with just the API ID. Here
+                # we restore it from our cached copy, to avoid a separate API call.
+                rev.figure = target
 
         _mark_as_published(fig)
 

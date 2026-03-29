@@ -133,6 +133,14 @@ class RevisionWidgetBase(WidgetBase, ABC):
         self.id = f"gf-widget-{str(uuid4())}"
         self.alert_id = f"{self.id}-alert"
 
+    @property
+    def _figure_name(self):
+        """Returns the figure name, or 'figure' if unavailable (e.g. auto_assign pending)."""
+        fig = getattr(self.revision, 'figure', None)
+        if fig is not None and getattr(fig, 'name', None):
+            return fig.name
+        return "figure"
+
     def get_download_link(self, label, watermark, image_format="png"):
         """Generates HTML for the download link"""
         matches = [img for img in self.revision.image_data
@@ -141,7 +149,7 @@ class RevisionWidgetBase(WidgetBase, ABC):
             return ""
         else:
             img = matches[0]
-            return f"""<a download="{self.revision.figure.name}.{image_format}"
+            return f"""<a download="{self._figure_name}.{image_format}"
                           style="{DOWNLOAD_BUTTON_STYLE}"
                           href="data:image/{image_format};base64,{b64encode(img.data).decode('ascii')}">
                           {label}</a>"""
@@ -189,7 +197,7 @@ class DetailedWidget(RevisionWidgetBase):
         """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
         logo_b64 = self.get_logo_b64()
         copy_url = self.get_text_copy_link(f"<span style='margin-left: 0.5rem;'>"
-                                           f"{self.revision.figure.name}</span>"
+                                           f"{self._figure_name}</span>"
                                            f"<span style='margin-left: 0.25rem; margin-right: 0.25rem';>"
                                            f"{FA_COPY_LIGHT}</span>",
                                            self.revision.revision_url)
