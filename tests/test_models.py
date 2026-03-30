@@ -1,11 +1,13 @@
+import json
 import unittest
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from gofigr.models import DataType
 
-from tests.test_client import make_gf
+from tests.test_client import make_gf, DATA_DIR
 
 
 def _strip_fields(json_data):
@@ -174,3 +176,15 @@ class TestIsCleanRoomField(unittest.TestCase):
         code = gf.CodeData(contents="x = 1")
         json_data = code.to_json()
         self.assertFalse(json_data.get("is_clean_room"))
+
+
+class TestFileDataRead:
+    def test_pathlib_path_converted_to_str(self, mock_gf):
+        """FileData.read() should accept pathlib.Path and store path as str."""
+        path = DATA_DIR / 'blob.bin'
+        data_obj = mock_gf.FileData.read(path)
+
+        assert isinstance(data_obj.path, str)
+        assert data_obj.path == str(path)
+        # to_json must produce JSON-serializable output
+        json.dumps(data_obj.to_json())

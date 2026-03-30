@@ -1378,7 +1378,7 @@ class gf_FileData(gf_Data):
         :return: FileData object
         """
         with open(path, 'rb') as f:
-            return cls(data=f.read(), name=os.path.basename(path), path=path)
+            return cls(data=f.read(), name=os.path.basename(path), path=str(path))
 
     def write(self, path):
         """Writes the contents of this file to the given path"""
