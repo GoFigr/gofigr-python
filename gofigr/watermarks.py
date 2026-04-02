@@ -286,7 +286,7 @@ class DefaultWatermark:
         with a dummy UUID and cached for subsequent calls.
         """
         if not hasattr(self, '_cached_wm_size'):
-            dummy_url = f'{APP_URL}/r/00000000-0000-0000-0000-000000000000'
+            dummy_url = f'{APP_URL}/r/12345678AB'
             wm = self._build_watermark_strip(dummy_url)
             self._cached_wm_size = wm.size  # pylint: disable=attribute-defined-outside-init
         return self._cached_wm_size
