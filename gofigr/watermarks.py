@@ -296,16 +296,14 @@ class DefaultWatermark:
         return self._get_watermark_size()[1]
 
     def pad_for_watermark(self, image):
-        """Add blank space matching the dimensions that ``apply()`` would
-        produce.  This accounts for both the watermark height (added below
-        the figure) and the watermark width (``stack_vertically`` uses
-        ``max(figure_width, watermark_width)``).
+        """Add blank vertical space below the image matching the watermark
+        height.  Only pads height, not width, so the preview matches the
+        published image size regardless of watermark URL length.
         """
-        wm_w, wm_h = self._get_watermark_size()
-        target_w = max(image.width, wm_w)
-        padded = Image.new('RGBA', (target_w, image.height + wm_h),
+        _, wm_h = self._get_watermark_size()
+        padded = Image.new('RGBA', (image.width, image.height + wm_h),
                            (255, 255, 255, 255))
-        padded.paste(image, ((target_w - image.width) // 2, 0))
+        padded.paste(image, (0, 0))
         return padded
 
     def apply(self, image, revision):
