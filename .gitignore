@@ -30,3 +30,5 @@ lib/
 tsconfig.tsbuildinfo
 RELEASE_NOTES.md
 custom_watermark.py
+unreleased*.md
+walkthrough*.md

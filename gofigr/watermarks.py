@@ -5,10 +5,13 @@ All rights reserved.
 """
 import io
 
-import pyqrcodeng as pyqrcode
+import qrcode
+from qrcode.image.styledpil import StyledPilImage
+from qrcode.image.styles.moduledrawers.pil import RoundedModuleDrawer
 from PIL import Image, ImageDraw, ImageFont
 
 from gofigr.compat import open_resource_binary
+from gofigr.utils import read_resource_binary
 
 from gofigr import APP_URL
 
@@ -28,16 +31,68 @@ class Watermark:
         raise NotImplementedError()
 
 
-def _qr_to_image(text, **kwargs):
-    """Creates a QR code for the text, and returns it as a PIL.Image"""
-    qr = pyqrcode.create(text)
-    bio = io.BytesIO()
-    qr.png(bio, **kwargs)
-    bio.seek(0)
+_RENDER_BOX_SIZE = 20  # render at high resolution for crisp rounded modules
+_LOGO_FRACTION = 0.25  # logo covers up to 25% of QR width
 
-    image = Image.open(bio)
-    image.load()
-    return image
+
+_RESAMPLE = getattr(Image, 'Resampling', Image).LANCZOS
+
+
+def _load_logo():
+    """Load the GoFigr logo as a PIL RGBA image."""
+    logo_bytes = read_resource_binary("gofigr.resources", "logo_small.png")
+    logo = Image.open(io.BytesIO(logo_bytes))
+    logo.load()
+    return logo.convert("RGBA")
+
+
+def _embed_logo(img):
+    """Embed the GoFigr logo in the center of *img*, flattened onto white."""
+    logo = _load_logo()
+    logo_size = int(img.width * _LOGO_FRACTION)
+    logo = logo.resize((logo_size, logo_size), _RESAMPLE)
+    logo_bg = Image.new("RGBA", logo.size, (255, 255, 255, 255))
+    logo_bg.paste(logo, mask=logo)
+    offset = ((img.width - logo_size) // 2, (img.height - logo_size) // 2)
+    img.paste(logo_bg, offset)
+
+
+def _qr_to_image(text, box_size=2, border=1,
+                  fill_color=(0, 0, 0, 0x99),
+                  back_color=(0, 0, 0, 0),
+                  module_drawer=None,
+                  embed_logo=True):
+    """Creates a QR code for the text, and returns it as a PIL.Image"""
+    qr = qrcode.QRCode(
+        error_correction=qrcode.constants.ERROR_CORRECT_H if embed_logo else qrcode.constants.ERROR_CORRECT_M,
+        box_size=_RENDER_BOX_SIZE,
+        border=border,
+    )
+    qr.add_data(text)
+    qr.make(fit=True)
+
+    if module_drawer is None:
+        module_drawer = RoundedModuleDrawer(radius_ratio=0.5)
+
+    img = qr.make_image(
+        image_factory=StyledPilImage,
+        module_drawer=module_drawer,
+    )
+
+    # StyledPilImage renders black/white RGB; convert to RGBA and apply colors
+    img = img.convert("RGBA")
+    get_pixels = getattr(img, 'get_flattened_data', None) or img.getdata
+    img.putdata([fill_color if px[:3] == (0, 0, 0) else back_color for px in get_pixels()])
+
+    if embed_logo:
+        _embed_logo(img)
+
+    # Downscale to the requested box_size
+    if box_size != _RENDER_BOX_SIZE:
+        target = (qr.modules_count + 2 * border) * box_size
+        img = img.resize((target, target), _RESAMPLE)
+
+    return img
 
 
 def _default_font():
@@ -118,7 +173,7 @@ class DefaultWatermark:
     def __init__(self,
                  show_qr_code=True,
                  margin_px=10,
-                 qr_background=(0x00, 0x00, 0x00, 0x00),
+                 qr_background=(0xFF, 0xFF, 0xFF, 0xFF),
                  qr_foreground=(0x00, 0x00, 0x00, 0x99),
                  qr_scale=2, font=None):
         """
@@ -205,9 +260,9 @@ class DefaultWatermark:
 
         qr_img = None
         if self.show_qr_code:
-            qr_img = _qr_to_image(url_text, scale=self.qr_scale,
-                                  module_color=self.qr_foreground,
-                                  background=self.qr_background)
+            qr_img = _qr_to_image(url_text, box_size=self.qr_scale,
+                                  fill_color=self.qr_foreground,
+                                  back_color=self.qr_background)
             qr_img = add_margins(qr_img, self.margin_px)
 
         return stack_horizontally(identifier_img, qr_img)
