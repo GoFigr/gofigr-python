@@ -45,9 +45,10 @@ def _make_backend(backend):
 
 
 class _RevisionStub:
-    """Minimal object exposing api_id, used by watermark.apply()."""
-    def __init__(self, api_id):
+    """Minimal object exposing api_id and _short_id, used by watermark.apply()."""
+    def __init__(self, api_id, short_id=None):
         self.api_id = api_id
+        self._short_id = short_id
 
 
 class PyodidePublisher:
@@ -236,8 +237,8 @@ class PyodidePublisher:
         ).json()
         derived_api_id = derived['api_id']
 
-        # Step 2: Generate watermark using the derived revision's api_id
-        rev_stub = _RevisionStub(derived_api_id)
+        # Step 2: Generate watermark using the derived revision's short_id (or api_id)
+        rev_stub = _RevisionStub(derived_api_id, short_id=derived.get('short_id'))
 
         # Step 3: Extract images and apply watermark
         image_data, watermarked_png = self._get_image_data(fig, rev_stub, backend, image_options)
