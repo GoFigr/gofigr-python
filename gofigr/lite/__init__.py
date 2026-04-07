@@ -293,9 +293,9 @@ class LiteWatermark(DefaultWatermark):
 
         qr_img = None
         if self.show_qr_code and git_link:
-            qr_img = _qr_to_image(git_link, scale=self.qr_scale,
-                                  module_color=self.qr_foreground,
-                                  background=self.qr_background)
+            qr_img = _qr_to_image(git_link, box_size=self.qr_scale,
+                                  fill_color=self.qr_foreground,
+                                  back_color=self.qr_background)
             qr_img = add_margins(qr_img, self.margin_px)
 
         logo = PIL.Image.open(io.BytesIO(read_resource_binary("gofigr.resources", "logo_large.png")))

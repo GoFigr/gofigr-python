@@ -3,21 +3,17 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
-from unittest import TestCase
-
 import PIL
 from pathlib import Path
 
 from gofigr.watermarks import DefaultWatermark
 
 DATA_DIR = Path(__file__).parent / "data"
-from tests.test_client import make_gf
 
 
-class TestQRWatermark(TestCase):
-    def test_qr_watermark(self):
-        gf = make_gf()
-        rev = gf.Revision(api_id="7372fc16-ee27-4293-b6ba-5c15f7e5d3c2")
+class TestQRWatermark:
+    def test_qr_watermark(self, mock_gf):
+        rev = mock_gf.Revision(api_id="7372fc16-ee27-4293-b6ba-5c15f7e5d3c2")
 
         qrw = DefaultWatermark()
 
@@ -29,6 +25,6 @@ class TestQRWatermark(TestCase):
             watermarked_img = qrw.apply(fig_image, rev)
 
             # Not much we can test without visual inspection
-            self.assertIsNotNone(watermarked_img)
-            self.assertGreaterEqual(watermarked_img.width, fig_image.width)
-            self.assertGreaterEqual(watermarked_img.height, fig_image.height)
+            assert watermarked_img is not None
+            assert watermarked_img.width >= fig_image.width
+            assert watermarked_img.height >= fig_image.height

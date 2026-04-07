@@ -20,10 +20,7 @@ import PIL
 import dateutil.parser
 
 import pandas as pd
-try:
-    from blake3 import blake3
-except ImportError:
-    blake3 = None
+from blake3 import blake3
 
 from gofigr.exceptions import UnauthorizedError
 from gofigr.profile import MeasureExecution
@@ -1254,9 +1251,6 @@ class gf_Data(ModelMixin):
         if not self.data:
             return None
         if hash_type == "blake3":
-            if blake3 is None:
-                import hashlib  # pylint: disable=import-outside-toplevel
-                return hashlib.sha256(self.data).hexdigest()
             return blake3(self.data).hexdigest()  # pylint: disable=not-callable
         else:
             raise ValueError(f"Unsupported hash type: {hash_type}")
@@ -1378,7 +1372,7 @@ class gf_FileData(gf_Data):
         :return: FileData object
         """
         with open(path, 'rb') as f:
-            return cls(data=f.read(), name=os.path.basename(path), path=path)
+            return cls(data=f.read(), name=os.path.basename(path), path=str(path))
 
     def write(self, path):
         """Writes the contents of this file to the given path"""
