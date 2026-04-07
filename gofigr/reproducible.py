@@ -145,29 +145,43 @@ def _resolve_package_versions(packages: Dict[str, str]) -> Dict[str, str]:
     """\
     Resolve installed versions for each package.
 
+    Returns a dict mapping the *distribution* name (as known to pip/micropip)
+    to its installed version. The distribution name may differ from the
+    importable module name — e.g. ``import sklearn`` comes from the
+    ``scikit-learn`` distribution, ``import cv2`` from ``opencv-python``.
+
     :param packages: Dictionary mapping alias to module name
-    :return: Dictionary mapping canonical package name to version string (or None)
+    :return: Dictionary mapping distribution name to version string (or None)
     """
     from importlib.metadata import version, PackageNotFoundError
+
+    try:
+        from importlib.metadata import packages_distributions
+        dist_map = packages_distributions()
+    except ImportError:
+        dist_map = {}
 
     result = {}
     for module_name in set(packages.values()):
         top_level = module_name.split(".")[0]
-        ver = None
 
+        # Prefer the distribution name (what pip/micropip uses), falling
+        # back to the importable module name if no mapping is available.
+        dist_name = top_level
+        dists = dist_map.get(top_level, [])
+        if dists:
+            dist_name = dists[0]
+
+        ver = None
         try:
-            ver = version(top_level)
+            ver = version(dist_name)
         except PackageNotFoundError:
             try:
-                from importlib.metadata import packages_distributions
-                dist_map = packages_distributions()
-                dists = dist_map.get(top_level, [])
-                if dists:
-                    ver = version(dists[0])
-            except (ImportError, PackageNotFoundError):
+                ver = version(top_level)
+            except PackageNotFoundError:
                 pass
 
-        result[top_level] = ver
+        result[dist_name] = ver
 
     return result
 
@@ -361,7 +375,8 @@ def check_anywidget_health() -> bool:
 
 
 def _run_interactive_fallback(func, bound_args, packages, base_ctx,  # pylint: disable=too-many-arguments
-                              widgets, display, html_cls, exc) -> None:
+                              widgets, display, html_cls, exc,
+                              extra_globals=None) -> None:
     """Show a warning banner and render the figure non-interactively."""
     warnings.warn(
         f"Interactive widgets unavailable ({exc}). "
@@ -380,7 +395,8 @@ def _run_interactive_fallback(func, bound_args, packages, base_ctx,  # pylint: d
     with out:
         token = _reproducible_context.set(base_ctx) if base_ctx is not None else None
         try:
-            _run_clean(func, bound_args, packages, show_plot=True)
+            _run_clean(func, bound_args, packages, show_plot=True,
+                       extra_globals=extra_globals)
         except Exception as run_e:  # pylint: disable=broad-exception-caught
             print(f"Error: {run_e}")
             traceback.print_exc()
@@ -389,9 +405,10 @@ def _run_interactive_fallback(func, bound_args, packages, base_ctx,  # pylint: d
                 _reproducible_context.reset(token)
 
 
-def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disable=too-many-locals
+def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disable=too-many-locals,too-many-arguments
                      packages: Dict[str, str],
-                     base_ctx: Optional['ReproducibleContext'] = None) -> None:
+                     base_ctx: Optional['ReproducibleContext'] = None,
+                     extra_globals: Optional[Dict[str, Any]] = None) -> None:
     """
     Run function with interactive widgets for parameter exploration.
 
@@ -399,6 +416,7 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
     :param bound_args: All bound arguments
     :param packages: Package mapping for clean globals
     :param base_ctx: ReproducibleContext from the wrapper, used to set context var on each re-render
+    :param extra_globals: Additional globals to inject into the clean namespace (e.g. ``publish``)
     """
     # Lazy imports for interactive mode
     import ipywidgets as widgets
@@ -431,7 +449,8 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
     try:
         widget = ReproducibleWidget(params=interactive_params, param_meta=interactive_meta)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        _run_interactive_fallback(func, bound_args, packages, base_ctx, widgets, display, HTML, e)  # noqa: E501
+        _run_interactive_fallback(func, bound_args, packages, base_ctx, widgets, display, HTML, e,  # noqa: E501
+                                  extra_globals=extra_globals)
         return
 
     # Output widget to capture plots and prints
@@ -452,7 +471,8 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
             ) if base_ctx is not None else None
             token = _reproducible_context.set(ctx) if ctx is not None else None
             try:
-                _run_clean(func, merged_params, packages, show_plot=True)
+                _run_clean(func, merged_params, packages, show_plot=True,
+                           extra_globals=extra_globals)
             except Exception as e:  # pylint: disable=broad-exception-caught
                 print(f"Error: {e}")
                 traceback.print_exc()
@@ -469,7 +489,8 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
     with out:
         token = _reproducible_context.set(base_ctx) if base_ctx is not None else None
         try:
-            _run_clean(func, bound_args, packages, show_plot=True)
+            _run_clean(func, bound_args, packages, show_plot=True,
+                       extra_globals=extra_globals)
         except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"Error: {e}")
             traceback.print_exc()
@@ -478,7 +499,7 @@ def _run_interactive(func: Callable, bound_args: Dict[str, Any],  # pylint: disa
                 _reproducible_context.reset(token)
 
 
-def reproducible(_func: Optional[Callable] = None,
+def reproducible(_func: Optional[Callable] = None,  # pylint: disable=too-many-statements
                  *,
                  interactive: bool = False,
                  packages: Optional[Dict[str, str]] = None,
@@ -510,7 +531,9 @@ def reproducible(_func: Optional[Callable] = None,
                           If False, use only the provided packages.
     :param publisher: Optional Publisher instance. When provided, ``publish`` is
                      injected into the clean room globals so figures can be
-                     published from inside the decorated function.
+                     published from inside the decorated function. If omitted
+                     and the gofigr Jupyter extension is configured, the active
+                     extension's publisher is used automatically.
 
     Example::
 
@@ -530,7 +553,7 @@ def reproducible(_func: Optional[Callable] = None,
 
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:  # pylint: disable=too-many-branches
+        def wrapper(*args, **kwargs) -> Any:  # pylint: disable=too-many-branches,too-many-locals,too-many-statements
             # Build effective packages
             if packages is None:
                 effective_packages = get_default_packages()
@@ -592,9 +615,21 @@ def reproducible(_func: Optional[Callable] = None,
             pkg_versions = _resolve_package_versions(effective_packages)
 
             # Build extra globals for the clean room
+            # Auto-inject publish() from the active jupyter extension if no
+            # publisher was explicitly provided. This matches the R reproducible()
+            # behavior, where publish() is always available inside the sandbox.
             extra = {}
-            if publisher is not None:
-                extra["publish"] = publisher.publish
+            effective_publisher = publisher
+            if effective_publisher is None:
+                try:
+                    from gofigr.jupyter import get_extension
+                    ext = get_extension()
+                    if getattr(ext, "publisher", None) is not None:
+                        effective_publisher = ext.publisher
+                except Exception:  # pylint: disable=broad-exception-caught
+                    pass
+            if effective_publisher is not None:
+                extra["publish"] = effective_publisher.publish
 
             ctx = ReproducibleContext(
                 source_code=_extract_function_body(func),
@@ -608,7 +643,8 @@ def reproducible(_func: Optional[Callable] = None,
             token = _reproducible_context.set(ctx)
             try:
                 if effective_interactive:
-                    _run_interactive(func, rt_args, effective_packages, ctx)
+                    _run_interactive(func, rt_args, effective_packages, ctx,
+                                     extra_globals=extra or None)
                     return None  # Interactive mode doesn't return values
                 else:
                     return _run_clean(func, rt_args, effective_packages,
