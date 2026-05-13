@@ -6,6 +6,7 @@ All rights reserved.
 # pylint: disable=no-member
 
 import contextlib
+import dataclasses
 import inspect
 import logging
 import warnings
@@ -406,6 +407,92 @@ class GoFigr:
     def _delete(self, endpoint, throw_exception=True, **kwargs):
         return self._request(Session.delete, endpoint, throw_exception=throw_exception,
                              expected_status=HTTPStatus.NO_CONTENT, **kwargs)
+
+    # Method-string -> requests.Session callable. The underlying
+    # _request() takes a callable (Session.get etc.); request() takes a
+    # method string so external callers don't need to import Session.
+    _HTTP_METHODS = {
+        'GET': Session.get,
+        'POST': Session.post,
+        'PUT': Session.put,
+        'PATCH': Session.patch,
+        'DELETE': Session.delete,
+    }
+
+    # pylint: disable=too-many-arguments
+    def request(self, method, endpoint, *, body=None, params=None,
+                response_type=None, expected_status=None, throw_exception=True):
+        """\
+        Typed-ish API call, intended for external packages that build on
+        the GoFigr client (e.g. internal tooling, the compute supervisor)
+        without registering their endpoints in this library. Auth, base
+        URL, token refresh, and error mapping come from _request; this
+        method adds dataclass <-> JSON marshalling and a method-as-string
+        signature.
+
+        For flat dataclasses, pass a dataclass instance as `body` and a
+        dataclass class as `response_type`; the helper will
+        dataclasses.asdict() the body and instantiate response_type from
+        the JSON response. For nested types, lists, or anything else,
+        pass `body` as a dict and omit `response_type` -- the parsed
+        JSON dict (or None for 204) is returned directly.
+
+        :param method: HTTP method as a string: 'GET' | 'POST' | 'PUT' |
+                       'PATCH' | 'DELETE'
+        :param endpoint: relative API endpoint, e.g. 'compute/instance/<id>/heartbeat/'
+        :param body: dict or dataclass instance; serialized to JSON. Ignored
+                     for GET / DELETE.
+        :param params: query-string params dict (passed through to requests).
+        :param response_type: dataclass class to instantiate from the JSON
+                              response, or None to return the dict as-is.
+        :param expected_status: int or iterable of acceptable response codes.
+                                Defaults to 204 for DELETE, 200 otherwise.
+        :param throw_exception: raise on unexpected status (default True).
+        :return: response_type instance, or parsed JSON, or None for 204.
+        """
+        method_upper = method.upper()
+        if method_upper not in self._HTTP_METHODS:
+            raise ValueError(
+                f"Unsupported HTTP method: {method!r}. "
+                f"Expected one of {sorted(self._HTTP_METHODS)}."
+            )
+        session_method = self._HTTP_METHODS[method_upper]
+
+        # Caller can pass a dataclass; marshal to dict for requests' json=.
+        if body is not None and dataclasses.is_dataclass(body) and not isinstance(body, type):
+            body_json = dataclasses.asdict(body)
+        else:
+            body_json = body
+
+        if expected_status is None:
+            expected_status = (
+                HTTPStatus.NO_CONTENT if method_upper == 'DELETE' else HTTPStatus.OK,
+            )
+
+        kwargs = {}
+        if body_json is not None and method_upper in ('POST', 'PUT', 'PATCH'):
+            kwargs['json'] = body_json
+        if params is not None:
+            kwargs['params'] = params
+
+        response = self._request(
+            session_method, endpoint,
+            throw_exception=throw_exception,
+            expected_status=expected_status,
+            **kwargs,
+        )
+
+        # 204 No Content (typical for DELETE) -> nothing to parse.
+        if response.status_code == HTTPStatus.NO_CONTENT or not response.content:
+            return None
+
+        data = response.json()
+        if response_type is None:
+            return data
+        # Flat-dataclass parse. Nested types / lists are out of scope --
+        # callers with those shapes should omit response_type and parse
+        # the returned dict themselves.
+        return response_type(**data)
 
     def heartbeat(self, throw_exception=True):
         """\
