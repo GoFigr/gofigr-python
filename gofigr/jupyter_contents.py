@@ -12,9 +12,13 @@ Enable it by adding the following to a ``jupyter_server_config.py``::
 This only fires on the "new notebook" action; uploaded or pre-existing
 notebooks are left untouched.
 """
-# redefined-builtin: `type` is part of the ContentsManager.new_untitled signature
-# we override. too-many-ancestors: inherited from AsyncLargeFileManager's chain.
-# pylint: disable=redefined-builtin, too-many-ancestors
+# redefined-builtin: `type` is part of the ContentsManager.new_untitled
+# signature we override. too-many-ancestors: inherited from
+# AsyncLargeFileManager's chain. import-error: jupyter_server and nbformat are
+# server-only optional deps (not in gofigr's install requirements); this module
+# is imported only where a Jupyter server is installed -- the gofigr config that
+# references it guards the import with try/except ImportError.
+# pylint: disable=redefined-builtin, too-many-ancestors, import-error
 
 from jupyter_server.services.contents.largefilemanager import AsyncLargeFileManager
 from nbformat.v4 import new_code_cell, new_markdown_cell
@@ -34,6 +38,14 @@ class GoFigrContentsManager(AsyncLargeFileManager):
     """Inserts a ``%load_ext gofigr`` cell at the top of every new notebook."""
 
     async def new_untitled(self, path="", type="", ext=""):
+        """Create a new untitled item, injecting the GoFigr cells for notebooks.
+
+        Delegates to the parent to create and persist the item. For notebooks,
+        re-fetches it with content, prepends the explanatory note and
+        ``%load_ext gofigr`` cells, and saves. Returns the original
+        content-less model so the POST /api/contents handler's
+        expect_content=False validation passes.
+        """
         model = await super().new_untitled(path=path, type=type, ext=ext)
         if model.get("type") != "notebook":
             return model
