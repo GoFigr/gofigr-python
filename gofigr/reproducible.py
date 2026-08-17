@@ -18,6 +18,7 @@ import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, get_type_hints
 
+from gofigr import ApiId, FindByName
 from gofigr.cleanroom import (Param, SliderParam, DropdownParam, CheckboxParam,  # pylint: disable=unused-import  # noqa: F401
                                TextParam, StaticParam, infer_param)
 from gofigr.utils import read_resource_text
@@ -535,6 +536,10 @@ def reproducible(_func: Optional[Callable] = None,  # pylint: disable=too-many-s
                      and the gofigr Jupyter extension is configured, the active
                      extension's publisher is used automatically.
 
+    ``FindByName`` and ``ApiId`` are always injected into the clean room
+    globals so they can be used as ``publish(target=...)`` arguments without
+    an explicit import.
+
     Example::
 
         pub = Publisher(workspace="Demo", analysis="Analysis")
@@ -615,10 +620,13 @@ def reproducible(_func: Optional[Callable] = None,  # pylint: disable=too-many-s
             pkg_versions = _resolve_package_versions(effective_packages)
 
             # Build extra globals for the clean room
+            # FindByName and ApiId are always available so publish(target=...)
+            # can be called idiomatically inside the sandbox. The studio's
+            # Pyodide worker injects the same names for browser re-execution.
             # Auto-inject publish() from the active jupyter extension if no
             # publisher was explicitly provided. This matches the R reproducible()
             # behavior, where publish() is always available inside the sandbox.
-            extra = {}
+            extra = {"FindByName": FindByName, "ApiId": ApiId}
             effective_publisher = publisher
             if effective_publisher is None:
                 try:
@@ -644,11 +652,11 @@ def reproducible(_func: Optional[Callable] = None,  # pylint: disable=too-many-s
             try:
                 if effective_interactive:
                     _run_interactive(func, rt_args, effective_packages, ctx,
-                                     extra_globals=extra or None)
+                                     extra_globals=extra)
                     return None  # Interactive mode doesn't return values
                 else:
                     return _run_clean(func, rt_args, effective_packages,
-                                     extra_globals=extra or None)
+                                     extra_globals=extra)
             finally:
                 _reproducible_context.reset(token)
 

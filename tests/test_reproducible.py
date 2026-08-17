@@ -54,6 +54,16 @@ class TestCleanRoomIsolation(unittest.TestCase):
         # runs in isolation.
         self.assertIsNotNone(result)
 
+    def test_findbyname_and_apiid_available(self):
+        """FindByName and ApiId are always injected so publish(target=...) works."""
+        @reproducible(packages={}, merge_packages=False)
+        def func():
+            target = FindByName("My Figure", create=True)  # noqa: F821
+            api_ref = ApiId("abc-123")  # noqa: F821
+            return target.name, target.create, api_ref.api_id
+
+        self.assertEqual(func(), ("My Figure", True, "abc-123"))
+
 
 class TestParameterValidation(unittest.TestCase):
     def test_unsupported_type_falls_back(self):
