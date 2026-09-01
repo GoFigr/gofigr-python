@@ -74,7 +74,15 @@ class MatplotlibBackend(GoFigrBackend):
 
     def get_title(self, fig):
         suptitle = MatplotlibBackend.title_to_string(getattr(fig, "_suptitle", ""))
-        title = MatplotlibBackend.title_to_string(fig.axes[0].get_title() if len(fig.axes) > 0 else None)
+        # get_title() only reads the requested slot, and a figure titled with
+        # loc="left"/"right" has an empty center slot — check all three so
+        # such figures don't publish as 'Anonymous Figure'.
+        title = None
+        if len(fig.axes) > 0:
+            for loc in ("center", "left", "right"):
+                title = MatplotlibBackend.title_to_string(fig.axes[0].get_title(loc=loc))
+                if title is not None and title.strip() != "":
+                    break
         if suptitle is not None and suptitle.strip() != "":
             return suptitle
         elif title is not None and title.strip() != "":

@@ -202,6 +202,12 @@ def _build_clean_globals(packages: Dict[str, str],
         try:
             clean[alias] = importlib.import_module(module_name)
         except ImportError as e:
+            # Global defaults (e.g. seaborn) are best-effort conveniences the
+            # user never asked for — skip them quietly when absent. A missing
+            # explicitly-requested package still warns (and would surface as
+            # a NameError inside the clean room regardless).
+            if _global_default_packages.get(alias) == module_name:
+                continue
             warnings.warn(f"Could not import {module_name} as {alias}: {e}")
 
     if extra:
