@@ -6,12 +6,15 @@ Regression tests for publishing paper cuts surfaced by the compute demo
 notebook: titles in non-center slots publishing as 'Anonymous Figure', and
 spurious warnings for absent best-effort default packages.
 """
+import io
+import types
 import unittest
 import warnings
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import PIL.Image
 
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.reproducible import (
@@ -20,6 +23,7 @@ from gofigr.reproducible import (
     reset_default_packages,
     set_default_packages,
 )
+from gofigr.watermarks import DefaultWatermark
 
 
 class TestGetTitleSlots(unittest.TestCase):
@@ -74,6 +78,81 @@ class TestDefaultPackageWarnings(unittest.TestCase):
             _build_clean_globals({'ghost': 'gofigr_test_no_such_module'})
         self.assertEqual(len(caught), 1)
         self.assertIn('gofigr_test_no_such_module', str(caught[0].message))
+
+
+class TestPublishDpiIsDeterministic(unittest.TestCase):
+    """figure_to_bytes must not inherit transiently-scaled figure dpi (e.g.
+    IPython's retina renderer doubles fig.dpi mid-print), which inflated
+    published images to 2x their intended size."""
+
+    def tearDown(self):
+        plt.close('all')
+        matplotlib.rcParams['savefig.dpi'] = 'figure'
+
+    def _png_size(self, fig):
+        png = MatplotlibBackend().figure_to_bytes(fig, 'png', {})
+        return PIL.Image.open(io.BytesIO(png)).size
+
+    def test_numeric_savefig_dpi_wins_over_transient_fig_dpi(self):
+        matplotlib.rcParams['savefig.dpi'] = 200
+        fig, _ = plt.subplots(figsize=(8, 6), dpi=125)
+        fig.dpi = 250  # simulate mid-retina-render state
+        self.assertEqual(self._png_size(fig), (1600, 1200))
+
+    def test_figure_mode_uses_original_dpi_not_transient(self):
+        matplotlib.rcParams['savefig.dpi'] = 'figure'
+        fig, _ = plt.subplots(figsize=(8, 6), dpi=125)
+        self.assertEqual(fig._original_dpi, 125)
+        fig.dpi = 250  # simulate mid-retina-render state
+        self.assertEqual(self._png_size(fig), (1000, 750))
+
+    def test_explicit_dpi_param_still_wins(self):
+        matplotlib.rcParams['savefig.dpi'] = 200
+        fig, _ = plt.subplots(figsize=(8, 6), dpi=125)
+        png = MatplotlibBackend().figure_to_bytes(fig, 'png', {'dpi': 100})
+        self.assertEqual(PIL.Image.open(io.BytesIO(png)).size, (800, 600))
+
+
+class TestWatermarkScaling(unittest.TestCase):
+    """The watermark strip must scale with image width — a fixed 14px font
+    and tiny QR are unreadable on retina-resolution publishes."""
+
+    REVISION = types.SimpleNamespace(api_id='12345678-aaaa-bbbb-cccc-000000000000',
+                                     _short_id='AbCdEf9012')
+
+    def _strip_height(self, width):
+        img = PIL.Image.new('RGB', (width, 600), 'white')
+        out = DefaultWatermark().apply(img, self.REVISION)
+        return out.height - img.height
+
+    def test_strip_scales_with_image_width(self):
+        h_ref = self._strip_height(800)
+        h_2x = self._strip_height(1600)
+        h_big = self._strip_height(2400)
+        self.assertGreater(h_2x, 1.6 * h_ref)
+        self.assertGreater(h_big, h_2x)
+
+    def test_scale_is_clamped(self):
+        self.assertEqual(DefaultWatermark.image_scale(400), 1.0)
+        self.assertEqual(DefaultWatermark.image_scale(800), 1.0)
+        self.assertEqual(DefaultWatermark.image_scale(1600), 2.0)
+        self.assertEqual(DefaultWatermark.image_scale(100000), 4.0)
+
+    def test_pad_matches_applied_watermark_height(self):
+        img = PIL.Image.new('RGB', (1600, 600), 'white')
+        wm = DefaultWatermark()
+        padded = wm.pad_for_watermark(img)
+        applied = wm.apply(img, self.REVISION)
+        self.assertEqual(padded.height, applied.height)
+
+    def test_legacy_subclass_without_scale_still_works(self):
+        class LegacyWatermark(DefaultWatermark):
+            def get_watermark(self, revision):  # no scale param
+                return super().get_watermark(revision)
+
+        img = PIL.Image.new('RGB', (1600, 600), 'white')
+        out = LegacyWatermark().apply(img, self.REVISION)
+        self.assertGreater(out.height, img.height)
 
 
 if __name__ == '__main__':

@@ -92,6 +92,18 @@ class MatplotlibBackend(GoFigrBackend):
 
     def figure_to_bytes(self, fig, fmt, params):
         with SuppressPltWarnings():
+            params = dict(params)
+            if "dpi" not in params:
+                # Resolve the dpi explicitly instead of letting savefig read
+                # ambient state: fig.dpi can be transiently scaled when we
+                # observe the figure mid-render (e.g. IPython's retina
+                # display doubles it inside print_figure), which otherwise
+                # inflates the published image. _original_dpi is the stable
+                # value matplotlib itself uses for savefig.dpi='figure'.
+                dpi = matplotlib.rcParams["savefig.dpi"]
+                if dpi == "figure":
+                    dpi = getattr(fig, "_original_dpi", fig.dpi)
+                params["dpi"] = dpi
             bio = io.BytesIO()
             fig.savefig(bio, format=fmt, **params)
             bio.seek(0)
