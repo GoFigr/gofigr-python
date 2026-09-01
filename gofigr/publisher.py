@@ -109,6 +109,21 @@ def _is_tight_bbox_artifact(func):
         getattr(func, '__qualname__', '').startswith('adjust_bbox')
 
 
+def _has_tight_bbox_artifacts(fig):
+    """True if the figure is currently mid-render inside a tight-bbox
+    savefig — e.g. we were invoked from within IPython's inline display
+    pipeline, which renders with bbox_inches='tight' (and, for retina,
+    a transiently doubled dpi)."""
+    for ax in (getattr(fig, 'axes', None) or []):
+        if _is_tight_bbox_artifact(getattr(ax, '__dict__', {}).get('apply_aspect')):
+            return True
+        if hasattr(ax, 'get_axes_locator') and _is_tight_bbox_artifact(ax.get_axes_locator()):
+            return True
+    return False
+
+
+
+
 @contextmanager
 def _tight_bbox_artifacts_removed(fig):
     """Temporarily strip the per-axes patches (axes locators and apply_aspect

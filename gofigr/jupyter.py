@@ -22,7 +22,7 @@ import gofigr
 from gofigr import GoFigr, API_URL
 from gofigr.resolver import NOTEBOOK_NAME, NOTEBOOK_PATH
 from gofigr.publisher import Publisher, DEFAULT_ANNOTATORS, DEFAULT_BACKENDS, _mark_as_published, is_published, \
-    is_suppressed
+    is_suppressed, _has_tight_bbox_artifacts
 import gofigr.cleanroom
 import gofigr.reproducible
 from gofigr.profile import MeasureExecution
@@ -72,6 +72,9 @@ class _GoFigrExtension:
         self.startup_widget_shown = False
 
         self.deferred_revisions = []
+        # Figures whose auto-publish was deferred to post_run_cell because
+        # they were caught mid-render (see Publisher.auto_publish_hook)
+        self.deferred_publishes = []
 
     @property
     def notebook_metadata(self):
@@ -127,6 +130,23 @@ class _GoFigrExtension:
 
         if self.auto_publish:
             self.publisher.auto_publish_hook(self, data, suppress_display)
+
+    def add_deferred_publish(self, fig, backend):
+        """Queue a figure for publishing in the post_run_cell hook — used
+        when auto-publish catches a figure mid-render (inline tight-bbox /
+        retina savefig in flight), where a faithful export is impossible."""
+        self.deferred_publishes.append((fig, backend))
+
+    def process_deferred_publishes(self):
+        """Publish figures whose auto-publish was deferred to post-cell,
+        when matplotlib has restored their render state."""
+        while self.publisher is not None and len(self.deferred_publishes) > 0:
+            fig, backend = self.deferred_publishes.pop(0)
+            try:
+                if not is_published(fig):
+                    self.publisher.publish(fig=fig, backend=backend)
+            except Exception:  # pylint: disable=broad-exception-caught
+                logger.exception("Deferred publish failed")
 
     def add_to_deferred(self, rev):
         """\
@@ -185,6 +205,10 @@ class _GoFigrExtension:
         self.resolve_analysis()
         if self.is_ready and not self.startup_widget_shown:
             StartupWidget(get_extension()).show()
+
+        # Publish figures caught mid-render during the cell (self.cell is
+        # still set here, so they get full annotations)
+        self.process_deferred_publishes()
 
         while self.publisher is not None and len(self.deferred_revisions) > 0:
             rev = self.deferred_revisions.pop(0)
@@ -358,7 +382,19 @@ class JupyterPublisher(Publisher):
         for backend in self.backends:
             compatible_figures = list(backend.find_figures(extension.shell, data))
             for fig in compatible_figures:
-                if not is_published(fig) and not is_suppressed(fig):
+                if is_published(fig) or is_suppressed(fig):
+                    continue
+                if _has_tight_bbox_artifacts(fig):
+                    # We were invoked from inside the inline renderer's own
+                    # savefig (tight bbox, and retina's transiently doubled
+                    # dpi): the figure cannot be exported faithfully right
+                    # now. Suppress the native display and publish after the
+                    # cell completes, when matplotlib has restored the
+                    # figure — post_run_cell picks these up.
+                    if suppress_display is not None:
+                        suppress_display()
+                    extension.add_deferred_publish(fig, backend)
+                else:
                     self.publish(fig=fig, backend=backend, suppress_display=suppress_display)
 
             if len(compatible_figures) > 0:

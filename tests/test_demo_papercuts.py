@@ -113,6 +113,97 @@ class TestPublishDpiIsDeterministic(unittest.TestCase):
         self.assertEqual(PIL.Image.open(io.BytesIO(png)).size, (800, 600))
 
 
+def _make_mid_render_fig():
+    fig, ax = plt.subplots(figsize=(8, 6), dpi=125)
+    ax.scatter([0, 1, 2], [2, 0, 1], s=40)
+    ax.set_title('mid-render')
+    return fig
+
+
+def _simulate_mid_render(fig):
+    """Put a figure in the state the inline renderer holds it in during
+    savefig(bbox_inches='tight') at retina dpi."""
+    import inspect as _inspect
+    from matplotlib import _tight_bbox
+    from matplotlib.transforms import Bbox
+    fig.canvas.draw()
+    kwargs = {}
+    if 'renderer' in _inspect.signature(_tight_bbox.adjust_bbox).parameters:
+        kwargs['renderer'] = fig.canvas.get_renderer()
+    _tight_bbox.adjust_bbox(fig, Bbox.from_bounds(0, 0, 7, 5), **kwargs)
+    fig.dpi = 250
+
+
+class TestMidRenderDeferral(unittest.TestCase):
+    """Auto-publish triggered from inside IPython's inline tight-bbox render
+    must NOT export the live figure (its transforms are rewritten for the
+    in-flight render — exports come out garbled or inflated). Instead it
+    defers to post_run_cell, when matplotlib has restored the figure."""
+
+    def tearDown(self):
+        plt.close('all')
+
+    def _hook(self, fig):
+        """Run Publisher.auto_publish_hook against a stub extension/backend,
+        recording what happens."""
+        from gofigr.jupyter import JupyterPublisher
+        calls = {'published': [], 'deferred': [], 'suppressed': 0}
+
+        backend = types.SimpleNamespace(find_figures=lambda shell, data: [fig])
+        pub = JupyterPublisher.__new__(JupyterPublisher)
+        pub.backends = [backend]
+        pub.publish = lambda fig=None, backend=None, suppress_display=None: \
+            calls['published'].append(fig)
+        extension = types.SimpleNamespace(
+            shell=None,
+            add_deferred_publish=lambda f, b: calls['deferred'].append((f, b)))
+
+        def suppress():
+            calls['suppressed'] += 1
+        JupyterPublisher.auto_publish_hook(pub, extension, data={},
+                                           suppress_display=suppress)
+        return calls
+
+    def test_mid_render_figure_is_deferred_not_published(self):
+        fig = _make_mid_render_fig()
+        _simulate_mid_render(fig)
+        calls = self._hook(fig)
+        self.assertEqual(calls['published'], [])
+        self.assertEqual([f for f, _ in calls['deferred']], [fig])
+        self.assertEqual(calls['suppressed'], 1)
+
+    def test_clean_figure_publishes_immediately(self):
+        fig = _make_mid_render_fig()
+        calls = self._hook(fig)
+        self.assertEqual(calls['published'], [fig])
+        self.assertEqual(calls['deferred'], [])
+        self.assertEqual(calls['suppressed'], 0)
+
+    def test_process_deferred_publishes_drains_queue(self):
+        from gofigr.jupyter import _GoFigrExtension
+        published = []
+        ext = _GoFigrExtension.__new__(_GoFigrExtension)
+        ext.publisher = types.SimpleNamespace(
+            publish=lambda fig=None, backend=None: published.append(fig))
+        fig = _make_mid_render_fig()
+        ext.deferred_publishes = [(fig, 'backend')]
+
+        ext.process_deferred_publishes()
+        self.assertEqual(published, [fig])
+        self.assertEqual(ext.deferred_publishes, [])
+
+    def test_deferred_publish_failure_does_not_raise(self):
+        from gofigr.jupyter import _GoFigrExtension
+
+        def boom(fig=None, backend=None):
+            raise RuntimeError('api down')
+        ext = _GoFigrExtension.__new__(_GoFigrExtension)
+        ext.publisher = types.SimpleNamespace(publish=boom)
+        ext.deferred_publishes = [(_make_mid_render_fig(), 'backend')]
+        ext.process_deferred_publishes()  # must not raise
+        self.assertEqual(ext.deferred_publishes, [])
+
+
 class TestWatermarkScaling(unittest.TestCase):
     """The watermark strip must scale with image width — a fixed 14px font
     and tiny QR are unreadable on retina-resolution publishes."""
