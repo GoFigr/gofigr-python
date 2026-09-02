@@ -6,7 +6,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gofigr"
-version = "2.3.3"
+# Version is dynamic: version.txt is the single source of truth (see
+# [tool.hatch.version]). A static version here would silently win over
+# version.txt and ship stale wheels.
+dynamic = ["version"]
 description = "GoFigr client library"
 readme = "README.md"
 authors = [{ name = "Maciej Pacula", email = "maciej@gofigr.io" }]
@@ -41,13 +44,13 @@ databricks = ["databricks-sdk"]
 
 [project.urls]
 Homepage = "https://www.gofigr.io"
-Documentation = "https://gofigr.io/docs/gofigr-python/2.3.3/"
+Documentation = "https://gofigr.io/docs/gofigr-python/2.3.4/"
 
 [project.scripts]
 gfconfig = "gofigr.gfconfig:main"
 
 [tool.bumpver]
-current_version = "2.3.3"
+current_version = "2.3.4"
 version_pattern = "MAJOR.MINOR.PATCH"
 commit_message = "Bump version {old_version} -> {new_version}"
 commit = true
@@ -76,8 +79,9 @@ ignore = ["W002"]
 
 
 [tool.bumpver.file_patterns]
+# NOTE: [project].version is dynamic (read from version.txt at build time),
+# so only the docs URL needs patching here.
 "pyproject.toml" = [
-    'version = "{version}"',
     'gofigr-python/{version}/'
 ]
 
