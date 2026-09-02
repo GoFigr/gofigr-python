@@ -277,11 +277,12 @@ class LiteWatermark(DefaultWatermark):
                "Git Link": git_link}
         return {k: v for k, v in data.items() if v is not None}
 
-    def get_watermark(self, revision):
+    def get_watermark(self, revision, scale=1):
         """\
         Generates just the watermark for a revision.
 
         :param revision: FigureRevision
+        :param scale: scale factor relative to the reference image width
         :return: PIL.Image
 
         """
@@ -293,10 +294,10 @@ class LiteWatermark(DefaultWatermark):
 
         qr_img = None
         if self.show_qr_code and git_link:
-            qr_img = _qr_to_image(git_link, box_size=self.qr_scale,
+            qr_img = _qr_to_image(git_link, box_size=max(1, round(self.qr_scale * scale)),
                                   fill_color=self.qr_foreground,
                                   back_color=self.qr_background)
-            qr_img = add_margins(qr_img, self.margin_px)
+            qr_img = add_margins(qr_img, self._scaled_margins(scale))
 
         logo = PIL.Image.open(io.BytesIO(read_resource_binary("gofigr.resources", "logo_large.png")))
         logo_size = identifier_img.size[1]

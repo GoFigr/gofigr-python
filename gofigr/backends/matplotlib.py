@@ -74,7 +74,15 @@ class MatplotlibBackend(GoFigrBackend):
 
     def get_title(self, fig):
         suptitle = MatplotlibBackend.title_to_string(getattr(fig, "_suptitle", ""))
-        title = MatplotlibBackend.title_to_string(fig.axes[0].get_title() if len(fig.axes) > 0 else None)
+        # get_title() only reads the requested slot, and a figure titled with
+        # loc="left"/"right" has an empty center slot — check all three so
+        # such figures don't publish as 'Anonymous Figure'.
+        title = None
+        if len(fig.axes) > 0:
+            for loc in ("center", "left", "right"):
+                title = MatplotlibBackend.title_to_string(fig.axes[0].get_title(loc=loc))
+                if title is not None and title.strip() != "":
+                    break
         if suptitle is not None and suptitle.strip() != "":
             return suptitle
         elif title is not None and title.strip() != "":
@@ -84,6 +92,18 @@ class MatplotlibBackend(GoFigrBackend):
 
     def figure_to_bytes(self, fig, fmt, params):
         with SuppressPltWarnings():
+            params = dict(params)
+            if "dpi" not in params:
+                # Resolve the dpi explicitly instead of letting savefig read
+                # ambient state: fig.dpi can be transiently scaled when we
+                # observe the figure mid-render (e.g. IPython's retina
+                # display doubles it inside print_figure), which otherwise
+                # inflates the published image. _original_dpi is the stable
+                # value matplotlib itself uses for savefig.dpi='figure'.
+                dpi = matplotlib.rcParams["savefig.dpi"]
+                if dpi == "figure":
+                    dpi = getattr(fig, "_original_dpi", fig.dpi)
+                params["dpi"] = dpi
             bio = io.BytesIO()
             fig.savefig(bio, format=fmt, **params)
             bio.seek(0)

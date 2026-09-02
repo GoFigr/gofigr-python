@@ -13,6 +13,7 @@ import pickle
 import platform
 import sys
 import warnings
+from contextlib import contextmanager
 from uuid import uuid4
 
 import PIL
@@ -100,6 +101,55 @@ def infer_figure_and_backend(fig, backend, enabled_backends):
 
 
 # pylint: disable=too-many-instance-attributes
+def _is_tight_bbox_artifact(func):
+    """True if func is one of the local lambdas matplotlib's
+    _tight_bbox.adjust_bbox temporarily installs during
+    savefig(bbox_inches='tight')."""
+    return callable(func) and \
+        getattr(func, '__qualname__', '').startswith('adjust_bbox')
+
+
+def _has_tight_bbox_artifacts(fig):
+    """True if the figure is currently mid-render inside a tight-bbox
+    savefig — e.g. we were invoked from within IPython's inline display
+    pipeline, which renders with bbox_inches='tight' (and, for retina,
+    a transiently doubled dpi)."""
+    for ax in (getattr(fig, 'axes', None) or []):
+        if _is_tight_bbox_artifact(getattr(ax, '__dict__', {}).get('apply_aspect')):
+            return True
+        if hasattr(ax, 'get_axes_locator') and _is_tight_bbox_artifact(ax.get_axes_locator()):
+            return True
+    return False
+
+
+
+
+@contextmanager
+def _tight_bbox_artifacts_removed(fig):
+    """Temporarily strip the per-axes patches (axes locators and apply_aspect
+    overrides) left by matplotlib's adjust_bbox, restoring them exactly as
+    found on exit. They are unpicklable local lambdas; removing them for the
+    duration of a pickle is safe because they only exist to serve an
+    in-flight tight-bbox render, which we put back untouched."""
+    removed_aspects = []   # (ax, override)
+    removed_locators = []  # (ax, locator)
+    for ax in (getattr(fig, 'axes', None) or []):
+        aspect_override = getattr(ax, '__dict__', {}).get('apply_aspect')
+        if _is_tight_bbox_artifact(aspect_override):
+            removed_aspects.append((ax, ax.__dict__.pop('apply_aspect')))
+        locator = ax.get_axes_locator() if hasattr(ax, 'get_axes_locator') else None
+        if _is_tight_bbox_artifact(locator):
+            removed_locators.append((ax, locator))
+            ax.set_axes_locator(None)
+    try:
+        yield
+    finally:
+        for ax, locator in removed_locators:
+            ax.set_axes_locator(locator)
+        for ax, aspect_override in removed_aspects:
+            ax.apply_aspect = aspect_override
+
+
 class Publisher:
     """\
     Publishes revisions to the GoFigr server.
@@ -221,13 +271,20 @@ class Publisher:
             return []
 
         try:
-            bio = io.BytesIO()
-            pickle.dump(fig, bio)
-            bio.seek(0)
+            try:
+                data = pickle.dumps(fig)
+            except (TypeError, AttributeError, pickle.PicklingError):
+                # matplotlib's savefig(bbox_inches="tight") temporarily patches
+                # every axes with local lambdas (see _tight_bbox.adjust_bbox);
+                # if we observe the figure while such state lingers, pickling
+                # fails with "Can't get local object 'adjust_bbox...'". Strip
+                # the patches for the duration of the pickle, then put them
+                # back exactly as found.
+                with _tight_bbox_artifacts_removed(fig):
+                    data = pickle.dumps(fig)
 
             pickle_name = target.name if target is not None else "figure"
-            return [gf.FileData(name=f"{pickle_name}.pickle",
-                                 data=bio.getvalue())]
+            return [gf.FileData(name=f"{pickle_name}.pickle", data=data)]
         except Exception as e: # pylint: disable=broad-exception-caught
             print(f"WARNING: We could not obtain the figure in pickle format: {e}", file=sys.stderr)
             return []

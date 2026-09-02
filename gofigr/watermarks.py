@@ -3,6 +3,7 @@ Copyright (c) 2022, Flagstaff Solutions, LLC
 All rights reserved.
 
 """
+import inspect
 import io
 
 import qrcode
@@ -33,6 +34,14 @@ class Watermark:
 
 _RENDER_BOX_SIZE = 20  # render at high resolution for crisp rounded modules
 _LOGO_FRACTION = 0.25  # logo covers up to 25% of QR width
+
+# The watermark strip was designed against ~800px-wide figures (the default
+# 8in x 100dpi render). On high-dpi/retina publishes the image is 2-3x that,
+# and a fixed 14px font + tiny QR become unreadable — so the strip scales
+# with image width, relative to this reference, capped to stay sane on
+# posters.
+REFERENCE_IMAGE_WIDTH_PX = 800
+MAX_WATERMARK_SCALE = 4.0
 
 
 _RESAMPLE = getattr(Image, 'Resampling', Image).LANCZOS
@@ -239,68 +248,88 @@ class DefaultWatermark:
 
         return img
 
-    def draw_identifier(self, text):
+    @staticmethod
+    def image_scale(image_width):
+        """Watermark scale factor for an image of the given pixel width."""
+        return min(MAX_WATERMARK_SCALE,
+                   max(1.0, image_width / REFERENCE_IMAGE_WIDTH_PX))
+
+    def _scaled_font(self, scale):
+        if scale == 1 or not hasattr(self.font, 'font_variant'):
+            return self.font
+        return self.font.font_variant(size=round(self.font.size * scale))
+
+    def _scaled_margins(self, scale):
+        return (round(self.margin_px[0] * scale), round(self.margin_px[1] * scale))
+
+    def draw_identifier(self, text, scale=1):
         """Draws the GoFigr identifier text, returning it as a PIL image"""
-        left, top, right, bottom = self.font.getbbox(text)
+        font = self._scaled_font(scale)
+        margin_x, margin_y = self._scaled_margins(scale)
+        left, top, right, bottom = font.getbbox(text)
         text_height = bottom - top
         text_width = right - left
 
-        img = Image.new(mode="RGBA", size=(text_width + 2 * self.margin_px[0], text_height + 2 * self.margin_px[1]))
+        img = Image.new(mode="RGBA", size=(text_width + 2 * margin_x, text_height + 2 * margin_y))
         draw = ImageDraw.Draw(img)
-        draw.text((self.margin_px[0], self.margin_px[1]), text, fill="black", font=self.font)
+        draw.text((margin_x, margin_y), text, fill="black", font=font)
         return img
 
-    def _build_watermark_strip(self, url_text):
+    def _build_watermark_strip(self, url_text, scale=1):
         """Build the watermark strip image for a given URL string.
 
         :param url_text: full URL to encode in the watermark
+        :param scale: scale factor relative to the reference image width
         :return: PIL.Image of the watermark strip (text + optional QR code)
         """
-        identifier_img = self.draw_identifier(url_text)
+        identifier_img = self.draw_identifier(url_text, scale=scale)
 
         qr_img = None
         if self.show_qr_code:
-            qr_img = _qr_to_image(url_text, box_size=self.qr_scale,
+            qr_img = _qr_to_image(url_text, box_size=max(1, round(self.qr_scale * scale)),
                                   fill_color=self.qr_foreground,
                                   back_color=self.qr_background)
-            qr_img = add_margins(qr_img, self.margin_px)
+            qr_img = add_margins(qr_img, self._scaled_margins(scale))
 
         return stack_horizontally(identifier_img, qr_img)
 
-    def get_watermark(self, revision):
+    def get_watermark(self, revision, scale=1):
         """\
         Generates just the watermark for a revision.
 
         :param revision: FigureRevision
+        :param scale: scale factor relative to the reference image width
         :return: PIL.Image
 
         """
         # Use short_id for a more compact QR code when available
         url_id = getattr(revision, '_short_id', None) or revision.api_id
-        return self._build_watermark_strip(f'{APP_URL}/r/{url_id}')
+        return self._build_watermark_strip(f'{APP_URL}/r/{url_id}', scale=scale)
 
-    def _get_watermark_size(self):
-        """Return the (width, height) of the watermark strip.
+    def _get_watermark_size(self, scale=1):
+        """Return the (width, height) of the watermark strip at a scale.
 
         The size is constant for UUID-based URLs, so it is computed once
-        with a dummy UUID and cached for subsequent calls.
+        per scale with a dummy UUID and cached for subsequent calls.
         """
-        if not hasattr(self, '_cached_wm_size'):
+        if not hasattr(self, '_cached_wm_sizes'):
+            self._cached_wm_sizes = {}  # pylint: disable=attribute-defined-outside-init
+        if scale not in self._cached_wm_sizes:
             dummy_url = f'{APP_URL}/r/12345678AB'
-            wm = self._build_watermark_strip(dummy_url)
-            self._cached_wm_size = wm.size  # pylint: disable=attribute-defined-outside-init
-        return self._cached_wm_size
+            self._cached_wm_sizes[scale] = self._build_watermark_strip(dummy_url, scale=scale).size
+        return self._cached_wm_sizes[scale]
 
-    def get_watermark_height(self):
-        """Return the pixel height of the watermark strip."""
-        return self._get_watermark_size()[1]
+    def get_watermark_height(self, image_width=REFERENCE_IMAGE_WIDTH_PX):
+        """Return the pixel height of the watermark strip for an image of
+        the given width."""
+        return self._get_watermark_size(self.image_scale(image_width))[1]
 
     def pad_for_watermark(self, image):
         """Add blank vertical space below the image matching the watermark
         height.  Only pads height, not width, so the preview matches the
         published image size regardless of watermark URL length.
         """
-        _, wm_h = self._get_watermark_size()
+        _, wm_h = self._get_watermark_size(self.image_scale(image.width))
         padded = Image.new('RGBA', (image.width, image.height + wm_h),
                            (255, 255, 255, 255))
         padded.paste(image, (0, 0))
@@ -315,4 +344,10 @@ class DefaultWatermark:
         :return: PIL.Image containing the watermarked image
 
         """
-        return stack_vertically(image, self.get_watermark(revision))
+        # Subclasses (e.g. gofigr.lite) may override get_watermark without
+        # the scale parameter — fall back to unscaled for those.
+        if 'scale' in inspect.signature(self.get_watermark).parameters:
+            watermark = self.get_watermark(revision, scale=self.image_scale(image.width))
+        else:
+            watermark = self.get_watermark(revision)
+        return stack_vertically(image, watermark)
