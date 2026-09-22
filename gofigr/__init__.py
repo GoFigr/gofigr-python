@@ -16,7 +16,7 @@ import requests
 from PIL import Image
 from requests import Session
 
-from gofigr.exceptions import UnauthorizedError, MethodNotAllowedError
+from gofigr.exceptions import UnauthorizedError, MethodNotAllowedError, ReadOnlyError
 from gofigr.models import *
 from gofigr.utils import from_config_or_env, try_parse_uuid4
 from gofigr.widget import AssetWidget
@@ -181,7 +181,8 @@ class GoFigr:
                  authenticate=True,
                  workspace_id=None,
                  anonymous=False,
-                 asset_log=None):
+                 asset_log=None,
+                 read_only=False):
         """\
 
         :param username: username to connect with
@@ -193,6 +194,8 @@ class GoFigr:
         :param workspace_id: workspace ID to use for data syncing. Defaults to primary workspace.
         :param anonymous: True for anonymous access. Default False.
         :param asset_log: log of assets referenced by this instance
+        :param read_only: if True, any non-GET request raises ReadOnlyError. Best-effort guard for
+                          agent/tool use where the client must not mutate anything.
 
         """
         self.service_url = url
@@ -200,6 +203,7 @@ class GoFigr:
         self.password = password
         self.api_key = api_key
         self.anonymous = anonymous
+        self.read_only = read_only
         self.workspace_id = workspace_id
         self._analysis = None
         self.asset_log = asset_log if asset_log is not None else {}
@@ -354,6 +358,9 @@ class GoFigr:
 
         """
         # pylint: disable=too-many-branches
+        if self.read_only and method is not Session.get:
+            raise ReadOnlyError(f"This GoFigr client is read-only; refusing {getattr(method, '__name__', method)} "
+                                f"on {endpoint}")
         if not absolute_url:
             url = urljoin(self.api_url, endpoint)
         else:
@@ -1010,6 +1017,8 @@ class AssetSync:
         try:
             path = os.fspath(pathlike)
             if os.path.exists(path):
+                if blake3 is None:
+                    raise ImportError("blake3 is required for content hashing (pip install blake3)")
                 file_hasher = blake3(max_threads=blake3.AUTO)  # pylint: disable=not-callable
                 file_hasher.update_mmap(path)
                 return file_hasher.hexdigest()

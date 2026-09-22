@@ -20,7 +20,10 @@ import PIL
 import dateutil.parser
 
 import pandas as pd
-from blake3 import blake3
+try:
+    from blake3 import blake3
+except ImportError:  # Pyodide has no blake3 wheel: keep `import gofigr` working; hashing raises below
+    blake3 = None
 
 from gofigr.exceptions import UnauthorizedError
 from gofigr.profile import MeasureExecution
@@ -1251,6 +1254,8 @@ class gf_Data(ModelMixin):
         if not self.data:
             return None
         if hash_type == "blake3":
+            if blake3 is None:
+                raise ImportError("blake3 is required for content hashing (pip install blake3)")
             return blake3(self.data).hexdigest()  # pylint: disable=not-callable
         else:
             raise ValueError(f"Unsupported hash type: {hash_type}")

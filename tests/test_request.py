@@ -7,7 +7,7 @@ and method dispatch -- no live API, no token plumbing."""
 import dataclasses
 import unittest
 from http import HTTPStatus
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from requests import Session
 
@@ -201,3 +201,21 @@ class ExpectedStatusDefaultsTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestReadOnlyClient(unittest.TestCase):
+    """read_only=True refuses every non-GET verb before any network I/O."""
+
+    def test_read_only_refuses_mutations(self):
+        from gofigr.exceptions import ReadOnlyError
+        gf = GoFigr(authenticate=False, anonymous=True, read_only=True)
+        for call in (lambda: gf._post("x/", json={}), lambda: gf._patch("x/", json={}),
+                     lambda: gf._put("x/", json={}), lambda: gf._delete("x/")):
+            with self.assertRaises(ReadOnlyError):
+                call()
+
+    def test_read_only_allows_get(self):
+        gf = GoFigr(authenticate=False, anonymous=True, read_only=True)
+        with patch.object(Session, "get", return_value=MagicMock(status_code=HTTPStatus.OK)) as get:
+            gf._get("x/")
+        self.assertEqual(get.call_count, 1)

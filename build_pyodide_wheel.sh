@@ -18,12 +18,18 @@ DEST_DIR="$WEBAPP_DIR/public/pyodide"
 
 cd "$SCRIPT_DIR"
 
-VERSION=$(python3 -c "
+# version.txt is the single source of truth (pyproject.toml declares the
+# version as dynamic); fall back to a static pyproject version if present.
+if [ -f version.txt ]; then
+    VERSION=$(tr -d '[:space:]' < version.txt)
+else
+    VERSION=$(python3 -c "
 import re
 with open('pyproject.toml') as f:
     m = re.search(r'^version\s*=\s*\"(.+?)\"', f.read(), re.M)
     print(m.group(1))
 ")
+fi
 
 echo "Building gofigr $VERSION wheel for Pyodide..."
 

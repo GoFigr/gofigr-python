@@ -16,3 +16,7 @@ class MethodNotAllowedError(RuntimeError):
     Thrown if a given REST action is not supported/allowed.
     """
     pass
+
+
+class ReadOnlyError(RuntimeError):
+    """Raised when a client constructed with read_only=True attempts a non-GET request."""
