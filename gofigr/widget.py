@@ -193,8 +193,9 @@ class RevisionWidgetBase(WidgetBase, ABC):
 
 class DetailedWidget(RevisionWidgetBase):
     """Generates HTML/Javascript for the GoFigr Jupyter widget shown under each figure"""
-    def show(self):
-        """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
+    def html(self):
+        """The widget's HTML/JS (what show() displays; the publisher also embeds it
+        in the figure's display bundle)."""
         logo_b64 = self.get_logo_b64()
         copy_url = self.get_text_copy_link(f"<span style='margin-left: 0.5rem;'>"
                                            f"{self._figure_name}</span>"
@@ -205,7 +206,7 @@ class DetailedWidget(RevisionWidgetBase):
         logo_html = self.get_text_copy_link(f"""<img src="data:image/png;base64,{logo_b64}" alt="GoFigr.io logo"
                 style='width: 3rem; height: 3rem'/>""", self.revision.revision_url)
 
-        return display(HTML(f"""
+        return f"""
                 <div style="{WIDGET_STYLE}">
                     <div style="{ROW_STYLE + "margin-bottom: 0.5rem"}">
                     <span>Successfully published {copy_url}
@@ -234,19 +235,24 @@ class DetailedWidget(RevisionWidgetBase):
 
                     <div id={self.alert_id} style="{ROW_STYLE + MESSAGE_STYLE}">
                     </div>
-                </div>"""))
+                </div>"""
+
+    def show(self):
+        """Renders this widget in Jupyter by calling display() on html()."""
+        return display(HTML(self.html()))
 
 
 class CompactWidget(RevisionWidgetBase):
     """Generates a compact GoFigr widget"""
 
-    def show(self):
-        """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
+    def html(self):
+        """The widget's HTML/JS (what show() displays; the publisher also embeds it
+        in the figure's display bundle)."""
         logo_b64 = self.get_logo_b64()
         logo_html = self.get_text_copy_link(f"""<img src="data:image/png;base64,{logo_b64}" alt="GoFigr.io logo"
         style='width: 2rem; height: 2rem'/>""", self.revision.revision_url)
 
-        return display(HTML(f"""
+        return f"""
                 <div style="{COMPACT_WIDGET_STYLE}">
                     <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
                     <!-- Logo -->
@@ -268,19 +274,24 @@ class CompactWidget(RevisionWidgetBase):
 
                     <div id={self.alert_id} style="{ROW_STYLE + MESSAGE_STYLE}">
                     </div>
-                </div>"""))
+                </div>"""
+
+    def show(self):
+        """Renders this widget in Jupyter by calling display() on html()."""
+        return display(HTML(self.html()))
 
 
 class MinimalWidget(RevisionWidgetBase):
     """Generates a compact GoFigr widget"""
 
-    def show(self):
-        """Renders this widget in Jupyter by generating the HTML/JS & calling display()"""
+    def html(self):
+        """The widget's HTML/JS (what show() displays; the publisher also embeds it
+        in the figure's display bundle)."""
         logo_b64 = self.get_logo_b64()
         logo_html = self.get_text_copy_link(f"""<img src="data:image/png;base64,{logo_b64}" alt="GoFigr.io logo"
         style='width: 2rem; height: 2rem; margin-right: 0.5rem;'/>""", self.revision.revision_url)
 
-        return display(HTML(f"""
+        return f"""
                 <div style="{COMPACT_WIDGET_STYLE}">
                     <div style="{ROW_STYLE + "margin-bottom: 0.0rem"}">
                     <!-- Logo -->
@@ -292,7 +303,11 @@ class MinimalWidget(RevisionWidgetBase):
 
                     <div id={self.alert_id} style="{ROW_STYLE + MESSAGE_STYLE}">
                     </div>
-                </div>"""))
+                </div>"""
+
+    def show(self):
+        """Renders this widget in Jupyter by calling display() on html()."""
+        return display(HTML(self.html()))
 
 
 class StartupWidget(WidgetBase):

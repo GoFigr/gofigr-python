@@ -28,6 +28,14 @@ except (ModuleNotFoundError, ImportError):
         ipython_display = None
 
 try:
+    from IPython.core.display_functions import update_display as ipython_update_display
+except (ModuleNotFoundError, ImportError):
+    try:
+        from IPython.core.display import update_display as ipython_update_display
+    except (ModuleNotFoundError, ImportError):
+        ipython_update_display = None
+
+try:
     from IPython.core.display import HTML
 except ImportError:
     HTML = None

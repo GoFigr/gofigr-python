@@ -6,6 +6,7 @@ All rights reserved.
 # pylint: disable=protected-access, ungrouped-imports
 
 import io
+from base64 import b64encode
 import itertools
 import json
 import os
@@ -18,7 +19,7 @@ from uuid import uuid4
 
 import PIL
 
-from gofigr.compat import get_ipython, ipython_display as display, \
+from gofigr.compat import get_ipython, ipython_display as display, ipython_update_display, \
     PY3DMOL_AVAILABLE, PLOTNINE_AVAILABLE
 
 from gofigr import GoFigr, MeasureExecution, NotebookName
@@ -29,6 +30,7 @@ from gofigr.backends import get_backend, GoFigrBackend
 from gofigr.backends.matplotlib import MatplotlibBackend
 from gofigr.backends.plotly import PlotlyBackend
 from gofigr.cleanroom import serialize_params
+from gofigr.mime import GOFIGR_FIGURE_MIME, build_figure_payload
 from gofigr.models import CodeLanguage
 from gofigr.reproducible import _reproducible_context
 from gofigr.short_id import make_short_id
@@ -525,11 +527,13 @@ class Publisher:
             rev.image_data, image_to_display = self._get_image_data(
                 self.gf, backend, fig, rev, target, image_options)
 
+        # Show the (watermarked) figure right away, under a display id, so the
+        # output can be enriched in place once the revision exists on the
+        # server (see _update_figure_display).
+        display_handle = None
         if image_to_display is not None and self.show_watermark:
-            if isinstance(image_to_display, self.gf.ImageData):
-                display(image_to_display.image)
-            else:
-                display(image_to_display)
+            shown = image_to_display.image if isinstance(image_to_display, self.gf.ImageData) else image_to_display
+            display_handle = display(shown, display_id=True)
 
             if suppress_display is not None:
                 suppress_display()
@@ -567,8 +571,83 @@ class Publisher:
         if self.clear and self.show_watermark:
             backend.close(fig)
 
-        self.widget_class(rev).show()
+        widget = self.widget_class(rev)
+        if not self._update_figure_display(display_handle, rev, backend, fig, image_to_display, widget):
+            widget.show()
         return rev
+
+    def _update_figure_display(self, handle, rev, backend, fig, image_to_display, widget):
+        """\
+        Replace the figure output shown during publish with one bundle that
+        carries, side by side:
+
+        - image/png: the watermarked figure (what vanilla Jupyter and an
+          .ipynb export keep showing),
+        - text/html: that image plus the published-revision widget, so a
+          plain Jupyter frontend renders exactly what it did before, in
+          one output,
+        - application/vnd.gofigr.figure+json: the revision's identity, the
+          raw (unwatermarked) image and the watermark parameters, so a
+          GoFigr-aware frontend renders the figure and its controls itself.
+
+        Returns False when there is nothing to update (no display handle,
+        no IPython) so the caller shows the widget the old way.
+        """
+        if handle is None or ipython_update_display is None or not hasattr(handle, 'display_id'):
+            return False
+        try:
+            watermarked = next((d for d in rev.image_data
+                                if d.format and d.format.lower() == 'png' and d.is_watermarked), None)
+            raw = next((d for d in rev.image_data
+                        if d.format and d.format.lower() == 'png' and not d.is_watermarked), None)
+            if watermarked is None and raw is None:
+                return False
+            data, metadata = {}, {}
+            try:
+                widget_html = widget.html() if hasattr(widget, 'html') else ''
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                print(f"WARNING: could not render the revision widget: {e}", file=sys.stderr)
+                widget_html = ''
+            interactive = None
+            if isinstance(backend, PlotlyBackend) and backend.is_interactive(fig) and image_to_display is not None \
+                    and not isinstance(image_to_display, self.gf.ImageData):
+                # Interactive: keep plotly's own representations (the html
+                # bundle plus application/vnd.plotly.v1+json) and add ours.
+                try:
+                    bundle = image_to_display._repr_mimebundle_()  # pylint: disable=protected-access
+                    if isinstance(bundle, tuple):
+                        bundle, metadata = bundle
+                    data.update(bundle or {})
+                except Exception:  # pylint: disable=broad-exception-caught
+                    pass
+                try:
+                    interactive = {"kind": "plotly",
+                                   "figure": json.loads(fig.to_json())}
+                except Exception:  # pylint: disable=broad-exception-caught
+                    interactive = None
+                data['text/html'] = (data.get('text/html') or '') + widget_html
+            else:
+                shown = watermarked or raw
+                b64 = b64encode(shown.data).decode('ascii')
+                data['image/png'] = b64
+                data['text/html'] = (f'<img src="data:image/png;base64,{b64}" '
+                                     f'style="max-width: 100%; height: auto;"/>' + widget_html)
+            size = None
+            if raw is not None:
+                try:
+                    img = PIL.Image.open(io.BytesIO(raw.data))
+                    size = img.size
+                except Exception:  # pylint: disable=broad-exception-caught
+                    size = None
+            data[GOFIGR_FIGURE_MIME] = build_figure_payload(
+                rev, raw_png=raw.data if raw is not None else None, watermark=self.watermark,
+                interactive=interactive, image_size=size)
+            data.setdefault('text/plain', f'<GoFigr figure {rev.revision_url}>')
+            ipython_update_display(data, metadata=metadata, display_id=handle.display_id, raw=True)
+            return True
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            print(f"WARNING: could not update the figure output: {e}", file=sys.stderr)
+            return False
 
 
 def _make_backend(backend):
