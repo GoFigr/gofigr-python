@@ -104,3 +104,22 @@ class TestUpdateFigureDisplay:
         assert pub._update_figure_display(SimpleNamespace(display_id='d1'), rev, MatplotlibBackend(), None,
                                           None, DetailedWidget(rev)) is False
         assert pub._update_figure_display(None, rev, MatplotlibBackend(), None, None, DetailedWidget(rev)) is False
+
+
+class TestDeferredDisplayInsideOutputWidget:
+    def test_bundle_is_displayed_once_when_captured_by_an_output_widget(self, mock_gf, monkeypatch):
+        rev, _ = _rev(mock_gf)
+        shown = []
+        monkeypatch.setattr(publisher_module, 'display',
+                            lambda data, metadata=None, raw=False, **kw: shown.append((data, raw)))
+        pub = object.__new__(Publisher)
+        pub.gf = mock_gf
+        pub.watermark = DefaultWatermark()
+        ok = pub._display_figure_bundle(rev, MatplotlibBackend(), None, rev.image_data[1], DetailedWidget(rev))
+        assert ok is True
+        data, is_raw = shown[0]
+        assert is_raw is True
+        assert GOFIGR_FIGURE_MIME in data and data['image/png'] and 'View on GoFigr' in data['text/html']
+
+    def test_inside_output_widget_detection_is_safe_without_a_kernel(self):
+        assert publisher_module._inside_output_widget() is False
