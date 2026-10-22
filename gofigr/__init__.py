@@ -891,6 +891,17 @@ class AssetSync:
                                     data=[self.gf.FileData.read(pathlike)]).create()
         return rev
 
+    def register(self, revision):
+        """\
+        Records an existing revision as an input of every figure published from now on, without
+        hashing or uploading anything: for data that came FROM GoFigr (see gofigr.jupyter.use_asset),
+        where the revision is already known.
+
+        :param revision: AssetRevision instance
+        :return: the revision
+        """
+        return self._log(revision)
+
     def _log(self, revision, is_new_revision=False):
         """\
         Stores a revision in the log.

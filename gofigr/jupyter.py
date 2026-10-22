@@ -29,7 +29,8 @@ from gofigr.profile import MeasureExecution
 from gofigr.resolver import NotebookResolver
 from gofigr.trap import GfDisplayPublisher, SuppressDisplayTrap
 from gofigr.utils import from_config_or_env
-from gofigr.widget import DetailedWidget, StartupWidget
+from gofigr.models import blake3
+from gofigr.widget import AssetWidget, DetailedWidget, StartupWidget
 
 
 logger = logging.getLogger(__name__)
@@ -598,6 +599,72 @@ def load_pickled_figure(api_id):
             return _mark_as_published(fig)
 
     raise RuntimeError("This revision doesn't have pickle data.")
+
+
+def _blake3_of_file(path):
+    """blake3 hex digest of a file, or None if blake3 is unavailable."""
+    if blake3 is None:
+        return None
+    hasher = blake3(max_threads=blake3.AUTO)  # pylint: disable=not-callable
+    hasher.update_mmap(path)
+    return hasher.hexdigest()
+
+
+@require_configured
+def use_asset(revision, path=None, directory="data", quiet=False):
+    """\
+    Materializes a GoFigr asset revision as a local file and registers it as an input of every figure
+    published afterwards -- the asset-first counterpart of gf.sync(path). Nothing is re-hashed or
+    re-uploaded: the revision is already known, so the provenance link is exact.
+
+    The file is written under `directory` (default ./data) with the name it was uploaded with, or at
+    `path` if given. A file already there with the revision's blake3 digest is reused without
+    downloading; a file with different contents is overwritten. The digest of what was written is
+    verified against the server's.
+
+    :param revision: AssetRevision instance or API ID
+    :param path: where to write the file (default: <directory>/<original file name>)
+    :param directory: directory for the default path (created if missing)
+    :param quiet: suppress the Jupyter widget
+    :return: path to the local file (str)
+
+    """
+    gf = get_gofigr()
+    if isinstance(revision, gf.AssetRevision):
+        rev = revision
+        if not rev.data:
+            rev.fetch(fetch_data=False)
+    else:
+        rev = gf.AssetRevision(api_id=revision).fetch(fetch_data=False)
+    if not rev.data:
+        raise RuntimeError(f"Asset revision {rev.api_id} has no file data.")
+    if not rev.asset.name:
+        rev.asset.fetch()
+    datum = rev.data[0]
+    file_name = datum.name or rev.asset.name or f"asset-{rev.api_id}"
+    target = path or os.path.join(directory, file_name)
+    target_dir = os.path.dirname(target)
+    if target_dir:
+        os.makedirs(target_dir, exist_ok=True)
+
+    expected = datum.hash
+    if os.path.exists(target) and expected and _blake3_of_file(target) == expected:
+        logging.info(f"Using cached {target} for asset revision {rev.api_id}")
+    else:
+        if datum.is_shallow:
+            datum.fetch()
+        datum.write(target)
+        actual = _blake3_of_file(target)
+        if expected and actual and actual != expected:
+            os.remove(target)
+            raise RuntimeError(f"Downloaded data for asset revision {rev.api_id} did not match its "
+                               f"digest ({actual} != {expected}).")
+
+    gf.sync.register(rev)
+    logging.info(f"Asset in use: {rev.app_url}")
+    if not quiet:
+        AssetWidget(rev).show()
+    return target
 
 
 @require_configured
